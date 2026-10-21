@@ -1,0 +1,74 @@
+# Not included in kustomization.yaml. Apply only after confirming the cluster CNI
+# enforces NetworkPolicy; creating the objects alone does not prove isolation.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: relaypine-gateway-ingress
+  namespace: relaypine-dev
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: relaypine
+      app.kubernetes.io/component: gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/component: controller
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: relaypine
+              app.kubernetes.io/component: web
+      ports:
+        - protocol: TCP
+          port: 4811
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: relaypine-web-ingress
+  namespace: relaypine-dev
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: relaypine
+      app.kubernetes.io/component: web
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: relaypine-redis-ingress
+  namespace: relaypine-dev
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: relaypine
+      app.kubernetes.io/component: redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: relaypine
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 6379

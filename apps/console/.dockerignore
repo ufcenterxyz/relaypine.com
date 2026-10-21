@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.DS_Store
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*credentials*
+**/*secrets*
+*.log
+*.tsbuildinfo
+coverage
+test-results
+playwright-report
+tmp
+AGENTS.md

@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -21,12 +21,14 @@ import (
 )
 
 type Server struct {
-	EmailAuth    *EmailAuth
-	Store        *store.Store
-	Redis        *redis.Client
-	Relay        http.Handler
-	AppURL       string
-	AllowPrivate bool
+	EmailAuth            *EmailAuth
+	Store                *store.Store
+	Redis                *redis.Client
+	Relay                http.Handler
+	AppURL               string
+	AllowPrivate         bool
+	TrustedProxyCIDRs    []netip.Prefix
+	CloudflareProxyCIDRs []netip.Prefix
 }
 
 func (s *Server) Handler() http.Handler {
@@ -103,10 +105,7 @@ func (s *Server) publicLimit(ctx context.Context, r *http.Request, email, scope 
 	if s.Redis == nil {
 		return false
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
+	host := s.clientIP(r)
 	hash := func(v string) string { sum := sha256.Sum256([]byte(v)); return hex.EncodeToString(sum[:]) }
 	email = store.NormalizeEmail(email)
 	prefix := "rp:" + scope + ":"

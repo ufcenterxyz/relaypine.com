@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: relaypine-dev
+  labels:
+    app.kubernetes.io/part-of: relaypine
+    platform.internal/project: relaypine

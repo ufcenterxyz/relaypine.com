@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: relaypine-web
+  namespace: relaypine-dev
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: relaypine
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: relaypine-gateway
+  namespace: relaypine-dev
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: relaypine
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: 4811
+      targetPort: http

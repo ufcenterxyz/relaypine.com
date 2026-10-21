@@ -41,6 +41,16 @@ func main() {
 		slog.Error("Production requires HTTPS and private upstreams disabled")
 		os.Exit(1)
 	}
+	trustedProxies, err := api.ParseProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
+	if err != nil {
+		slog.Error("TRUSTED_PROXY_CIDRS must contain explicit proxy networks")
+		os.Exit(1)
+	}
+	cloudflareProxies, err := api.ParseProxyCIDRs(os.Getenv("CLOUDFLARE_PROXY_CIDRS"))
+	if err != nil {
+		slog.Error("CLOUDFLARE_PROXY_CIDRS must contain explicit Cloudflare networks")
+		os.Exit(1)
+	}
 	if os.Getenv("MYSQL_DSN") == "" || os.Getenv("MASTER_KEY") == "" {
 		slog.Error("MYSQL_DSN and MASTER_KEY are required")
 		os.Exit(1)
@@ -83,7 +93,7 @@ func main() {
 		os.Exit(1)
 	}
 	gateway := relay.New(db, redisClient, private)
-	app := &api.Server{EmailAuth: emailAuth, Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AllowPrivate: private}
+	app := &api.Server{EmailAuth: emailAuth, Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AllowPrivate: private, TrustedProxyCIDRs: trustedProxies, CloudflareProxyCIDRs: cloudflareProxies}
 	server := &http.Server{Addr: env("GATEWAY_ADDR", "127.0.0.1:4811"), Handler: app.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 << 10}
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)

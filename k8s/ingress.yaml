@@ -1,0 +1,65 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: relaypine
+  namespace: relaypine-dev
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod-http01
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 2m
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "15"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "360"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "360"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [relaypine.com]
+      secretName: relaypine-tls
+  rules:
+    - host: relaypine.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /openai
+            pathType: Prefix
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /anthropic
+            pathType: Prefix
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /readyz
+            pathType: Exact
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: relaypine-web
+                port:
+                  number: 3000

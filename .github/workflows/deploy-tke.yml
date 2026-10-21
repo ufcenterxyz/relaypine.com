@@ -1,0 +1,120 @@
+name: Release private preview
+
+on:
+  push:
+    tags: ["dev-tag/v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relaypine-dev-release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: sgccr.ccs.tencentyun.com
+  IMAGE_PREFIX: sgccr.ccs.tencentyun.com/qruiq/relaypine
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build and push release images
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#dev-tag/}"
+          [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]] || exit 1
+          printf 'tag=dev-%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Build and push gateway
+        uses: docker/build-push-action@v6
+        with:
+          context: services/gateway
+          file: services/gateway/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-gateway:sha-${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}-gateway:${{ steps.version.outputs.tag }}
+          cache-from: type=gha,scope=relaypine-gateway
+          cache-to: type=gha,mode=max,scope=relaypine-gateway
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/console
+          file: apps/console/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: GATEWAY_URL=http://relaypine-gateway:4811
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-web:sha-${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}-web:${{ steps.version.outputs.tag }}
+          cache-from: type=gha,scope=relaypine-web
+          cache-to: type=gha,mode=max,scope=relaypine-web
+
+  deploy:
+    name: Deploy private preview
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.7
+      - name: Configure namespace-scoped access
+        env:
+          KUBE_CONFIG_DEV: ${{ secrets.KUBE_CONFIG_DEV }}
+        shell: bash
+        run: |
+          umask 077
+          export KUBECONFIG="$RUNNER_TEMP/relaypine-kubeconfig"
+          printf 'KUBECONFIG=%s\n' "$KUBECONFIG" >> "$GITHUB_ENV"
+          printf '%s' "$KUBE_CONFIG_DEV" | base64 --decode > "$KUBECONFIG"
+          kubectl auth can-i patch deployments -n relaypine-dev | grep -qx yes
+      - name: Render and apply release manifests
+        shell: bash
+        run: |
+          mkdir .release
+          cat > .release/kustomization.yaml <<EOF
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          resources:
+            - ../k8s
+          images:
+            - name: ${IMAGE_PREFIX}-web
+              newTag: sha-${GITHUB_SHA}
+            - name: ${IMAGE_PREFIX}-gateway
+              newTag: sha-${GITHUB_SHA}
+          EOF
+          kubectl apply -k .release
+          kubectl rollout status deployment/relaypine-redis -n relaypine-dev --timeout=5m
+          kubectl rollout status deployment/relaypine-gateway -n relaypine-dev --timeout=5m
+          kubectl rollout status deployment/relaypine-web -n relaypine-dev --timeout=5m
+      - name: Verify service health inside the cluster
+        run: |
+          kubectl exec -n relaypine-dev deployment/relaypine-web -- node -e '
+            Promise.all([
+              fetch("http://127.0.0.1:3000/", { signal: AbortSignal.timeout(10000) }),
+              fetch("http://relaypine-gateway:4811/healthz", { signal: AbortSignal.timeout(10000) })
+            ]).then(responses => {
+              if (responses.some(response => !response.ok)) process.exit(1);
+              console.log("Web and gateway health checks passed");
+            }).catch(() => process.exit(1));
+          '
+      - name: Remove kubeconfig
+        if: always()
+        run: rm -f "${KUBECONFIG:-$RUNNER_TEMP/relaypine-kubeconfig}"

@@ -13,3 +13,5 @@ services/gateway/gateway
 *.tsbuildinfo
 test-results/
 playwright-report/
+.qruiq-dev.conf
+.kube-release.yaml

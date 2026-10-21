@@ -2,7 +2,13 @@
 
 `relaypine.com` 的 Claude / OpenAI API 中转平台：原生协议、多上游与多 Key 调度、独立 SOCKS5 出口，以及用量和预算管理。
 
-当前采用 **超级管理员 + waitlist** 访问模式。唯一超级管理员为 `ufcenterxyz@gmail.com`；其他访客只提交候补申请，不会获得账号、会话或 API Key。Stripe 充值、退款、支付回调与支付任务已移除。项目目前运行于本地，尚未部署公网或配置真实模型上游。
+当前采用 **超级管理员 + waitlist** 访问模式。唯一超级管理员为 `ufcenterxyz@gmail.com`；其他访客只提交候补申请，不会获得账号、会话或 API Key。Stripe 充值、退款、支付回调与支付任务已移除。线上预览入口为 [relaypine.com](https://relaypine.com)，真实模型和上游密钥需由管理员配置。
+
+## 线上发布
+
+GitHub Actions 在推送 `dev-tag/v*` 标签时运行检查，构建 Web 和 Gateway 镜像，部署至新加坡 TKE 的 `relaypine-dev` 命名空间。该环境运行生产配置，使用独立 MySQL 数据库和持久化 Redis；不要将命名空间中的数据视为可随时丢弃的测试数据。
+
+邮箱登录入口为 [relaypine.com/?auth=login](https://relaypine.com/?auth=login)。在线 API 的 base URL 分别为 `https://relaypine.com/openai/v1` 和 `https://relaypine.com/anthropic`。部署、TLS、密钥备份与回滚约束见 [k8s/README.md](k8s/README.md)。
 
 ## 本地启动
 
@@ -74,4 +80,4 @@ make test-integration
 - `contracts/http.md`：接口契约。
 - [运维说明](docs/operations.md)、[架构说明](docs/architecture.md)、[开发阶段](docs/implementation-plan.md)。
 
-公网开放前还需验证邮件实际投递、真实上游与代理、TLS、备份恢复和监控。验证邮件用于确认邮箱所有权，不代表获准使用服务；将来开放普通用户需另行实现明确的准入流程。
+开放真实模型调用前还需验证实际邮件投递、真实上游与代理、备份恢复和监控。验证邮件用于确认邮箱所有权，不代表获准使用服务；将来开放普通用户需另行实现明确的准入流程。
