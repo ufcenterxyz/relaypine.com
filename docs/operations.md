@@ -2,7 +2,7 @@
 
 ## 环境与进程
 
-本地端口：Next.js 4810，Go 4811，MySQL 4812，Redis 4813。Compose 数据卷属于 `relaypine` 项目。`docker compose stop` 可停止依赖；不要使用 `down -v`，除非明确要删除数据。
+本地端口：Next.js 4810，Go 4811，MySQL 4812，Redis 4813。控制台运行 `yarn build` 会同时准备 standalone 静态资源，随后 `yarn start` 启动生成的服务；`PORT` 默认 4810，`HOSTNAME` 默认 0.0.0.0，本地预览可显式设为 127.0.0.1。`GATEWAY_URL` 用于构建时生成控制台 API 转发地址，部署环境变更后需要重新构建。Compose 数据卷属于 `relaypine` 项目。`docker compose stop` 可停止依赖；不要使用 `down -v`，除非明确要删除数据。
 
 Go 网关同时运行恢复及支付任务；多副本依靠数据库行锁与幂等保护重复事件。每 15 秒处理支付收件箱及请求恢复，每约 60 秒核对待处理订单。API 暂无配置缓存；部署先采用单个 Redis 实例，Lua 跨多个额度键的脚本不能直接用于 Redis Cluster。
 
