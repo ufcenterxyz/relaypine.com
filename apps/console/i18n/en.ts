@@ -322,5 +322,55 @@ export const en = {
   flowRoute: "ROUTE",
   flowStream: "STREAM",
   flowMeter: "METER",
+  credentialNameSuffix: "key",
+  credentialAddIntro:
+    "Choose an API host and enter a key. We will check available metadata and suggest settings.",
+  credentialEditIntro:
+    "Recheck this key or adjust its settings. Existing limits stay unchanged unless you choose to import suggestions.",
+  credentialPlatformHost: "Platform / API host",
+  credentialVerifyKey: "Verify key",
+  credentialRecheck: "Recheck",
+  credentialAdvanced: "Advanced settings",
+  credentialWorkspaceSelect:
+    "Select the workspace to use, then verify the key again.",
+  credentialWorkspaceRequired:
+    "This key needs a workspace selection before it can be checked.",
+  credentialMetadataVerified: "Metadata access verified",
+  credentialModelsFound: "models discovered",
+  credentialAvailableModels: "Available model metadata",
+  credentialModelsMetadataOnly:
+    "Preview only. Models and prices will not be added or enabled automatically.",
+  credentialProviderLimits:
+    "Provider-reported limits: conservative minimum across model groups",
+  credentialDefaultLimits:
+    "Suggested limits · defaults used for missing values",
+  credentialUntouchedDefaults:
+    "Suggestions apply only to settings you have not edited. Check Advanced settings before saving.",
+  credentialEditPreserved:
+    "Your saved settings and current edits have been preserved.",
+  credentialImportLimits: "Use suggested limits and quota group",
+  credentialLimitsImported: "Suggested limits and quota group applied",
+  credentialImportLimitsHelp:
+    "This replaces RPM, TPM, concurrency, and the shared quota group. It also disables the credential if the provider reports zero capacity. Other settings stay unchanged until you save.",
+  credentialVerificationScope:
+    "Checks model access only; no paid request is sent. Balance and prices are not imported.",
+  credentialAutoName: "Generated from the selected host. You can rename it.",
+  credentialAutoQuota:
+    "Defaults to a shared group for this host, or a discovered organization. Keys that share upstream limits should stay in one group.",
+  credentialLimitsCaveat:
+    "Imported RPM and TPM are conservative key-level limits across model groups. Queries may need organization permissions. Local budget is a spending cap, not the provider balance.",
+  credentialManualHelp:
+    "If this compatible service does not support discovery, review the settings and save without verification. No model or limit access will be assumed.",
+  credentialSaveUnverified: "Save without verification",
+  credentialInvalidLimit:
+    "Enter a valid value within the allowed range. Capacity and priority must be whole numbers.",
+  credentialDiscoveryInvalid:
+    "The provider check returned an unexpected result. Try again or save manually in Advanced settings.",
+  credentialDiscoveryInterrupted:
+    "The check was interrupted. Try again or save manually in Advanced settings.",
+  credentialCapacityDisabled:
+    "The provider reported no available capacity. Review the enabled setting before saving; importing these suggestions disables the credential.",
+  credentialChangedHostSecret:
+    "Enter a new API secret when switching hosts. The stored secret can only be reused with its original host.",
 };
 export type Copy = typeof en;

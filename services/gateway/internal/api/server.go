@@ -246,22 +246,28 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 			return
 		}
 		write(w, 200, value)
+	case "/api/admin/credentials/discover":
+		s.discoverCredential(w, r, user)
 	case "/api/admin/credentials":
-		var v struct {
-			domain.Credential
-			SecretValue string `json:"secret"`
+		var input credentialInput
+		if read(r, &input) != nil || input.EndpointID == "" || len(input.SecretValue) > 4096 || strings.ContainsAny(input.SecretValue, "\r\n\x00") {
+			fail(w, 400, "invalid_credential", "Choose an endpoint and enter a valid API key.")
+			return
 		}
-		if read(r, &v) != nil || !nameOK(v.Name) || v.EndpointID == "" || v.RPM < 1 || v.RPM > 100000 || v.TPM < 1 || v.TPM > 100000000 || v.MaxConcurrency < 1 || v.MaxConcurrency > 1000 || v.BudgetMicros < 0 || v.BudgetMicros > 1000000000000 || v.Priority < 0 || v.Priority > 1000 || !nameOK(v.QuotaGroup) || len(v.SecretValue) > 4096 {
+		v, err := s.credentialValues(ctx, input)
+		if err != nil {
+			s.report(w, err)
+			return
+		}
+		if !nameOK(v.Name) || v.RPM < 1 || v.RPM > 100000 || v.TPM < 1 || v.TPM > 100000000 || v.MaxConcurrency < 1 || v.MaxConcurrency > 1000 || v.BudgetMicros < 0 || v.BudgetMicros > 1000000000000 || v.Priority < 0 || v.Priority > 1000 || !nameOK(v.QuotaGroup) {
 			fail(w, 400, "invalid_credential", "Enter a name, endpoint, quota group and valid capacity limits.")
 			return
 		}
-		v.WorkspaceID = strings.TrimSpace(v.WorkspaceID)
 		if !domain.ValidAnthropicWorkspaceID(v.WorkspaceID) {
 			s.report(w, store.ErrInvalidWorkspaceID)
 			return
 		}
-		v.Secret = v.SecretValue
-		value, e := s.Store.SaveCredential(ctx, v.Credential)
+		value, e := s.Store.SaveCredential(ctx, v)
 		if e != nil {
 			s.report(w, e)
 			return

@@ -14,6 +14,18 @@ RelayPine 保留 Anthropic 的 Messages 和 SSE 协议。使用 Anthropic SDK，
 3. 添加模型别名、实际上游模型 ID、用量和成本费率、输出上限，并启用模型。
 4. 检查 RelayPine 访问 Key 的模型权限和可用余额，以及上游 Key 的预算、容量和出口。
 
+新增 Key 时可先点击验证：有权限的身份 Key 可以读取工作区列表，只有一个选项时
+自动选择，多个选项时请明确选择。模型列表及配置限额会作为可审阅的发现结果显示；
+工作区绑定 Key 或权限不足时，不会要求提供额外管理员 Key。
+
+官方 [Rate Limits API](https://platform.claude.com/docs/en/manage-claude/rate-limits-api)
+允许未绑定工作区且具有相应权限的个人或服务账号 Key 查询组织和工作区限额。
+RelayPine 读取模型组限额，并使用组织及工作区的保守最小值作为本地默认值；缺失值
+不代表无限额度。普通模型列表的响应头不能可靠说明 Messages 的 RPM，所以不会
+将其直接用于调度。工作区及模型查询的定义见
+[Workspaces](https://platform.claude.com/docs/en/manage-claude/workspaces) 和
+[Models API](https://platform.claude.com/docs/en/api/models/list)。
+
 Workspace ID 与每把上游 Key 一起保存。调度选中该 Key 后，网关注入
 `anthropic-workspace-id`。调用者提交同名请求头无法覆盖它，多 Key 调度也不会复用
 另一把 Key 的工作区。输入格式为 `wrkspc_` 后接字母或数字，总长度不超过 128。

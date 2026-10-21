@@ -27,6 +27,7 @@ import { consoleEn as c } from "@/i18n/console-en";
 import { api, count, dollars, errorMessage, money } from "@/lib/api";
 import type { Credential, Endpoint, Model, Proxy } from "@/lib/types";
 import { useConsole } from "./console-provider";
+import { CredentialForm } from "./credential-form";
 import {
   PageHeader,
   DataTable,
@@ -46,8 +47,6 @@ const modelList = (value: unknown) =>
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-const numberFields = (values: FormValues, keys: string[]) =>
-  Object.fromEntries(keys.map((key) => [key, Number(values[key] ?? 0)]));
 const enabledField: Field = {
   key: "enabled",
   label: t.enabled,
@@ -64,6 +63,9 @@ interface FormConfig {
 export function Upstreams() {
   const { state, refresh } = useConsole();
   const [form, setForm] = useState<FormConfig | null>(null);
+  const [credentialDialog, setCredentialDialog] = useState<{
+    credential?: Credential;
+  } | null>(null);
   const [disable, setDisable] = useState<{
     name: string;
     run: () => Promise<void>;
@@ -141,128 +143,7 @@ export function Upstreams() {
     });
   }
   function credentialForm(credential?: Credential) {
-    const isAnthropic = (endpointID: FormValues[string]) =>
-      state.endpoints?.some(
-        (endpoint) =>
-          endpoint.id === endpointID && endpoint.provider === "anthropic",
-      ) ?? false;
-    setForm({
-      title: credential ? t.editCredential : t.addCredential,
-      fields: [
-        { key: "name", label: t.name, required: true },
-        {
-          key: "endpoint_id",
-          label: t.endpoint,
-          type: "select",
-          required: true,
-          options: (state.endpoints ?? []).map((e) => ({
-            key: e.id,
-            label: e.name,
-          })),
-        },
-        {
-          key: "secret",
-          label: credential ? t.rotateSecret : t.secret,
-          type: "password",
-          required: !credential,
-          description: credential ? t.preserveSecret : t.protectedSecret,
-        },
-        {
-          key: "workspace_id",
-          label: t.anthropicWorkspaceID,
-          description: t.anthropicWorkspaceHelp,
-          placeholder: "wrkspc_…",
-          visibleWhen: (values) => isAnthropic(values.endpoint_id),
-          validate: (value) => {
-            const id = value.trim();
-            return id && (id.length > 128 || !/^wrkspc_[A-Za-z0-9]+$/.test(id))
-              ? t.invalidAnthropicWorkspace
-              : undefined;
-          },
-        },
-        {
-          key: "quota_group",
-          label: t.quotaGroup,
-          required: true,
-          description: t.quotaHelp,
-        },
-        {
-          key: "proxy_id",
-          label: t.proxy,
-          type: "select",
-          options: [
-            { key: "direct", label: t.direct },
-            ...(state.proxies ?? []).map((p) => ({ key: p.id, label: p.name })),
-          ],
-        },
-        { key: "rpm", label: t.rpm, type: "number", min: 1, required: true },
-        { key: "tpm", label: t.tpm, type: "number", min: 1, required: true },
-        {
-          key: "max_concurrency",
-          label: t.concurrency,
-          type: "number",
-          min: 1,
-          required: true,
-        },
-        {
-          key: "budget_micros",
-          label: t.budget,
-          type: "number",
-          description: t.budgetHelp,
-        },
-        { key: "priority", label: t.priority, type: "number" },
-        enabledField,
-      ],
-      initial: credential
-        ? {
-            id: credential.id,
-            name: credential.name,
-            endpoint_id: credential.endpoint_id,
-            workspace_id: credential.workspace_id || "",
-            quota_group: credential.quota_group,
-            proxy_id: credential.proxy_id || "direct",
-            secret: "",
-            rpm: credential.rpm,
-            tpm: credential.tpm,
-            max_concurrency: credential.max_concurrency,
-            budget_micros: credential.budget_micros / 1e6,
-            priority: credential.priority,
-            enabled: credential.enabled,
-          }
-        : {
-            name: "",
-            endpoint_id: state.endpoints?.[0]?.id ?? "",
-            workspace_id: "",
-            secret: "",
-            quota_group: "",
-            proxy_id: "direct",
-            rpm: 60,
-            tpm: 100000,
-            max_concurrency: 10,
-            budget_micros: 0,
-            priority: 0,
-            enabled: true,
-          },
-      onChange: (key, _value, values) =>
-        key === "endpoint_id" ? { ...values, workspace_id: "" } : values,
-      onSubmit: async (values) => {
-        await save("credentials", {
-          ...credential,
-          ...values,
-          proxy_id: values.proxy_id === "direct" ? "" : values.proxy_id,
-          workspace_id: isAnthropic(values.endpoint_id)
-            ? String(values.workspace_id ?? "").trim()
-            : "",
-          ...numberFields(values, [
-            "rpm",
-            "tpm",
-            "max_concurrency",
-            "priority",
-          ]),
-          budget_micros: dollars(values.budget_micros),
-        });
-      },
-    });
+    setCredentialDialog({ credential });
   }
   async function toggle(kind: string, row: Endpoint | Credential) {
     const run = async () => {
@@ -430,6 +311,19 @@ export function Upstreams() {
           />
         }
       />
+      {credentialDialog && (
+        <CredentialForm
+          credential={credentialDialog.credential}
+          endpoints={state.endpoints || []}
+          proxies={state.proxies || []}
+          onClose={() => setCredentialDialog(null)}
+          onSave={(body) => save("credentials", body)}
+          onAddHost={() => {
+            setCredentialDialog(null);
+            hostForm();
+          }}
+        />
+      )}
       {form && <ResourceForm {...form} onClose={() => setForm(null)} />}{" "}
       {disable && (
         <Confirm

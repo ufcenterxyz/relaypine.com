@@ -292,4 +292,47 @@ export const zh: Copy = {
   flowRoute: "路由",
   flowStream: "流式传输",
   flowMeter: "计量",
+  credentialNameSuffix: "密钥",
+  credentialAddIntro:
+    "选择 API 地址并输入密钥，系统会检查可用元数据并建议配置。",
+  credentialEditIntro:
+    "重新检查密钥或调整设置。除非主动导入建议，否则现有限制保持不变。",
+  credentialPlatformHost: "平台 / API 地址",
+  credentialVerifyKey: "验证密钥",
+  credentialRecheck: "重新检查",
+  credentialAdvanced: "高级设置",
+  credentialWorkspaceSelect: "选择要使用的工作空间，然后再次验证密钥。",
+  credentialWorkspaceRequired: "需要先选择工作空间，才能继续检查此密钥。",
+  credentialMetadataVerified: "元数据访问已验证",
+  credentialModelsFound: "个已发现模型",
+  credentialAvailableModels: "可用模型元数据",
+  credentialModelsMetadataOnly: "仅供预览，不会自动添加或启用模型及价格。",
+  credentialProviderLimits: "供应商返回的限制：取各模型组的保守最小值",
+  credentialDefaultLimits: "建议限制 · 未获取到的值使用本地默认值",
+  credentialUntouchedDefaults:
+    "建议仅应用于尚未手动编辑的设置，保存前可在高级设置中检查。",
+  credentialEditPreserved: "已保留原有设置和当前修改。",
+  credentialImportLimits: "使用建议限制与额度组",
+  credentialLimitsImported: "已应用建议限制与额度组",
+  credentialImportLimitsHelp:
+    "替换 RPM、TPM、并发数和共享额度组。如果供应商报告容量为零，还会停用密钥。其余设置保持不变，保存后生效。",
+  credentialVerificationScope:
+    "仅检查模型访问，不发送付费请求；余额和价格不会自动导入。",
+  credentialAutoName: "根据所选 API 地址生成，可自行修改。",
+  credentialAutoQuota:
+    "默认按 API 地址或发现的组织建立共享组。共享上游限制的密钥应使用同一组。",
+  credentialLimitsCaveat:
+    "导入的 RPM 和 TPM 是跨模型组的保守密钥级限制，查询可能需要组织权限。本地预算是消费上限，不是供应商余额。",
+  credentialManualHelp:
+    "如果兼容服务不支持自动检查，可确认设置后直接保存。系统不会据此认定模型或额度查询可用。",
+  credentialSaveUnverified: "不验证，直接保存",
+  credentialInvalidLimit: "请输入允许范围内的有效值，容量与优先级必须为整数。",
+  credentialDiscoveryInvalid:
+    "供应商检查返回了异常结果。请重试，或在高级设置中手动保存。",
+  credentialDiscoveryInterrupted:
+    "检查已中断。请重试，或在高级设置中手动保存。",
+  credentialCapacityDisabled:
+    "供应商报告当前无可用容量。请在保存前检查启用状态；导入这些建议将停用密钥。",
+  credentialChangedHostSecret:
+    "更换 API 地址时请输入新密钥。已存储的密钥只能在原 API 地址下复用。",
 };

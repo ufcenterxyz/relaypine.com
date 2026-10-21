@@ -40,7 +40,7 @@ make console  # 终端二
 
 1. **Upstreams**：默认官方 OpenAI / Anthropic host，也可添加兼容 host；支持是否带 `/v1`。
 2. **Egress proxies**：按需添加 `socks5://user:password@host:port`，每把上游 Key 可绑定固定出口。代理不可用不会自动直连。
-3. **Credentials**：配置上游 Key、共享额度组、RPM、TPM、并发上限和预算。同组织/项目共享限额的 Key 使用同一额度组。Anthropic Key 还可绑定 `wrkspc_...` 工作区 ID；未绑定工作区的 identity key 必须配置此项。
+3. **Credentials**：选择平台/上游并粘贴 API Key，点击验证即可读取可用模型和有权限获取的工作区、限额，再保存。名称、共享额度组和容量都有默认值；出口代理、预算及手动覆盖位于高级设置。Anthropic 未绑定工作区的 identity key 可自动发现工作区；存在多个工作区时需要选择一个。
 4. **Models & pricing**：配置模型别名、上游模型名、用量费率、成本费率和最大输出量。没有预置真实模型价格。
 5. **Routing**：选择最低负载、最高剩余预算或均衡策略，先过滤权限、容量、预算和出口不满足条件的 Key。
 6. 管理员创建访问 Key；通过带理由的内部额度调整配置可用余额后，使用原生 SDK 进行验证。
@@ -57,6 +57,14 @@ make console  # 终端二
 使用 `Authorization: Bearer rp_live_...` 或 Anthropic 的 `x-api-key`。上游秘密只存于服务端。保留 JSON / SSE 原生字段，不做 Claude 与 OpenAI 跨协议转换。当前支持文本及客户端执行的函数工具；图片、音频、文件、托管工具、后台生成等无法可靠计量的能力被拒绝。Responses 续接按租户和项目校验并固定原上游凭据；发送后不自动重放生成。
 
 Anthropic 的工作区头由选中的上游 Key 配置决定，调用者不能覆盖。`anthropic-beta` 支持经过核对的单模型能力，未知 beta 和 `fallbacks` 会在转发及额度预留前明确拒绝。完整支持列表、后台设置及 SDK 示例见 [Anthropic 接入说明](docs/anthropic-compatibility.md)。
+
+## 上游自动发现
+
+验证只调用模型和配置查询接口，不发起付费生成。OpenAI 与 Anthropic 均支持读取模型列表；官方 Anthropic 在 Key 权限允许时，还会读取工作区和模型组的配置限额。第三方 host 使用兼容的模型列表接口，不尝试官方组织管理接口；不支持发现的服务仍可在高级设置中手动保存。
+
+限额显示为“上游导入”或“本地默认”。当前调度对一把 Key 使用统一的 RPM/TPM，因此导入时采用可用模型组、组织及工作区限额的保守最小值，输入和输出 token 上限也按更低者约束组合 token。没有可靠限额时使用 60 RPM、100,000 TPM、并发 10 的本地保护值，这不是上游能力保证。未知归属的 Key 默认共享同一 endpoint 的额度组；已识别组织的 Key 使用组织共享组，可在高级设置调整。
+
+发现结果不会自动发布模型、猜测销售价格或余额，也不会把模型列表接口的限速误当作推理限额。模型可见不代表余额充足或所有调用能力都可用。OpenAI 完整项目限额接口需要 Admin Key；本流程不要求保存额外的管理员凭据。
 
 ## 用量与额度
 
