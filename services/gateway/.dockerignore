@@ -1,0 +1,4 @@
+gateway
+.env
+.env.*
+*.log
