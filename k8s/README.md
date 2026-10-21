@@ -1,4 +1,11 @@
-# RelayPine live preview
+# RelayPine hosted deployment
+
+These manifests describe the maintainer's deployment, not a portable installer.
+For a self-hosted deployment, replace the namespace, image registry, ingress
+domain, administrator email, Mailgun domain, trusted proxy CIDRs, storage class,
+and certificate issuer with your own values. Provision your own database and
+secrets. The release workflow is guarded to run only in
+`ufcenterxyz/relaypine.com`; forks must configure their own release target.
 
 The live private preview uses namespace `relaypine-dev` and `https://relaypine.com`.
 The namespace name does not imply disposable data. MySQL is a dedicated database
@@ -28,8 +35,13 @@ Only the gateway receives all application secrets. Redis receives its own
 password field; the web container receives no secrets. A secret or ConfigMap
 change requires restarting the gateway to load the new environment.
 
+The gateway requires a valid `SUPERADMIN_EMAIL` in the ConfigMap and fails closed
+without it. The hosted deployment retains its existing administrator explicitly.
+Changing this setting switches the allowed identity; it does not transfer the old
+administrator's tenant or wallet to the new email.
+
 The gateway applies additive MySQL schema migrations during startup. It creates
-the fixed super administrator account and restricts all other accounts to the
+the super administrator account configured by `SUPERADMIN_EMAIL` and restricts all other accounts to the
 waitlist. No password or Stripe payment service is used.
 
 ## Routing and transport

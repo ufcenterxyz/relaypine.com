@@ -194,7 +194,7 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 		}
 		write(w, 200, map[string]bool{"ok": true})
 	case strings.HasPrefix(path, "/api/admin/"):
-		if !store.IsSuperAdmin(user) {
+		if !s.Store.IsSuperAdmin(user) {
 			fail(w, 403, "forbidden", "Operator access is required.")
 			return
 		}

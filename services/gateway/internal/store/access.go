@@ -10,13 +10,13 @@ import (
 	"relaypine.com/gateway/internal/domain"
 )
 
-// SuperAdminEmail is the only identity allowed into the private console and relay.
-// The address is an allowlist, never an authentication credential.
-const SuperAdminEmail = "ufcenterxyz@gmail.com"
-
 func NormalizeEmail(email string) string { return strings.ToLower(strings.TrimSpace(email)) }
-func IsSuperAdmin(user domain.User) bool {
-	return user.Operator && NormalizeEmail(user.Email) == SuperAdminEmail
+
+// SuperAdminEmail returns this instance's sole allowed administrator identity.
+// An email match is an authorization policy, never proof of mailbox ownership.
+func (s *Store) SuperAdminEmail() string { return s.superAdminEmail }
+func (s *Store) IsSuperAdmin(user domain.User) bool {
+	return s.superAdminEmail != "" && user.Operator && NormalizeEmail(user.Email) == s.superAdminEmail
 }
 func ValidEmail(email string) bool {
 	address, err := mail.ParseAddress(email)
@@ -26,6 +26,9 @@ func ValidEmail(email string) bool {
 // EnsureSuperAdmin provisions the sole allowed identity and retires all password
 // credentials. Knowing the allowlisted email never proves mailbox ownership.
 func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User, error) {
+	if !ValidEmail(s.superAdminEmail) {
+		return domain.User{}, errors.New("SUPERADMIN_EMAIL must be a valid email address")
+	}
 	if !validName(name) {
 		return domain.User{}, errors.New("valid administrator name required")
 	}
@@ -40,7 +43,7 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User,
 	}
 	defer conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('relaypine_private_bootstrap')")
 	var count int
-	if err = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE BINARY LOWER(TRIM(email))=?", SuperAdminEmail).Scan(&count); err != nil {
+	if err = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE BINARY LOWER(TRIM(email))=?", s.superAdminEmail).Scan(&count); err != nil {
 		return domain.User{}, err
 	}
 	if count == 0 {
@@ -54,7 +57,7 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User,
 	}
 	defer tx.Rollback()
 	var user domain.User
-	err = tx.QueryRowContext(ctx, "SELECT id,tenant_id,email,name,operator,password_hash FROM users WHERE BINARY LOWER(TRIM(email))=? FOR UPDATE", SuperAdminEmail).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator, &user.PasswordHash)
+	err = tx.QueryRowContext(ctx, "SELECT id,tenant_id,email,name,operator,password_hash FROM users WHERE BINARY LOWER(TRIM(email))=? FOR UPDATE", s.superAdminEmail).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator, &user.PasswordHash)
 	if err != nil {
 		return domain.User{}, err
 	}
@@ -76,7 +79,7 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User,
 	if _, err = tx.ExecContext(ctx, "UPDATE users SET operator=(id=?)", user.ID); err != nil {
 		return domain.User{}, err
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE users SET email=?,name=? WHERE id=?", SuperAdminEmail, strings.TrimSpace(name), user.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE users SET email=?,name=? WHERE id=?", s.superAdminEmail, strings.TrimSpace(name), user.ID); err != nil {
 		return domain.User{}, err
 	}
 	// Preserve previous accounts, balances and records, while retaining their place
@@ -93,7 +96,7 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User,
 	if err = tx.Commit(); err != nil {
 		return domain.User{}, err
 	}
-	user.Name, user.Email, user.Operator, user.PasswordHash = strings.TrimSpace(name), SuperAdminEmail, true, ""
+	user.Name, user.Email, user.Operator, user.PasswordHash = strings.TrimSpace(name), s.superAdminEmail, true, ""
 	return user, nil
 }
 
@@ -103,14 +106,14 @@ func (s *Store) JoinWaitlist(ctx context.Context, email, name string) error {
 		return errors.New("valid email and optional name up to 100 bytes required")
 	}
 	// Identical response for every address; the admin never becomes a waiting user.
-	if email == SuperAdminEmail {
+	if email == s.superAdminEmail {
 		return nil
 	}
 	_, err := s.DB.ExecContext(ctx, "INSERT INTO waitlist_entries(id,email,name,created_at) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE email=VALUES(email)", newID("wl_"), email, name, time.Now().UTC())
 	return err
 }
 func (s *Store) listWaitlist(ctx context.Context) ([]domain.WaitlistEntry, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,email,created_at FROM waitlist_entries WHERE email<>? ORDER BY created_at DESC,id DESC", SuperAdminEmail)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,email,created_at FROM waitlist_entries WHERE email<>? ORDER BY created_at DESC,id DESC", s.superAdminEmail)
 	if err != nil {
 		return nil, err
 	}

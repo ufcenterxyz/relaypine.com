@@ -23,6 +23,8 @@ import (
 	"relaypine.com/gateway/internal/store"
 )
 
+const testAdminEmail = "administrator@api.example.test"
+
 type apiFixture struct {
 	s                                           *Server
 	h                                           http.Handler
@@ -54,7 +56,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	if master == "" {
 		master = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	}
-	db, err := store.Open(ctx, dsn, master)
+	db, err := store.Open(ctx, dsn, master, store.Config{SuperAdminEmail: testAdminEmail})
 	if err != nil {
 		t.Fatal(err)
 	}

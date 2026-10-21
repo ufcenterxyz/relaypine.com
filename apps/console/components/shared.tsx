@@ -1,6 +1,6 @@
 "use client";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   Button,
   Chip,
@@ -30,14 +30,22 @@ export function Brand() {
     </Link>
   );
 }
+const subscribeToHydration = () => () => {};
+
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
+  const label = hydrated && resolvedTheme === "dark" ? t.lightMode : t.darkMode;
   return (
-    <Tooltip content={resolvedTheme === "dark" ? t.lightMode : t.darkMode}>
+    <Tooltip content={label}>
       <Button
         isIconOnly
         variant="light"
-        aria-label={resolvedTheme === "dark" ? t.lightMode : t.darkMode}
+        aria-label={label}
         onPress={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
       >
         <Sun size={17} className="hidden dark:block" />

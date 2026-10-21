@@ -12,11 +12,11 @@ import (
 
 func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot, error) {
 	result := domain.Snapshot{User: user, Keys: []domain.AccessKey{}, Models: []domain.Model{}, Requests: []domain.Request{}, Ledger: []domain.LedgerEntry{}, Waitlist: []domain.WaitlistEntry{}}
-	if !IsSuperAdmin(user) {
+	if !s.IsSuperAdmin(user) {
 		return result, ErrUnauthorized
 	}
 	result.User.PasswordHash = ""
-	err := s.DB.QueryRowContext(ctx, "SELECT t.id,t.name,t.status,t.created_at FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE t.id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", user.TenantID, user.ID, SuperAdminEmail).Scan(&result.Tenant.ID, &result.Tenant.Name, &result.Tenant.Status, &result.Tenant.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT t.id,t.name,t.status,t.created_at FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE t.id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", user.TenantID, user.ID, s.superAdminEmail).Scan(&result.Tenant.ID, &result.Tenant.Name, &result.Tenant.Status, &result.Tenant.CreatedAt)
 	if err != nil {
 		return result, dbError(err)
 	}

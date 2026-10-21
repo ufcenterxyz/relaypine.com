@@ -65,22 +65,28 @@ HMAC-SHA-256 key derived from MASTER_KEY; Redis stores only the keyed digest and
 challenge metadata. Session and customer API tokens use 256 bits from the OS
 random source and are stored only as SHA-256 hashes. Credential secrets and
 proxy URLs use AES-GCM with their configuration identity as associated data.
-Only the fixed administrator can obtain a snapshot. Secrets and token hashes
+Only the configured administrator can obtain a snapshot. Secrets and token hashes
 are always omitted.
 Responses mappings are immutable and scoped to tenant and project.
 
 Run `go test ./internal/store` for pure invariant/crypto tests. Set
 `MYSQL_TEST_DSN` to run real MySQL integration tests; optionally set `MASTER_KEY`
-to the development key. Use an isolated test database: tests provision the fixed
+to the development key. Use an isolated test database: tests provision a synthetic
 administrator and remove their fixtures. Run packages sequentially (`-p 1`)
-because the administrator address is globally unique. Never point tests at the
+because bootstrap enforces one administrator per database. Never point tests at the
 application database. `go test -race ./internal/store`
 also exercises concurrent wallet reservations under the race detector.
 
 ## Private access and waitlist
 
-`store.SuperAdminEmail` is fixed to `ufcenterxyz@gmail.com`; an email match alone
-never authenticates a user. `EnsureSuperAdmin` provisions this identity without a
+`SUPERADMIN_EMAIL` is required at startup and is normalized to lowercase with
+surrounding whitespace removed. Invalid or missing values fail before connecting
+to MySQL. `store.Open` also validates its explicit `Config.SuperAdminEmail`; the
+normalized identity is immutable, private instance state, not a process-global
+variable. Every gateway replica using one database must configure the same
+address. An email match alone never authenticates a user.
+
+`EnsureSuperAdmin` provisions this identity without a
 password, demotes other operators, retires other accounts' sessions and keys,
 and backfills existing users into the waitlist. Migrating an administrator from
 password authentication or promoting an unverified public account replaces its
@@ -96,3 +102,13 @@ operator flag in durable state. Only a verified ordinary email challenge can
 call `JoinWaitlist` through the API. It writes a normalized, unique email,
 optional name and original submission time, never a tenant, user, wallet,
 session or key. Historical accounts, balances and usage remain intact.
+
+Changing `SUPERADMIN_EMAIL` is an administrator change, not an account rename or
+data transfer. A new address gets a new tenant, project, and zero-balance wallet;
+an address already in `users` retains only its own existing tenant. Bootstrap
+demotes the former administrator and revokes its sessions and keys, preserving
+its tenant, balance, ledger, and usage. It never assigns the former tenant or
+credits to the new identity. Changing the address back does not reactivate
+revoked keys. Stop old replicas before starting replicas with a changed address
+so conflicting configurations cannot repeatedly replace each other's policy.
+The new owner still must verify a code sent to its configured mailbox.

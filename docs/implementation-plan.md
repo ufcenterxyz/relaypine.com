@@ -1,6 +1,6 @@
 # RelayPine 当前范围与验收
 
-当前产品采用超级管理员 + waitlist 模式。`ufcenterxyz@gmail.com` 为唯一管理员，其他人只登记候补；Stripe 充值与支付相关能力已从当前范围移除。
+当前产品采用超级管理员 + waitlist 模式。每个部署由 `SUPERADMIN_EMAIL` 指定唯一管理员，其他人只登记候补；Stripe 充值与支付相关能力已从当前范围移除。
 
 ## 当前实现
 

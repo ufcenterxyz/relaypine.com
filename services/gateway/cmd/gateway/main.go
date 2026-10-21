@@ -51,11 +51,16 @@ func main() {
 		slog.Error("CLOUDFLARE_PROXY_CIDRS must contain explicit Cloudflare networks")
 		os.Exit(1)
 	}
+	adminEmail := store.NormalizeEmail(os.Getenv("SUPERADMIN_EMAIL"))
+	if !store.ValidEmail(adminEmail) {
+		slog.Error("SUPERADMIN_EMAIL must be a valid email address")
+		os.Exit(1)
+	}
 	if os.Getenv("MYSQL_DSN") == "" || os.Getenv("MASTER_KEY") == "" {
 		slog.Error("MYSQL_DSN and MASTER_KEY are required")
 		os.Exit(1)
 	}
-	db, err := store.Open(ctx, os.Getenv("MYSQL_DSN"), os.Getenv("MASTER_KEY"))
+	db, err := store.Open(ctx, os.Getenv("MYSQL_DSN"), os.Getenv("MASTER_KEY"), store.Config{SuperAdminEmail: adminEmail})
 	if err != nil {
 		slog.Error("Database initialization failed")
 		os.Exit(1)
@@ -65,10 +70,6 @@ func main() {
 	defer redisClient.Close()
 	if redisClient.Ping(ctx).Err() != nil {
 		slog.Error("Redis unavailable")
-		os.Exit(1)
-	}
-	if email := os.Getenv("BOOTSTRAP_EMAIL"); email != "" && store.NormalizeEmail(email) != store.SuperAdminEmail {
-		slog.Error("BOOTSTRAP_EMAIL must match the configured super administrator")
 		os.Exit(1)
 	}
 	if _, err = db.EnsureSuperAdmin(ctx, env("BOOTSTRAP_NAME", "RelayPine Administrator")); err != nil {

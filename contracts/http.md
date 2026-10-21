@@ -3,17 +3,17 @@
 Console uses same-origin `/api/*`, proxied to Go. Auth uses HttpOnly `rp_session` cookie; JSON mutation requires same Origin as configured public URL. Errors: `{ "error": { "code": "...", "message": "..." } }`.
 
 - POST `/api/auth/code` `{email,name?}` -> HTTP 202 `{status:"code_sent",expires_in:600,resend_after:60}`. A cryptographically random six-digit code is emailed to the normalized address. Names are optional (up to 100 UTF-8 bytes), bound to that challenge, and used only for a verified waitlist entry. Sending creates no account, session, or waitlist entry.
-- POST `/api/auth/verify` `{email,code}` -> HTTP 200 `{status:"authenticated",user}` + cookie only for the fixed administrator `ufcenterxyz@gmail.com`; all other verified mailboxes receive HTTP 202 `{status:"waitlisted"}` without a session/account/key. Waitlist emails are deduplicated. Codes expire after ten minutes, allow at most five wrong attempts, are single-use, and are invalidated by a resend. Verification consumes the challenge atomically.
+- POST `/api/auth/verify` `{email,code}` -> HTTP 200 `{status:"authenticated",user}` + cookie only for the administrator configured by `SUPERADMIN_EMAIL`; all other verified mailboxes receive HTTP 202 `{status:"waitlisted"}` without a session/account/key. Waitlist emails are deduplicated. Codes expire after ten minutes, allow at most five wrong attempts, are single-use, and are invalidated by a resend. Verification consumes the challenge atomically.
 - Code delivery has a 60-second resend cooldown and ten-send limit per email per hour. Both endpoints additionally enforce normalized-email, IP and email/IP-pair rate limits. HTTP 429 includes `Retry-After` and `error.retry_after` seconds; code errors are `invalid_code`/`expired_code`. Delivery not configured or rejected returns 503 `email_unavailable`; storage failures return 503 `auth_unavailable` or fail-closed 429 from the limiter. Codes are never exposed in API responses or logs.
 - Former POST `/api/auth/login`, `/api/auth/register`, and `/api/waitlist` return HTTP 410 `verification_required`. They cannot authenticate a password or submit an unverified waitlist entry.
 - POST `/api/auth/logout` -> `{ok:true}`.
-- GET `/api/state` -> Snapshot from `services/gateway/internal/domain/types.go`; unauthenticated 401. All lists arrays. Private access only: the fixed administrator and operator flag are required for every console route and relay key. Snapshot includes `waitlist:[{id,name,email,created_at}]`; removed `payments_enabled` and `orders` are absent. Money micro-USD; rates micro-USD per million tokens.
+- GET `/api/state` -> Snapshot from `services/gateway/internal/domain/types.go`; unauthenticated 401. All lists arrays. Private access only: the configured administrator and operator flag are required for every console route and relay key. Snapshot includes `waitlist:[{id,name,email,created_at}]`; removed `payments_enabled` and `orders` are absent. Money micro-USD; rates micro-USD per million tokens.
 - POST `/api/keys` `{name,models:[],rpm:60}` -> `{key,secret}` secret displayed once.
 - DELETE `/api/keys/{id}` revokes tenant-owned key.
 - POST `/api/admin/endpoints` full Endpoint fields; no ID creates, with ID updates.
 - POST `/api/admin/credentials` full Credential fields plus `secret` on create/rotation. Empty secret preserves existing. Optional `workspace_id` is trimmed and must match `wrkspc_[A-Za-z0-9]+` within 128 ASCII characters, or be empty. A nonempty workspace is allowed only for an Anthropic endpoint. The value is returned in the administrator snapshot; raw upstream secrets are never returned.
 - Creating a credential may submit only `{endpoint_id,secret}`. Omitted advanced settings receive local defaults: generated name, endpoint-shared quota group, RPM 60, TPM 100000, concurrency 10, enabled true, budget and priority 0. Explicit invalid zero capacities are rejected; explicit overrides, including enabled false, are preserved. Updates retain full-object semantics.
-- POST `/api/admin/credentials/discover` `{id?,endpoint_id,secret?,workspace_id?,proxy_id?}` performs bounded read-only upstream discovery. Blank secret may reuse exactly the supplied credential ID on the same endpoint; no stored secret is returned. Saved proxy selection is honored with no direct fallback. Response: `{status:"verified"|"workspace_required",models:[{id,name,max_output_tokens?}],workspaces:[{id,name}],workspace_id,organization_id,defaults,limits_source:"provider"|"default",warnings,checked_at}`. Discovery does not save credentials/models or generate billable inference. Requires the fixed superadmin session, same-origin POST, and rate-limit allowance.
+- POST `/api/admin/credentials/discover` `{id?,endpoint_id,secret?,workspace_id?,proxy_id?}` performs bounded read-only upstream discovery. Blank secret may reuse exactly the supplied credential ID on the same endpoint; no stored secret is returned. Saved proxy selection is honored with no direct fallback. Response: `{status:"verified"|"workspace_required",models:[{id,name,max_output_tokens?}],workspaces:[{id,name}],workspace_id,organization_id,defaults,limits_source:"provider"|"default",warnings,checked_at}`. Discovery does not save credentials/models or generate billable inference. Requires the configured superadmin session, same-origin POST, and rate-limit allowance.
 - POST `/api/admin/proxies` `{id?,name,url,enabled}`; empty URL preserves existing.
 - POST `/api/admin/models` full Model fields; save increments version. Optional `create_only:true` performs an atomic insert and returns 409 if the ID exists, preserving its configuration and pricing version. Enabled models require positive input/output sales and cost rates; incomplete prices may be saved only while disabled.
 - POST `/api/admin/routing` `{strategy:"least_load"|"highest_balance"|"balanced",tenant_rpm:120,tenant_concurrency:10}`.
@@ -27,15 +27,18 @@ Console uses same-origin `/api/*`, proxied to Go. Auth uses HttpOnly `rp_session
 
 UI routes: `/` product entry, `/app` overview, `/app/keys`, `/app/models`, `/app/usage`, `/app/billing`; operators additionally `/app/upstreams`, `/app/proxies`, `/app/routing`, `/app/waitlist`. No invented traffic or finances. Empty database has actionable setup, no demo statistics.
 
-Bootstrap provisions the fixed administrator without a password. If
-`BOOTSTRAP_EMAIL` is set, it must match that address. An email match alone does
+Bootstrap provisions the administrator configured by required `SUPERADMIN_EMAIL`
+without a password. Missing or invalid email configuration prevents startup.
+`BOOTSTRAP_EMAIL` is no longer used. An email match alone does
 not authenticate anyone: the email OTP must be delivered and verified. Existing
 other accounts are preserved and backfilled into the waitlist; their sessions
 and API keys cannot access the console or relay. Migrating an administrator from
 password authentication replaces its password hash with an unusable marker and
 revokes its old sessions and keys once. Only sessions with `auth_method=email_otp`
 are accepted, including before a rolling migration finishes. Repeated startup
-preserves sessions and keys issued after this migration. No waitlist approval or
+preserves sessions and keys issued after this migration. Changing the configured
+email revokes other users' sessions and access keys; it does not transfer their
+tenants or balances to the new identity. No waitlist approval or
 invitation flow is exposed in this release.
 
 Email delivery uses `MAILGUN_API_KEY`, `MAILGUN_DOMAIN`, `MAILGUN_FROM`, and optional

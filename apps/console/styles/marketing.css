@@ -358,9 +358,20 @@
   justify-content: space-between;
   gap: 20px;
 }
-.rp-footer-main > p {
+.rp-footer-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+}
+.rp-footer-links > p {
   font-size: 12px;
   color: var(--rp-muted);
+}
+.rp-footer-source {
+  min-height: 44px;
+  gap: 8px;
+  font-size: 12px;
 }
 .rp-footer-main .rp-brand {
   font-size: 18px;
@@ -419,6 +430,7 @@
   }
   .rp-header-inner {
     height: 72px;
+    gap: 8px;
   }
   .rp-header-inner .rp-brand {
     font-size: 18px;
@@ -429,6 +441,11 @@
   .rp-header-inner nav button {
     padding-inline: 12px;
     min-width: 0;
+  }
+  .rp-header-inner nav .rp-header-github {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
   .rp-hero-grid {
     min-height: auto;

@@ -121,6 +121,11 @@
   margin-top: auto;
   padding: 30px 5px 0;
 }
+.rp-console-source {
+  min-height: 44px;
+  margin-bottom: 9px;
+  color: var(--rp-console-muted);
+}
 .rp-console-user-row {
   display: flex;
   align-items: center;

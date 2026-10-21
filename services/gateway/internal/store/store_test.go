@@ -85,7 +85,7 @@ func integrationFixture(t *testing.T) *fixture {
 	if master == "" {
 		master = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	}
-	s, err := Open(ctx, dsn, master)
+	s, err := Open(ctx, dsn, master, Config{SuperAdminEmail: "administrator@store.example.test"})
 	if err != nil {
 		t.Fatal(err)
 	}

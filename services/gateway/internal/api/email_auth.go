@@ -197,7 +197,7 @@ func (s *Server) verifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, _ := result[1].(string)
-	if v.Email != store.SuperAdminEmail {
+	if v.Email != s.Store.SuperAdminEmail() {
 		if err = s.Store.JoinWaitlist(r.Context(), v.Email, name); err != nil {
 			fail(w, 503, "auth_unavailable", "Your application could not be saved. Please request a new code and try again.")
 			return

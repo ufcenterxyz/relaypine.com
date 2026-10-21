@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"relaypine.com/gateway/internal/domain"
-	"relaypine.com/gateway/internal/store"
 )
 
 type sentCode struct{ email, code string }
@@ -115,8 +114,8 @@ func TestEmailOTPAdministratorAndVerifiedWaitlist(t *testing.T) {
 	if usersBefore != usersAfter || keysBefore != keysAfter || entries != 1 {
 		t.Fatal("waitlist provisioned identity, keys or duplicates")
 	}
-	issue(t, f, strings.ToUpper(store.SuperAdminEmail))
-	w = f.call(t, "POST", "/api/auth/verify", nil, f.s.AppURL, map[string]string{"email": store.SuperAdminEmail, "code": sender.last(t).code})
+	issue(t, f, strings.ToUpper(f.db.SuperAdminEmail()))
+	w = f.call(t, "POST", "/api/auth/verify", nil, f.s.AppURL, map[string]string{"email": f.db.SuperAdminEmail(), "code": sender.last(t).code})
 	expectStatus(t, w, 200)
 	cookies := w.Result().Cookies()
 	if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
@@ -134,7 +133,7 @@ func TestEmailOTPAdministratorAndVerifiedWaitlist(t *testing.T) {
 	if !found {
 		t.Fatal("verified waitlist missing from administrator view")
 	}
-	if verify(t, f, store.SuperAdminEmail, sender.last(t).code) != 401 {
+	if verify(t, f, f.db.SuperAdminEmail(), sender.last(t).code) != 401 {
 		t.Fatal("administrator code replay succeeded")
 	}
 }
@@ -189,7 +188,7 @@ func TestEmailOTPWrongExpiredAndSupersededCodes(t *testing.T) {
 }
 func TestEmailOTPConcurrentVerificationConsumesOnce(t *testing.T) {
 	f, sender := emailFixture(t)
-	email := store.SuperAdminEmail
+	email := f.db.SuperAdminEmail()
 	issue(t, f, email)
 	code := sender.last(t).code
 	var success, cookies atomic.Int32
@@ -272,7 +271,7 @@ func TestOldAdministratorPasswordSessionRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	expectStatus(t, f.call(t, "GET", "/api/state", f.operatorCookie, "", nil), 401)
-	expectStatus(t, f.call(t, "POST", "/api/auth/login", nil, f.s.AppURL, map[string]string{"email": store.SuperAdminEmail, "password": "test-password-strong"}), 410)
+	expectStatus(t, f.call(t, "POST", "/api/auth/login", nil, f.s.AppURL, map[string]string{"email": f.db.SuperAdminEmail(), "password": "test-password-strong"}), 410)
 }
 
 func TestEmailOTPFailedOlderDeliveryCannotDeleteResend(t *testing.T) {

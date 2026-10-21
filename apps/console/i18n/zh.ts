@@ -3,6 +3,8 @@ export const zh: Copy = {
   brand: "RelayPine",
   product: "API 网关",
   home: "首页",
+  githubSource: "GitHub 源码",
+  githubSourceNewTab: "GitHub 源码（在新标签页打开）",
   overview: "概览",
   keys: "API 密钥",
   models: "模型与费率",

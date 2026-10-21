@@ -34,12 +34,23 @@ var (
 //go:embed schema.sql
 var schema string
 
-type Store struct {
-	DB   *sql.DB
-	aead cipher.AEAD
+// Config contains instance-specific authorization policy. Every replica using
+// the same database must use the same administrator identity.
+type Config struct {
+	SuperAdminEmail string
 }
 
-func Open(ctx context.Context, dsn, masterKey string) (*Store, error) {
+type Store struct {
+	DB              *sql.DB
+	aead            cipher.AEAD
+	superAdminEmail string
+}
+
+func Open(ctx context.Context, dsn, masterKey string, config Config) (*Store, error) {
+	adminEmail := NormalizeEmail(config.SuperAdminEmail)
+	if !ValidEmail(adminEmail) {
+		return nil, errors.New("SUPERADMIN_EMAIL must be a valid email address")
+	}
 	key, err := base64.StdEncoding.DecodeString(masterKey)
 	if err != nil || len(key) != 32 {
 		return nil, errors.New("MASTER_KEY must be base64 encoding of exactly 32 bytes")
@@ -71,7 +82,7 @@ func Open(ctx context.Context, dsn, masterKey string) (*Store, error) {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	s := &Store{DB: db, aead: aead}
+	s := &Store{DB: db, aead: aead, superAdminEmail: adminEmail}
 	if err = db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("connect MySQL: %w", err)

@@ -2,6 +2,8 @@ export const en = {
   brand: "RelayPine",
   product: "API gateway",
   home: "Home",
+  githubSource: "Source on GitHub",
+  githubSourceNewTab: "Source on GitHub (opens in a new tab)",
   overview: "Overview",
   keys: "API keys",
   models: "Models & rates",

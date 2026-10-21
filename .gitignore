@@ -15,3 +15,6 @@ test-results/
 playwright-report/
 .qruiq-dev.conf
 .kube-release.yaml
+
+# Local deployment execution notes are not source artifacts.
+k8s/deployments/

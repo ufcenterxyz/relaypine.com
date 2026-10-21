@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Coins,
   GitBranch,
+  Github,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -35,6 +36,7 @@ import { consoleEn as c } from "@/i18n/console-en";
 import { api, errorMessage } from "@/lib/api";
 import { Brand, ThemeToggle } from "./shared";
 import { useConsole } from "./console-provider";
+import { GITHUB_REPOSITORY_URL } from "@/config/links";
 const customerNav = [
   { id: "", label: t.overview, icon: LayoutDashboard },
   { id: "keys", label: t.keys, icon: KeyRound },
@@ -106,6 +108,20 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
         </>
       )}
       <div className="rp-console-account">
+        <Button
+          as="a"
+          role="link"
+          href={GITHUB_REPOSITORY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          variant="light"
+          className="rp-console-nav-item rp-console-source"
+          aria-label={t.githubSourceNewTab}
+          startContent={<Github size={17} strokeWidth={1.65} />}
+          endContent={<ArrowUpRight size={14} className="ml-auto" />}
+        >
+          {t.githubSource}
+        </Button>
         <div className="rp-console-user-row">
           <span className="rp-console-avatar" aria-hidden="true">
             {initials}

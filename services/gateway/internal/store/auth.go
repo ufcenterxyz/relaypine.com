@@ -13,7 +13,7 @@ import (
 
 // createAdministrator provisions an identity, never an authentication credential.
 func (s *Store) createAdministrator(ctx context.Context, name string) (domain.User, error) {
-	user := domain.User{ID: newID("usr_"), TenantID: newID("ten_"), Email: SuperAdminEmail, Name: name, Operator: true}
+	user := domain.User{ID: newID("usr_"), TenantID: newID("ten_"), Email: s.superAdminEmail, Name: name, Operator: true}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.User{}, err
@@ -42,10 +42,10 @@ func (s *Store) createAdministrator(ctx context.Context, name string) (domain.Us
 // EmailAdministrator is called only after mailbox ownership has been verified.
 func (s *Store) EmailAdministrator(ctx context.Context, email string) (domain.User, error) {
 	var user domain.User
-	if NormalizeEmail(email) != SuperAdminEmail {
+	if s.superAdminEmail == "" || NormalizeEmail(email) != s.superAdminEmail {
 		return user, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE BINARY u.email=? AND u.operator=TRUE AND u.password_hash='!email-otp' AND t.status='active'", SuperAdminEmail).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator)
+	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE BINARY u.email=? AND u.operator=TRUE AND u.password_hash='!email-otp' AND t.status='active'", s.superAdminEmail).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, ErrUnauthorized
 	}
@@ -57,7 +57,7 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, error
 	if err != nil {
 		return "", err
 	}
-	res, err := s.DB.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at,auth_method) SELECT ?,u.id,?,'email_otp' FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC().Add(7*24*time.Hour), userID, SuperAdminEmail)
+	res, err := s.DB.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at,auth_method) SELECT ?,u.id,?,'email_otp' FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC().Add(7*24*time.Hour), userID, s.superAdminEmail)
 	if err != nil {
 		return "", err
 	}
@@ -72,7 +72,7 @@ func (s *Store) SessionUser(ctx context.Context, token string) (domain.User, err
 	if !strings.HasPrefix(token, "rps_") || len(token) > 128 {
 		return u, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.auth_method='email_otp' AND se.expires_at>? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC(), SuperAdminEmail).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
+	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.auth_method='email_otp' AND se.expires_at>? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC(), s.superAdminEmail).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, ErrUnauthorized
 	}
@@ -85,7 +85,7 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 
 func (s *Store) CreateKey(ctx context.Context, user domain.User, name string, models []string, rpm int) (domain.AccessKey, string, error) {
 	var key domain.AccessKey
-	if !IsSuperAdmin(user) {
+	if !s.IsSuperAdmin(user) {
 		return key, "", ErrUnauthorized
 	}
 	if !validName(name) || rpm < 1 || rpm > 1000000 || len(models) > 200 {
@@ -109,7 +109,7 @@ func (s *Store) CreateKey(ctx context.Context, user domain.User, name string, mo
 		return key, "", err
 	}
 	defer tx.Rollback()
-	err = tx.QueryRowContext(ctx, "SELECT p.id FROM projects p JOIN tenants t ON t.id=p.tenant_id JOIN users u ON u.tenant_id=t.id WHERE p.tenant_id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active' ORDER BY p.created_at,p.id LIMIT 1", user.TenantID, user.ID, SuperAdminEmail).Scan(&key.ProjectID)
+	err = tx.QueryRowContext(ctx, "SELECT p.id FROM projects p JOIN tenants t ON t.id=p.tenant_id JOIN users u ON u.tenant_id=t.id WHERE p.tenant_id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active' ORDER BY p.created_at,p.id LIMIT 1", user.TenantID, user.ID, s.superAdminEmail).Scan(&key.ProjectID)
 	if err != nil {
 		return domain.AccessKey{}, "", dbError(err)
 	}
@@ -143,7 +143,7 @@ func (s *Store) AuthenticateKey(ctx context.Context, secret string) (domain.Acce
 	if !strings.HasPrefix(secret, "rp_live_") || len(secret) > 128 {
 		return key, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT k.id,k.tenant_id,k.project_id,k.name,k.prefix,k.enabled,k.rpm,k.models,k.created_at FROM access_keys k JOIN tenants t ON t.id=k.tenant_id WHERE k.token_hash=? AND k.enabled=TRUE AND t.status='active' AND EXISTS (SELECT 1 FROM users u WHERE u.tenant_id=t.id AND BINARY u.email=? AND u.operator=TRUE)", tokenHash(secret), SuperAdminEmail).Scan(&key.ID, &key.TenantID, &key.ProjectID, &key.Name, &key.Prefix, &key.Enabled, &key.RPM, &raw, &key.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT k.id,k.tenant_id,k.project_id,k.name,k.prefix,k.enabled,k.rpm,k.models,k.created_at FROM access_keys k JOIN tenants t ON t.id=k.tenant_id WHERE k.token_hash=? AND k.enabled=TRUE AND t.status='active' AND EXISTS (SELECT 1 FROM users u WHERE u.tenant_id=t.id AND BINARY u.email=? AND u.operator=TRUE)", tokenHash(secret), s.superAdminEmail).Scan(&key.ID, &key.TenantID, &key.ProjectID, &key.Name, &key.Prefix, &key.Enabled, &key.RPM, &raw, &key.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return key, ErrUnauthorized
 	}

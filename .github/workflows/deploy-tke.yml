@@ -1,4 +1,4 @@
-name: Release private preview
+name: Release hosted service
 
 on:
   push:
@@ -17,6 +17,8 @@ env:
 
 jobs:
   verify:
+    # Forks run CI, but must configure their own deployment workflow and secrets.
+    if: github.repository == 'ufcenterxyz/relaypine.com'
     uses: ./.github/workflows/ci.yml
 
   build:
@@ -66,7 +68,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=relaypine-web
 
   deploy:
-    name: Deploy private preview
+    name: Deploy hosted service
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15

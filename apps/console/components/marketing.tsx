@@ -8,6 +8,8 @@ import {
   ModalBody,
   Tabs,
   Tab,
+  Tooltip,
+  Link,
 } from "@heroui/react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
@@ -19,6 +21,7 @@ import {
   Layers3,
   Route,
   Activity,
+  Github,
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
 import { marketing as m } from "@/i18n/marketing-en";
@@ -26,6 +29,7 @@ import { RoutingDemo } from "./routing-demo";
 import { AuthModal, type AuthMode } from "./auth-modal";
 import { waitlistEn as w } from "@/i18n/waitlist-en";
 import { Brand, ThemeToggle, CodeBlock } from "./shared";
+import { GITHUB_REPOSITORY_URL } from "@/config/links";
 
 export function sdkCode(provider: string) {
   return provider === "openai"
@@ -103,6 +107,21 @@ export function Marketing() {
             >
               {t.integration}
             </Button>
+            <Tooltip content={t.githubSource}>
+              <Button
+                as="a"
+                role="link"
+                href={GITHUB_REPOSITORY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                isIconOnly
+                variant="light"
+                className="rp-header-github"
+                aria-label={t.githubSourceNewTab}
+              >
+                <Github size={17} strokeWidth={1.7} />
+              </Button>
+            </Tooltip>
             <ThemeToggle />
             <Button variant="light" onPress={() => setAuth("login")}>
               {w.adminSignIn}
@@ -300,7 +319,22 @@ export function Marketing() {
         <div className="rp-wrap">
           <div className="rp-footer-main">
             <Brand />
-            <p>{m.footerTagline}</p>
+            <div className="rp-footer-links">
+              <p>{m.footerTagline}</p>
+              <Link
+                href={GITHUB_REPOSITORY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                color="foreground"
+                underline="hover"
+                className="rp-footer-source"
+                aria-label={t.githubSourceNewTab}
+              >
+                <Github size={15} strokeWidth={1.7} aria-hidden="true" />
+                {t.githubSource}
+                <ArrowUpRight size={13} aria-hidden="true" />
+              </Link>
+            </div>
           </div>
           <div className="rp-footer-bottom">
             <p>{t.copyright}</p>
