@@ -12,8 +12,22 @@ import {
   Chip,
   addToast,
 } from "@heroui/react";
-import { ArrowRight, Eye, Plus, Search, Trash2 } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  Check,
+  Code2,
+  CreditCard,
+  Eye,
+  KeyRound,
+  Plus,
+  Search,
+  Trash2,
+  Wallet,
+  Waypoints,
+} from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { consoleEn as c } from "@/i18n/console-en";
 import { api, count, date, dollars, money } from "@/lib/api";
 import type { AccessKey, Order, RequestLog } from "@/lib/types";
 import { useConsole } from "./console-provider";
@@ -59,6 +73,13 @@ export function RequestTable({
               {row.id.slice(0, 14)}
             </p>
           </div>,
+          ...(state.user.operator && !short
+            ? [
+                state.customers?.find(
+                  (customer) => customer.id === row.tenant_id,
+                )?.name || row.tenant_id,
+              ]
+            : []),
           <Chip
             key="status"
             size="sm"
@@ -160,11 +181,77 @@ export function RequestTable({
 export function Overview() {
   const { state } = useConsole();
   const sum = state.requests.reduce((n, r) => n + r.charge_micros, 0);
-  const active = state.keys.filter((k) => k.enabled).length;
-  const needsSetup =
-    state.user.operator &&
-    (!state.credentials?.length || !state.models.some((m) => m.enabled));
+  const active = state.keys.filter((key) => key.enabled).length;
+  const available = state.wallet.balance_micros - state.wallet.held_micros;
   const [docs, setDocs] = useState(false);
+  const steps = state.user.operator
+    ? [
+        {
+          title: c.hostStep,
+          body: c.hostStepBody,
+          done: !!state.endpoints?.some((host) => host.enabled),
+          href: "/app/upstreams",
+        },
+        {
+          title: c.credentialStep,
+          body: c.credentialStepBody,
+          done: !!state.credentials?.some((credential) => credential.enabled),
+          href: "/app/upstreams",
+        },
+        {
+          title: c.modelStep,
+          body: c.modelStepBody,
+          done: state.models.some((model) => model.enabled),
+          href: "/app/models",
+        },
+      ]
+    : [
+        {
+          title: c.keyStep,
+          body: c.keyStepBody,
+          done: active > 0,
+          href: "/app/keys",
+        },
+        {
+          title: c.balanceStep,
+          body: c.balanceStepBody,
+          done: available > 0,
+          href: "/app/billing",
+        },
+        {
+          title: c.requestStep,
+          body: c.requestStepBody,
+          done: state.requests.length > 0,
+          href: "/app/usage",
+        },
+      ];
+  const completedSteps = steps.filter((step) => step.done).length;
+  const metrics = [
+    {
+      label: t.balance,
+      value: money(available),
+      help: t.walletHelp,
+      icon: Wallet,
+    },
+    {
+      label: t.spend,
+      value: money(sum, true),
+      help: t.spendHelp,
+      icon: CreditCard,
+    },
+    {
+      label: t.requests,
+      value: count(state.requests.length),
+      help: t.requestsHelp,
+      icon: Activity,
+    },
+    {
+      label: t.keyCount,
+      value: count(active),
+      help: state.project.name,
+      icon: KeyRound,
+    },
+  ];
   return (
     <>
       <PageHeader
@@ -176,69 +263,120 @@ export function Overview() {
           </Button>
         }
       />
-      <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          {
-            label: t.balance,
-            value: money(
-              state.wallet.balance_micros - state.wallet.held_micros,
-            ),
-            help: t.walletHelp,
-          },
-          { label: t.spend, value: money(sum, true), help: t.spendHelp },
-          {
-            label: t.requests,
-            value: count(state.requests.length),
-            help: t.requestsHelp,
-          },
-          { label: t.keyCount, value: count(active), help: state.project.name },
-        ].map((metric) => (
-          <div
-            className="rounded-xl border border-default-200 p-5"
-            key={metric.label}
-          >
-            <p className="text-xs text-default-500">{metric.label}</p>
-            <p className="mt-3 text-2xl font-semibold tabular-nums tracking-tight">
-              {metric.value}
-            </p>
-            <p className="mt-3 text-[11px] leading-5 text-default-400">
-              {metric.help}
-            </p>
+      <div className="rp-console-metrics">
+        {metrics.map((metric) => (
+          <div className="rp-console-metric" key={metric.label}>
+            <div className="rp-console-metric-label">
+              <span>{metric.label}</span>
+              <metric.icon size={16} strokeWidth={1.6} />
+            </div>
+            <p className="rp-console-metric-value">{metric.value}</p>
+            <p className="rp-console-metric-help">{metric.help}</p>
           </div>
         ))}
       </div>
-      {(needsSetup || state.requests.length === 0) && (
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-6 rounded-xl border border-default-200 bg-default-50 p-6">
-          <div>
-            <h2 className="font-medium">
-              {needsSetup ? t.setupOperator : t.readyTitle}
-            </h2>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-default-500">
-              {needsSetup ? t.setupOperatorBody : t.readyBody}
+      {completedSteps < steps.length && (
+        <section className="rp-console-setup">
+          <div className="rp-console-setup-intro">
+            <p className="rp-console-eyebrow">{c.setupEyebrow}</p>
+            <h2>{c.setupTitle}</h2>
+            <p className="rp-console-setup-description">
+              {state.user.operator ? c.setupBody : c.customerSetupBody}
             </p>
+            <div className="rp-console-setup-progress">
+              <div
+                className="rp-console-setup-progress-track"
+                aria-hidden="true"
+              >
+                {steps.map((step) => (
+                  <span
+                    key={step.title}
+                    className={step.done ? "is-complete" : ""}
+                  />
+                ))}
+              </div>
+              <span>
+                {completedSteps} / {steps.length} {c.setupProgress}
+              </span>
+            </div>
+          </div>
+          <div className="rp-console-setup-steps">
+            {steps.map((step, index) => (
+              <Link
+                key={step.title}
+                href={step.href}
+                className={`rp-console-setup-step ${step.done ? "is-complete" : ""}`}
+              >
+                <span
+                  className="rp-console-step-index"
+                  aria-label={step.done ? c.complete : c.pending}
+                >
+                  {step.done ? (
+                    <Check size={15} />
+                  ) : (
+                    String(index + 1).padStart(2, "0")
+                  )}
+                </span>
+                <div>
+                  <p>{step.title}</p>
+                  <span>{step.body}</span>
+                </div>
+                <ArrowRight size={16} strokeWidth={1.6} />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+      <div className="rp-console-overview-grid">
+        <section className="min-w-0">
+          <div className="rp-console-section-heading">
+            <div>
+              <h2>{t.recentRequests}</h2>
+              <p>{c.recentActivity}</p>
+            </div>
+            <Button as={Link} href="/app/usage" variant="light" size="sm">
+              {t.seeAll}
+            </Button>
+          </div>
+          <RequestTable requests={state.requests.slice(0, 6)} short />
+        </section>
+        <aside className="rp-console-developer-panel">
+          <div className="rp-console-resource-icon">
+            <Code2 size={20} strokeWidth={1.6} />
+          </div>
+          <p className="rp-console-eyebrow">{c.developerResources}</p>
+          <h2>{c.endpointTitle}</h2>
+          <p className="rp-console-panel-description">{c.endpointBody}</p>
+          <div className="rp-console-endpoint-list">
+            {[
+              { label: t.openai, value: "https://relaypine.com/openai/v1" },
+              { label: t.anthropic, value: "https://relaypine.com/anthropic" },
+            ].map((endpoint) => (
+              <div className="rp-console-endpoint" key={endpoint.label}>
+                <div>
+                  <span>{endpoint.label}</span>
+                  <CopyButton value={endpoint.value} />
+                </div>
+                <code>{endpoint.value}</code>
+              </div>
+            ))}
           </div>
           <Button
-            as={Link}
-            href={needsSetup ? "/app/upstreams" : "/app/billing"}
+            className="w-full"
             variant="bordered"
-            endContent={<ArrowRight size={16} />}
+            onPress={() => setDocs(true)}
+            endContent={<ArrowRight size={15} />}
           >
-            {needsSetup ? t.addUpstream : t.topUp}
+            {t.integration}
           </Button>
-        </div>
-      )}
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-medium">{t.recentRequests}</h2>
-        <Button as={Link} href="/app/usage" variant="light" size="sm">
-          {t.seeAll}
-        </Button>
-      </div>
-      <RequestTable requests={state.requests.slice(0, 6)} short />
-      <div className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-default-100 pt-5">
-        <span className="text-sm text-default-500">{t.nativeTitle}</span>
-        <Button variant="light" size="sm" onPress={() => setDocs(true)}>
-          {t.integration}
-        </Button>
+          <div className="rp-console-model-count">
+            <Waypoints size={15} strokeWidth={1.6} />
+            <span>{c.availableModels}</span>
+            <strong>
+              {count(state.models.filter((model) => model.enabled).length)}
+            </strong>
+          </div>
+        </aside>
       </div>
       {docs && <Integration onClose={() => setDocs(false)} />}
     </>
@@ -423,7 +561,7 @@ export function Usage() {
         isClearable
         onClear={() => setSearch("")}
         startContent={<Search size={17} className="text-default-400" />}
-        className="mb-5 max-w-md"
+        className="rp-console-search max-w-md"
       />
       {search && !rows.length ? (
         <Empty
@@ -472,40 +610,52 @@ export function Billing() {
           {notice === "cancelled" ? t.paymentCancelled : t.paymentReturn}
         </div>
       )}
-      <div className="mb-8 grid gap-4 md:grid-cols-[1fr_1.4fr]">
-        <div className="rounded-xl border border-default-200 p-6">
-          <p className="text-sm text-default-500">{t.balance}</p>
-          <p className="mt-4 text-4xl font-semibold tabular-nums tracking-tight">
+      <div className="rp-console-billing-summary">
+        <section className="rp-console-wallet">
+          <div className="rp-console-wallet-heading">
+            <span className="rp-console-eyebrow">{c.billingEyebrow}</span>
+            <span className="rp-console-currency">{c.currency}</span>
+          </div>
+          <p className="rp-console-wallet-label">{t.balance}</p>
+          <p className="rp-console-wallet-value">
             {money(state.wallet.balance_micros - state.wallet.held_micros)}
           </p>
-          <p className="mt-5 text-xs text-default-500">
-            {t.held}: {money(state.wallet.held_micros)}
-          </p>
-          <p className="mt-2 text-xs leading-5 text-default-400">
-            {t.billingHold}
-          </p>
-        </div>
-        <div className="flex flex-col justify-center rounded-xl border border-default-200 p-6">
-          <h2 className="font-medium">
-            {state.payments_enabled ? t.topUpTitle : t.paymentUnavailable}
-          </h2>
-          <p className="mt-3 text-sm leading-7 text-default-500">
+          <div className="rp-console-wallet-reserved">
+            <div>
+              <span>{t.held}</span>
+              <strong>{money(state.wallet.held_micros)}</strong>
+            </div>
+            <p>{t.billingHold}</p>
+          </div>
+        </section>
+        <section className="rp-console-payment-setup">
+          <div className="rp-console-payment-icon">
+            <CreditCard size={22} strokeWidth={1.5} />
+          </div>
+          <p className="rp-console-eyebrow">{c.paymentMethod}</p>
+          <h2>{state.payments_enabled ? c.stripe : t.paymentUnavailable}</h2>
+          <p>
             {state.payments_enabled
               ? t.topUpDescription
               : t.paymentUnavailableBody}
           </p>
-          {state.payments_enabled && (
+          {state.payments_enabled ? (
             <Button
-              className="mt-5 self-start"
               variant="bordered"
               onPress={() => setFund(true)}
+              endContent={<ArrowRight size={15} />}
             >
               {t.topUp}
             </Button>
+          ) : (
+            <span className="rp-console-payment-status">
+              <span />
+              {c.paymentSetup}
+            </span>
           )}
-        </div>
+        </section>
       </div>
-      <h2 className="mb-4 font-medium">{t.payments}</h2>
+      <h2 className="rp-console-table-title">{t.payments}</h2>
       <DataTable
         caption={t.payments}
         columns={[
@@ -557,7 +707,9 @@ export function Billing() {
         ])}
         empty={<Empty title={t.noPayments} body={t.noPaymentsBody} />}
       />
-      <h2 className="mb-4 mt-8 font-medium">{t.ledger}</h2>
+      <h2 className="rp-console-table-title rp-console-table-title-spaced">
+        {t.ledger}
+      </h2>
       <DataTable
         caption={t.ledger}
         columns={[t.entryType, t.amount, t.reason, t.reference, t.date]}
@@ -644,7 +796,7 @@ export function Customers() {
         value={search}
         onValueChange={setSearch}
         startContent={<Search size={16} />}
-        className="mb-5 max-w-md"
+        className="rp-console-search max-w-md"
       />
       <DataTable
         caption={t.customers}

@@ -21,9 +21,9 @@ export function Brand() {
   return (
     <Link
       href="/"
-      className="inline-flex items-center gap-2.5 text-lg font-semibold tracking-tight"
+      className="rp-brand inline-flex items-center gap-2.5 text-lg font-semibold tracking-tight"
     >
-      <span className="flex size-8 items-center justify-center rounded-lg bg-foreground text-background">
+      <span className="rp-brand-mark flex size-8 items-center justify-center rounded-lg bg-foreground text-background">
         <TreePine size={20} strokeWidth={1.7} />
       </span>
       {t.brand}
@@ -122,8 +122,10 @@ export function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-60 flex-col items-center justify-center px-5 py-10 text-center">
-      <Inbox className="mb-4 size-10 text-default-400" strokeWidth={1.3} />
+    <div className="rp-empty flex min-h-60 flex-col items-center justify-center px-5 py-10 text-center">
+      <div className="rp-empty-icon">
+        <Inbox className="size-7" strokeWidth={1.25} />
+      </div>
       <h3 className="font-medium">{title}</h3>
       <p className="mt-2 max-w-md text-sm leading-6 text-default-500">{body}</p>
       {action && <div className="mt-5">{action}</div>}
@@ -167,9 +169,11 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
+    <div className="rp-page-header mb-8 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-[30px] font-medium tracking-[-.035em] sm:text-[34px]">
+          {title}
+        </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-default-500">
           {description}
         </p>
@@ -190,9 +194,14 @@ export function DataTable({
   caption: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-default-200">
+    <div className="rp-data-table overflow-hidden rounded-xl border border-default-200">
       {rows.length ? (
-        <div className="max-h-[62vh] overflow-auto">
+        <div
+          className="max-h-[62vh] overflow-auto"
+          tabIndex={0}
+          role="region"
+          aria-label={caption}
+        >
           <table className="route-table w-full text-sm">
             <caption className="sr-only">{caption}</caption>
             <thead className="bg-default-50 text-xs text-default-500">
@@ -245,7 +254,10 @@ export function Confirm({
       isDismissable={!busy}
       size="md"
       scrollBehavior="inside"
-      classNames={{ base: "max-h-[85dvh]" }}
+      classNames={{
+        base: "rp-modal max-h-[85dvh]",
+        backdrop: "bg-[#0c2117]/25 backdrop-blur-sm",
+      }}
     >
       <ModalContent>
         <ModalHeader>{title}</ModalHeader>
@@ -280,15 +292,70 @@ export function Confirm({
     </Modal>
   );
 }
-export function CodeBlock({ code, label }: { code: string; label: string }) {
+function HighlightLine({ line }: { line: string }) {
+  const pieces = line.split(
+    /("[^"\n]*"|'[^'\n]*'|\b(?:import|from|const|await|new|process|env)\b|\b\d+\b)/g,
+  );
   return (
-    <div className="overflow-hidden rounded-xl border border-default-200 bg-default-50">
-      <div className="flex items-center justify-between border-b border-default-200 px-4 text-xs text-default-500">
-        <span>{label}</span>
+    <>
+      {pieces.map((piece, i) => (
+        <span
+          key={i}
+          className={
+            /^["']/.test(piece)
+              ? "rp-syntax-string"
+              : /^(import|from|const|await|new)$/.test(piece)
+                ? "rp-syntax-keyword"
+                : /^(process|env)$/.test(piece)
+                  ? "rp-syntax-variable"
+                  : /^\d+$/.test(piece)
+                    ? "rp-syntax-number"
+                    : undefined
+          }
+        >
+          {piece}
+        </span>
+      ))}
+    </>
+  );
+}
+export function CodeBlock({
+  code,
+  label,
+  tone = "default",
+}: {
+  code: string;
+  label: string;
+  tone?: "default" | "ink";
+}) {
+  return (
+    <div className={`rp-code ${tone === "ink" ? "rp-code-ink" : ""}`}>
+      <div className="rp-code-toolbar">
+        <span className="rp-code-file">
+          <span aria-hidden="true">{"{ }"}</span>
+          {label}
+        </span>
         <CopyButton value={code} />
       </div>
-      <pre className="overflow-x-auto p-5 text-xs leading-7 text-default-700">
-        <code>{code}</code>
+      <pre
+        className="rp-code-body"
+        tabIndex={0}
+        role="region"
+        aria-label={label}
+      >
+        <code>
+          {code.split("\n").map((line, i) => (
+            <span className="rp-code-line" key={i}>
+              <span className="rp-line-number" aria-hidden="true">
+                {i + 1}
+              </span>
+              <span>
+                <HighlightLine line={line} />
+                {i < code.split("\n").length - 1 ? "\n" : ""}
+              </span>
+            </span>
+          ))}
+        </code>
       </pre>
     </div>
   );

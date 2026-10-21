@@ -14,6 +14,7 @@ import {
 import {
   Activity,
   ArrowUpRight,
+  ChevronRight,
   Coins,
   GitBranch,
   KeyRound,
@@ -23,10 +24,12 @@ import {
   Network,
   RefreshCw,
   Server,
+  ShieldCheck,
   Users,
   Waypoints,
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { consoleEn as c } from "@/i18n/console-en";
 import { api, errorMessage } from "@/lib/api";
 import { Brand, ThemeToggle } from "./shared";
 import { useConsole } from "./console-provider";
@@ -49,66 +52,70 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [menu, setMenu] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const isActive = (id: string) =>
+    id ? path.startsWith(`/app/${id}`) : path === "/app";
   const title =
-    [...customerNav, ...operatorNav].find(
-      (item) => path === "/app" + (item.id ? "/" + item.id : ""),
-    )?.label || t.overview;
+    [...customerNav, ...operatorNav].find((item) => isActive(item.id))?.label ||
+    t.overview;
+  const initials = state.user.name
+    .split(" ")
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  const navItems = (items: typeof customerNav) =>
+    items.map((item) => (
+      <Button
+        key={item.id}
+        as={Link}
+        href={`/app${item.id ? `/${item.id}` : ""}`}
+        onPress={() => setMenu(false)}
+        variant="light"
+        aria-current={isActive(item.id) ? "page" : undefined}
+        className={`rp-console-nav-item ${isActive(item.id) ? "is-active" : ""}`}
+        startContent={<item.icon size={17} strokeWidth={1.65} />}
+      >
+        <span>{item.label}</span>
+        {isActive(item.id) && (
+          <span className="rp-console-nav-indicator" aria-hidden="true" />
+        )}
+      </Button>
+    ));
   const nav = (
-    <div className="flex h-full flex-col">
-      <div className="mb-7 rounded-lg border border-default-200 px-3 py-3">
-        <p className="truncate text-sm font-medium">{state.tenant.name}</p>
-        <p className="mt-1 text-xs text-default-500">
-          {state.user.operator ? t.operator : t.member}
-        </p>
+    <div className="rp-console-navigation">
+      <div className="rp-console-workspace">
+        <div className="rp-console-workspace-monogram" aria-hidden="true">
+          {state.tenant.name.charAt(0).toUpperCase()}
+        </div>
+        <div className="min-w-0">
+          <p>{state.tenant.name}</p>
+          <span>{state.user.operator ? t.operator : c.personalWorkspace}</span>
+        </div>
       </div>
-      <nav aria-label={t.workspace} className="space-y-1">
-        {customerNav.map((item) => (
-          <Button
-            key={item.id}
-            as={Link}
-            href={`/app${item.id ? `/${item.id}` : ""}`}
-            onPress={() => setMenu(false)}
-            variant={
-              path === `/app${item.id ? `/${item.id}` : ""}` ? "flat" : "light"
-            }
-            className={`w-full justify-start ${path === `/app${item.id ? `/${item.id}` : ""}` ? "font-semibold" : "text-default-600"}`}
-            startContent={<item.icon size={17} strokeWidth={1.6} />}
-          >
-            {item.label}
-          </Button>
-        ))}
-      </nav>
+      <p className="rp-console-nav-label">{c.workspaceNavigation}</p>
+      <nav aria-label={t.workspace}>{navItems(customerNav)}</nav>
       {state.user.operator && (
         <>
-          <p className="mb-3 mt-9 px-3 text-[11px] font-medium uppercase tracking-wider text-default-400">
+          <p className="rp-console-nav-label rp-console-operations-label">
             {t.operations}
           </p>
-          <nav aria-label={t.operations} className="space-y-1">
-            {operatorNav.map((item) => (
-              <Button
-                key={item.id}
-                as={Link}
-                href={`/app/${item.id}`}
-                onPress={() => setMenu(false)}
-                variant={path.startsWith(`/app/${item.id}`) ? "flat" : "light"}
-                className="w-full justify-start text-default-600"
-                startContent={<item.icon size={17} strokeWidth={1.6} />}
-              >
-                {item.label}
-              </Button>
-            ))}
-          </nav>
+          <nav aria-label={t.operations}>{navItems(operatorNav)}</nav>
         </>
       )}
-      <div className="mt-auto border-t border-default-200 pt-5">
-        <p className="truncate px-3 text-sm">{state.user.name}</p>
-        <p className="mt-1 truncate px-3 text-xs text-default-500">
-          {state.user.email}
-        </p>
+      <div className="rp-console-account">
+        <div className="rp-console-user-row">
+          <span className="rp-console-avatar" aria-hidden="true">
+            {initials}
+          </span>
+          <div className="min-w-0">
+            <p>{state.user.name}</p>
+            <span>{state.user.email}</span>
+          </div>
+        </div>
         <Button
-          className="mt-3 w-full justify-start text-default-500"
+          className="rp-console-signout"
           variant="light"
-          startContent={<LogOut size={16} />}
+          startContent={<LogOut size={16} strokeWidth={1.7} />}
           isLoading={loggingOut}
           onPress={async () => {
             setLoggingOut(true);
@@ -127,67 +134,75 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     </div>
   );
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
-      <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-default-200 px-4 sm:px-7">
-        <div className="flex items-center gap-3">
-          <Button
-            isIconOnly
-            className="lg:hidden"
-            variant="light"
-            aria-label={t.menu}
-            onPress={() => setMenu(true)}
-          >
-            <Menu size={20} />
-          </Button>
+    <div className="rp-console-shell">
+      <aside className="rp-console-sidebar">
+        <div className="rp-console-brand">
           <Brand />
-          <span className="mx-3 hidden text-default-300 sm:block">/</span>
-          <span className="hidden text-sm text-default-500 sm:block">
-            {t.workspace}
-          </span>
         </div>
-        <div className="flex items-center gap-1">
-          <Tooltip content={t.refresh}>
+        <div className="rp-console-sidebar-inner">{nav}</div>
+      </aside>
+      <div className="rp-console-main">
+        <header className="rp-console-topbar">
+          <div className="rp-console-breadcrumb">
             <Button
               isIconOnly
+              className="lg:hidden"
               variant="light"
-              aria-label={t.refresh}
-              isLoading={refreshing}
-              onPress={() => void refresh()}
+              aria-label={t.menu}
+              onPress={() => setMenu(true)}
             >
-              <RefreshCw size={16} />
+              <Menu size={20} />
             </Button>
-          </Tooltip>
-          <ThemeToggle />
-          <Tooltip content={t.home}>
-            <Button
-              isIconOnly
-              as={Link}
-              href="/"
-              variant="light"
-              aria-label={t.home}
-            >
-              <ArrowUpRight size={17} />
-            </Button>
-          </Tooltip>
-        </div>
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-default-200 p-5 lg:block">
-          {nav}
-        </aside>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-12 shrink-0 items-center border-b border-default-100 px-6 text-xs text-default-500">
-            {state.project.name}
-            <span className="mx-2 text-default-300">/</span>
-            <span className="text-foreground">{title}</span>
+            <span className="rp-console-mobile-brand">
+              <Brand />
+            </span>
+            <span className="rp-console-project">{state.project.name}</span>
+            <ChevronRight
+              className="rp-console-breadcrumb-divider"
+              size={14}
+              strokeWidth={1.6}
+            />
+            <span className="rp-console-current-page">{title}</span>
           </div>
-          <main className="flex-1 overflow-y-auto px-5 py-7 sm:px-8">
-            <div className="mx-auto max-w-7xl">{children}</div>
-          </main>
-          <footer className="shrink-0 border-t border-default-100 px-6 py-3 text-[11px] text-default-400">
+          <div className="rp-console-topbar-actions">
+            <Tooltip content={t.refresh}>
+              <Button
+                isIconOnly
+                variant="light"
+                aria-label={t.refresh}
+                isLoading={refreshing}
+                onPress={() => void refresh()}
+              >
+                <RefreshCw size={16} />
+              </Button>
+            </Tooltip>
+            <ThemeToggle />
+            <span className="rp-console-topbar-separator" />
+            <Tooltip content={t.home}>
+              <Button
+                isIconOnly
+                as={Link}
+                href="/"
+                variant="light"
+                aria-label={t.home}
+              >
+                <ArrowUpRight size={17} />
+              </Button>
+            </Tooltip>
+          </div>
+        </header>
+        <main className="rp-console-content" tabIndex={0} aria-label={title}>
+          <div className="rp-console-content-inner">{children}</div>
+        </main>
+        <footer className="rp-console-footer">
+          <span>
+            <ShieldCheck size={13} strokeWidth={1.65} />
             {t.privacyNote}
-          </footer>
-        </div>
+          </span>
+          <span className="rp-console-footer-brand">
+            {t.brand} <span>/</span> {c.consoleLabel}
+          </span>
+        </footer>
       </div>
       {menu && (
         <Modal
@@ -196,10 +211,13 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
           size="sm"
           placement="top"
           scrollBehavior="inside"
+          classNames={{ base: "max-h-[85dvh]" }}
         >
           <ModalContent>
-            <ModalHeader>{t.workspace}</ModalHeader>
-            <ModalBody className="min-h-[70dvh] pb-5">{nav}</ModalBody>
+            <ModalHeader>
+              <Brand />
+            </ModalHeader>
+            <ModalBody className="rp-console-mobile-menu">{nav}</ModalBody>
           </ModalContent>
         </Modal>
       )}

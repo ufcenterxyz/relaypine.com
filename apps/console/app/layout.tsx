@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "@/styles/globals.css";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: {
@@ -12,14 +14,18 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#111614" },
+    { media: "(prefers-color-scheme: dark)", color: "#101713" },
   ],
 };
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      suppressHydrationWarning
+    >
       <body className="bg-background text-foreground font-sans antialiased">
         <Providers>{children}</Providers>
       </body>

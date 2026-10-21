@@ -9,8 +9,21 @@ import {
   Radio,
   addToast,
 } from "@heroui/react";
-import { Edit3, Power, Plus, Search } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUpRight,
+  Check,
+  Edit3,
+  GitBranch,
+  Network,
+  Power,
+  Plus,
+  Search,
+  ShieldCheck,
+  SlidersHorizontal,
+} from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { consoleEn as c } from "@/i18n/console-en";
 import { api, count, dollars, errorMessage, money } from "@/lib/api";
 import type { Credential, Endpoint, Model, Proxy } from "@/lib/types";
 import { useConsole } from "./console-provider";
@@ -254,7 +267,21 @@ export function Upstreams() {
           </Button>
         }
       />
-      <h2 className="mb-4 font-medium">{t.hosts}</h2>
+      <div className="rp-console-resource-summary">
+        {[
+          { label: c.hostCount, value: state.endpoints?.length ?? 0 },
+          { label: c.credentialCount, value: state.credentials?.length ?? 0 },
+          { label: c.proxyCount, value: state.proxies?.length ?? 0 },
+        ].map((resource) => (
+          <div key={resource.label}>
+            <span>{resource.label}</span>
+            <strong>
+              {count(resource.value)} <small>{c.resourceCount}</small>
+            </strong>
+          </div>
+        ))}
+      </div>
+      <h2 className="rp-console-table-title">{t.hosts}</h2>
       <DataTable
         caption={t.hosts}
         columns={[t.name, t.provider, t.baseURL, t.status, t.actions]}
@@ -290,7 +317,7 @@ export function Upstreams() {
           />
         }
       />
-      <div className="mb-4 mt-9 flex items-center justify-between">
+      <div className="rp-console-section-heading rp-console-section-heading-spaced">
         <h2 className="font-medium">{t.credentials}</h2>
         <IconButton label={t.addCredential} onPress={() => credentialForm()}>
           <Plus size={18} />
@@ -489,9 +516,13 @@ export function Proxies() {
           />
         }
       />
-      <p className="mt-5 max-w-2xl text-sm leading-7 text-default-500">
-        {t.proxyPolicy}
-      </p>
+      <div className="rp-console-inline-note">
+        <ShieldCheck size={19} strokeWidth={1.6} />
+        <div>
+          <h2>{c.proxySafety}</h2>
+          <p>{t.proxyPolicy}</p>
+        </div>
+      </div>
       {form && <ResourceForm {...form} onClose={() => setForm(null)} />}{" "}
       {disable && (
         <Confirm
@@ -633,7 +664,7 @@ export function Models() {
           ) : undefined
         }
       />
-      <div className="mb-5 flex flex-wrap gap-3">
+      <div className="rp-console-filter-row">
         <Input
           aria-label={t.search}
           placeholder={t.search}
@@ -756,7 +787,7 @@ export function Routing() {
       <PageHeader title={t.routing} description={t.routingDescription} />
       <form
         noValidate
-        className="max-w-3xl space-y-7"
+        className="rp-console-routing-form"
         onSubmit={async (e) => {
           e.preventDefault();
           setError("");
@@ -785,65 +816,134 @@ export function Routing() {
           }
         }}
       >
-        <div className="rounded-xl border border-default-200 p-6">
-          <h2 className="mb-5 font-medium">{t.strategy}</h2>
-          <RadioGroup
-            aria-label={t.strategy}
-            value={strategy}
-            onValueChange={setStrategy}
-            classNames={{ wrapper: "gap-5" }}
-          >
+        <div className="rp-console-routing-main">
+          <section className="rp-console-routing-section">
+            <div className="rp-console-setting-header">
+              <span className="rp-console-setting-icon">
+                <SlidersHorizontal size={20} strokeWidth={1.6} />
+              </span>
+              <div>
+                <h2>{t.strategy}</h2>
+                <p>{t.routingDescription}</p>
+              </div>
+            </div>
+            <RadioGroup
+              aria-label={t.strategy}
+              value={strategy}
+              onValueChange={setStrategy}
+              classNames={{ wrapper: "rp-console-strategy-options" }}
+            >
+              {[
+                {
+                  value: "least_load",
+                  title: t.leastLoad,
+                  body: t.leastLoadBody,
+                },
+                {
+                  value: "highest_balance",
+                  title: t.highestBalance,
+                  body: t.highestBalanceBody,
+                },
+                { value: "balanced", title: t.balanced, body: t.balancedBody },
+              ].map((option) => (
+                <Radio
+                  key={option.value}
+                  value={option.value}
+                  description={option.body}
+                  classNames={{
+                    base: "rp-console-strategy-option",
+                    label: "text-sm font-medium",
+                    description: "text-xs leading-6",
+                    labelWrapper: "ml-2",
+                  }}
+                >
+                  {option.title}
+                </Radio>
+              ))}
+            </RadioGroup>
+          </section>
+          <section className="rp-console-routing-section rp-console-limits-section">
+            <div className="rp-console-setting-header">
+              <span className="rp-console-setting-icon">
+                <GitBranch size={20} strokeWidth={1.6} />
+              </span>
+              <div>
+                <h2>{t.tenantLimits}</h2>
+                <p>{c.limitsBody}</p>
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label={t.rpm}
+                type="number"
+                min={1}
+                value={rpm}
+                onValueChange={setRPM}
+              />
+              <Input
+                label={t.concurrency}
+                type="number"
+                min={1}
+                value={concurrency}
+                onValueChange={setConcurrency}
+              />
+            </div>
+          </section>
+        </div>
+        <aside className="rp-console-routing-explainer">
+          <p className="rp-console-eyebrow">{c.routingEyebrow}</p>
+          <h2>{c.routingPipeline}</h2>
+          <p className="rp-console-panel-description">
+            {c.routingPipelineBody}
+          </p>
+          <div className="rp-console-routing-flow">
             {[
               {
-                value: "least_load",
-                title: t.leastLoad,
-                body: t.leastLoadBody,
+                title: c.routingEligibility,
+                body: c.routingEligibilityBody,
+                icon: Check,
               },
               {
-                value: "highest_balance",
-                title: t.highestBalance,
-                body: t.highestBalanceBody,
+                title: c.routingSelect,
+                body: c.routingSelectBody,
+                icon: GitBranch,
               },
-              { value: "balanced", title: t.balanced, body: t.balancedBody },
-            ].map((s) => (
-              <Radio
-                key={s.value}
-                value={s.value}
-                description={s.body}
-                classNames={{
-                  label: "text-sm",
-                  description: "text-xs leading-6",
-                }}
-              >
-                {s.title}
-              </Radio>
+              {
+                title: c.routingDeliver,
+                body: c.routingDeliverBody,
+                icon: ArrowUpRight,
+              },
+            ].map((step, index) => (
+              <div key={step.title}>
+                <div className="rp-console-routing-flow-step">
+                  <span>
+                    <step.icon size={17} strokeWidth={1.6} />
+                  </span>
+                  <div>
+                    <h3>{step.title}</h3>
+                    <p>{step.body}</p>
+                  </div>
+                </div>
+                {index < 2 && (
+                  <ArrowDown
+                    className="rp-console-routing-flow-arrow"
+                    size={15}
+                  />
+                )}
+              </div>
             ))}
-          </RadioGroup>
-        </div>
-        <div className="rounded-xl border border-default-200 p-6">
-          <h2 className="mb-5 font-medium">{t.tenantLimits}</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label={t.rpm}
-              type="number"
-              min={1}
-              value={rpm}
-              onValueChange={setRPM}
-            />
-            <Input
-              label={t.concurrency}
-              type="number"
-              min={1}
-              value={concurrency}
-              onValueChange={setConcurrency}
-            />
           </div>
+          <div className="rp-console-routing-note">
+            <Network size={16} strokeWidth={1.6} />
+            <p>{t.routingNote}</p>
+          </div>
+        </aside>
+        <div className="rp-console-routing-submit">
+          {error && <ErrorBox message={error} />}
+          <Button type="submit" color="primary" isLoading={busy}>
+            {t.save}
+          </Button>
         </div>
-        <p className="text-sm leading-7 text-default-500">{t.routingNote}</p>
-        {error && <ErrorBox message={error} />}
-        <Button type="submit" color="primary" isLoading={busy}>
-          {t.save}
-        </Button>
       </form>
     </>
   );
