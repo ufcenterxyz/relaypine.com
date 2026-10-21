@@ -41,6 +41,7 @@ export interface Credential {
   id: string;
   name: string;
   endpoint_id: string;
+  workspace_id: string;
   masked_key: string;
   quota_group: string;
   proxy_id: string;

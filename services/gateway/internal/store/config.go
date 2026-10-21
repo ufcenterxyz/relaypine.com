@@ -11,6 +11,11 @@ import (
 	"relaypine.com/gateway/internal/domain"
 )
 
+var (
+	ErrInvalidWorkspaceID        = errors.New("invalid Anthropic workspace ID")
+	ErrWorkspaceProviderMismatch = errors.New("workspace selection requires an Anthropic endpoint")
+)
+
 func listConfig[T any](ctx context.Context, db *sql.DB, table string) ([]T, error) {
 	// Table is a package constant at every call site, never input from a client.
 	rows, err := db.QueryContext(ctx, "SELECT config FROM "+table+" ORDER BY id")
@@ -133,6 +138,10 @@ func (s *Store) SaveEndpoint(ctx context.Context, e domain.Endpoint) (domain.End
 	return e, dbError(err)
 }
 func (s *Store) SaveCredential(ctx context.Context, c domain.Credential) (domain.Credential, error) {
+	c.WorkspaceID = strings.TrimSpace(c.WorkspaceID)
+	if !domain.ValidAnthropicWorkspaceID(c.WorkspaceID) {
+		return c, ErrInvalidWorkspaceID
+	}
 	if c.ID == "" {
 		c.ID = newID("cred_")
 	}
@@ -144,6 +153,17 @@ func (s *Store) SaveCredential(ctx context.Context, c domain.Credential) (domain
 		return c, err
 	}
 	defer tx.Rollback()
+	var endpointRaw []byte
+	if err = tx.QueryRowContext(ctx, "SELECT config FROM endpoints WHERE id=? FOR SHARE", c.EndpointID).Scan(&endpointRaw); err != nil {
+		return c, dbError(err)
+	}
+	var endpoint domain.Endpoint
+	if err = json.Unmarshal(endpointRaw, &endpoint); err != nil {
+		return c, err
+	}
+	if c.WorkspaceID != "" && endpoint.Provider != "anthropic" {
+		return c, ErrWorkspaceProviderMismatch
+	}
 	var encrypted []byte
 	var oldRaw []byte
 	err = tx.QueryRowContext(ctx, "SELECT encrypted_secret,config,spent_micros,held_micros FROM credentials WHERE id=? FOR UPDATE", c.ID).Scan(&encrypted, &oldRaw, &c.SpentMicros, &c.HeldMicros)

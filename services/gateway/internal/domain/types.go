@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 type User struct {
 	ID           string `json:"id"`
@@ -52,6 +55,7 @@ type Credential struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
 	EndpointID     string `json:"endpoint_id"`
+	WorkspaceID    string `json:"workspace_id"`
 	Secret         string `json:"-"`
 	MaskedKey      string `json:"masked_key"`
 	QuotaGroup     string `json:"quota_group"`
@@ -65,6 +69,15 @@ type Credential struct {
 	HeldMicros     int64  `json:"held_micros"`
 	Priority       int    `json:"priority"`
 }
+
+var anthropicWorkspaceIDPattern = regexp.MustCompile(`^wrkspc_[A-Za-z0-9]+$`)
+
+// ValidAnthropicWorkspaceID validates an optional, already-trimmed workspace ID.
+// Workspace selection is explicit; an API-key prefix does not require one.
+func ValidAnthropicWorkspaceID(value string) bool {
+	return value == "" || len(value) <= 128 && anthropicWorkspaceIDPattern.MatchString(value)
+}
+
 type Proxy struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`

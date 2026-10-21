@@ -26,6 +26,8 @@ export interface Field {
   min?: number;
   options?: { key: string; label: string }[];
   section?: string;
+  visibleWhen?: (values: FormValues) => boolean;
+  validate?: (value: string) => string | undefined;
 }
 export type FormValues = Record<string, string | number | boolean>;
 export function ResourceForm({
@@ -51,6 +53,9 @@ export function ResourceForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const visibleFields = fields.filter(
+    (field) => !field.visibleWhen || field.visibleWhen(values),
+  );
   function update(key: string, value: string | boolean) {
     setValues((v) =>
       typeof value === "string" && onChange
@@ -61,7 +66,7 @@ export function ResourceForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const next: Record<string, string> = {};
-    for (const field of fields) {
+    for (const field of visibleFields) {
       const value = values[field.key];
       if (field.required && !String(value ?? "").trim())
         next[field.key] = t.required;
@@ -70,6 +75,8 @@ export function ResourceForm({
         (!Number.isFinite(Number(value)) || Number(value) < (field.min ?? 0))
       )
         next[field.key] = t.invalidNumber;
+      const message = field.validate?.(String(value ?? ""));
+      if (message) next[field.key] = message;
     }
     setErrors(next);
     if (Object.keys(next).length) return;
@@ -109,7 +116,7 @@ export function ResourceForm({
           </ModalHeader>
           <ModalBody className="gap-4 overflow-y-auto">
             {error && <ErrorBox message={error} />}{" "}
-            {fields.map((field, index) => (
+            {visibleFields.map((field, index) => (
               <div key={field.key}>
                 {field.section && (
                   <h3 className="mb-3 mt-2 text-sm font-semibold">

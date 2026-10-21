@@ -64,6 +64,7 @@ type plan struct {
 	model                     domain.Model
 	provider, path, requestID string
 	body                      []byte
+	anthropicBeta             string
 	input, output             int64
 	stream, count, resource   bool
 	binding                   *domain.Resource
@@ -294,6 +295,13 @@ func (h *Handler) models(w http.ResponseWriter, p plan, models []domain.Model) {
 }
 
 func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error {
+	if p.provider == "anthropic" {
+		beta, err := anthropicBetaHeader(r.Header)
+		if err != nil {
+			return err
+		}
+		p.anthropicBeta = beta
+	}
 	if enc := r.Header.Get("Content-Encoding"); enc != "" && enc != "identity" {
 		return errors.New("compressed request bodies are not supported")
 	}
@@ -527,6 +535,14 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 			version = "2023-06-01"
 		}
 		upstream.Header.Set("Anthropic-Version", version)
+		// Workspace scope belongs to the selected upstream credential. A client
+		// must not be able to move that credential's spend to another workspace.
+		if c.credential.WorkspaceID != "" {
+			upstream.Header.Set("Anthropic-Workspace-Id", c.credential.WorkspaceID)
+		}
+		if p.anthropicBeta != "" {
+			upstream.Header.Set("Anthropic-Beta", p.anthropicBeta)
+		}
 	}
 	if c.endpoint.AuthMode == "bearer" || p.provider == "openai" && c.endpoint.AuthMode != "x-api-key" {
 		upstream.Header.Set("Authorization", "Bearer "+c.credential.Secret)

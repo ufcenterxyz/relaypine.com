@@ -11,13 +11,16 @@ Console uses same-origin `/api/*`, proxied to Go. Auth uses HttpOnly `rp_session
 - POST `/api/keys` `{name,models:[],rpm:60}` -> `{key,secret}` secret displayed once.
 - DELETE `/api/keys/{id}` revokes tenant-owned key.
 - POST `/api/admin/endpoints` full Endpoint fields; no ID creates, with ID updates.
-- POST `/api/admin/credentials` full Credential fields plus `secret` on create/rotation. Empty secret preserves existing.
+- POST `/api/admin/credentials` full Credential fields plus `secret` on create/rotation. Empty secret preserves existing. Optional `workspace_id` is trimmed and must match `wrkspc_[A-Za-z0-9]+` within 128 ASCII characters, or be empty. A nonempty workspace is allowed only for an Anthropic endpoint. The value is returned in the administrator snapshot; raw upstream secrets are never returned.
 - POST `/api/admin/proxies` `{id?,name,url,enabled}`; empty URL preserves existing.
 - POST `/api/admin/models` full Model fields; save increments version.
 - POST `/api/admin/routing` `{strategy:"least_load"|"highest_balance"|"balanced",tenant_rpm:120,tenant_concurrency:10}`.
 - POST `/api/admin/credits` `{tenant_id,amount_micros,reason,idempotency_key}` audited adjustment, positive only.
 - Former `/api/billing/checkout`, `/api/admin/refunds`, and `/api/payments/*` routes return 404. No Stripe calls, webhook processing, or online payment capability remains. Historical payment data is retained in the database.
 - Native SDK endpoints `/openai/v1/chat/completions`, `/openai/v1/responses`, `/anthropic/v1/messages`, `/anthropic/v1/messages/count_tokens`, and each provider's `/v1/models`. Access Key Bearer (Anthropic also x-api-key). Native traffic must not use cookie auth.
+- Anthropic forwards `anthropic-version` (default `2023-06-01`) and the selected credential's nonempty `workspace_id` as `anthropic-workspace-id`. Client workspace headers never override routing configuration. Neither workspace nor beta headers are forwarded to OpenAI upstreams.
+- `anthropic-beta` accepts repeated header fields and comma-separated values, trims optional spaces/tabs, deduplicates tokens, and enforces 1024 bytes/16 tokens before deduplication. Supported flags: `task-budgets-2026-03-13`, `thinking-display-updates-2026-08-18`, `thinking-binding-controls-2026-08-01`, `interleaved-thinking-2025-05-14`, `fine-grained-tool-streaming-2025-05-14`. Unknown, malformed, or unsupported beta flags return HTTP 400 before capacity or money reservation and before an upstream call.
+- Any `fallbacks` property is rejected before reservation. Server-side fallback beta flags are also rejected; each fallback attempt can use a different model and price, which the current single-model accounting does not support. Existing standard-tier, content, tool, caching, and output-limit checks apply to beta requests too.
 
 UI routes: `/` product entry, `/app` overview, `/app/keys`, `/app/models`, `/app/usage`, `/app/billing`; operators additionally `/app/upstreams`, `/app/proxies`, `/app/routing`, `/app/waitlist`. No invented traffic or finances. Empty database has actionable setup, no demo statistics.
 

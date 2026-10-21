@@ -111,6 +111,11 @@ func parseUsage(raw json.RawMessage, provider string) (domain.Usage, bool) {
 }
 
 func validatePayload(m map[string]json.RawMessage, path string) error {
+	// A server-side retry can run another model with different permissions,
+	// limits and prices. The current reservation and settlement cover one model.
+	if _, exists := m["fallbacks"]; exists {
+		return errors.New("server-side model fallbacks are not supported; send a separate request for each authorized model")
+	}
 	for _, field := range []string{"background", "conversation", "file_ids", "attachments", "audio", "modalities", "web_search_options", "prediction", "prompt", "mcp_servers", "container", "context_management", "skills"} {
 		if v, ok := m[field]; ok && string(v) != "null" && string(v) != "false" {
 			return errors.New("unsupported unmetered capability: " + field)

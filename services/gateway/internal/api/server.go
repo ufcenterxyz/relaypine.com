@@ -91,6 +91,10 @@ func (s *Server) report(w http.ResponseWriter, err error) {
 		fail(w, 409, "insufficient_balance", "There is not enough available balance for this operation.")
 	case errors.Is(err, store.ErrConflict):
 		fail(w, 409, "conflict", "This operation conflicts with the current state.")
+	case errors.Is(err, store.ErrInvalidWorkspaceID):
+		fail(w, 400, "invalid_workspace_id", "Use a workspace ID beginning with wrkspc_ followed by letters or digits, up to 128 characters total. Leave it empty for a workspace-scoped API key.")
+	case errors.Is(err, store.ErrWorkspaceProviderMismatch):
+		fail(w, 400, "workspace_provider_mismatch", "Workspace IDs are supported only for Anthropic endpoints. Clear the workspace ID or choose an Anthropic endpoint.")
 	default:
 		fail(w, 400, "invalid_request", "The request could not be completed. Check the values and try again.")
 	}
@@ -249,6 +253,11 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 		}
 		if read(r, &v) != nil || !nameOK(v.Name) || v.EndpointID == "" || v.RPM < 1 || v.RPM > 100000 || v.TPM < 1 || v.TPM > 100000000 || v.MaxConcurrency < 1 || v.MaxConcurrency > 1000 || v.BudgetMicros < 0 || v.BudgetMicros > 1000000000000 || v.Priority < 0 || v.Priority > 1000 || !nameOK(v.QuotaGroup) || len(v.SecretValue) > 4096 {
 			fail(w, 400, "invalid_credential", "Enter a name, endpoint, quota group and valid capacity limits.")
+			return
+		}
+		v.WorkspaceID = strings.TrimSpace(v.WorkspaceID)
+		if !domain.ValidAnthropicWorkspaceID(v.WorkspaceID) {
+			s.report(w, store.ErrInvalidWorkspaceID)
 			return
 		}
 		v.Secret = v.SecretValue

@@ -215,6 +215,11 @@ export const en = {
   secret: "API secret",
   rotateSecret: "New API secret",
   preserveSecret: "Leave empty to keep the current secret.",
+  anthropicWorkspaceID: "Anthropic workspace ID",
+  anthropicWorkspaceHelp:
+    "Required for a key that is not bound to a workspace. For a workspace-bound key, leave empty or enter its matching workspace ID. This value is sent with this upstream key.",
+  invalidAnthropicWorkspace:
+    "Use a workspace ID starting with wrkspc_, followed by letters and numbers (up to 128 characters).",
   quotaGroup: "Shared quota group",
   quotaHelp: "Use the same group for keys that share an upstream rate limit.",
   proxy: "Egress proxy",

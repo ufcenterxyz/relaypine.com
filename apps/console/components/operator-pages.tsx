@@ -141,6 +141,11 @@ export function Upstreams() {
     });
   }
   function credentialForm(credential?: Credential) {
+    const isAnthropic = (endpointID: FormValues[string]) =>
+      state.endpoints?.some(
+        (endpoint) =>
+          endpoint.id === endpointID && endpoint.provider === "anthropic",
+      ) ?? false;
     setForm({
       title: credential ? t.editCredential : t.addCredential,
       fields: [
@@ -161,6 +166,19 @@ export function Upstreams() {
           type: "password",
           required: !credential,
           description: credential ? t.preserveSecret : t.protectedSecret,
+        },
+        {
+          key: "workspace_id",
+          label: t.anthropicWorkspaceID,
+          description: t.anthropicWorkspaceHelp,
+          placeholder: "wrkspc_…",
+          visibleWhen: (values) => isAnthropic(values.endpoint_id),
+          validate: (value) => {
+            const id = value.trim();
+            return id && (id.length > 128 || !/^wrkspc_[A-Za-z0-9]+$/.test(id))
+              ? t.invalidAnthropicWorkspace
+              : undefined;
+          },
         },
         {
           key: "quota_group",
@@ -200,6 +218,7 @@ export function Upstreams() {
             id: credential.id,
             name: credential.name,
             endpoint_id: credential.endpoint_id,
+            workspace_id: credential.workspace_id || "",
             quota_group: credential.quota_group,
             proxy_id: credential.proxy_id || "direct",
             secret: "",
@@ -213,6 +232,7 @@ export function Upstreams() {
         : {
             name: "",
             endpoint_id: state.endpoints?.[0]?.id ?? "",
+            workspace_id: "",
             secret: "",
             quota_group: "",
             proxy_id: "direct",
@@ -223,11 +243,16 @@ export function Upstreams() {
             priority: 0,
             enabled: true,
           },
+      onChange: (key, _value, values) =>
+        key === "endpoint_id" ? { ...values, workspace_id: "" } : values,
       onSubmit: async (values) => {
         await save("credentials", {
           ...credential,
           ...values,
           proxy_id: values.proxy_id === "direct" ? "" : values.proxy_id,
+          workspace_id: isAnthropic(values.endpoint_id)
+            ? String(values.workspace_id ?? "").trim()
+            : "",
           ...numberFields(values, [
             "rpm",
             "tpm",
@@ -342,8 +367,17 @@ export function Upstreams() {
               {credential.quota_group || t.emptyValue}
             </p>
           </div>,
-          state.endpoints?.find((e) => e.id === credential.endpoint_id)?.name ||
-            credential.endpoint_id,
+          <div key="endpoint">
+            <p>
+              {state.endpoints?.find((e) => e.id === credential.endpoint_id)
+                ?.name || credential.endpoint_id}
+            </p>
+            {credential.workspace_id && (
+              <p className="mt-1 max-w-48 break-all font-mono text-xs text-default-500">
+                {credential.workspace_id}
+              </p>
+            )}
+          </div>,
           <code key="secret" className="text-xs">
             {credential.masked_key}
           </code>,

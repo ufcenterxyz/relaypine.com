@@ -198,6 +198,11 @@ export const zh: Copy = {
   secret: "API 密钥",
   rotateSecret: "新 API 密钥",
   preserveSecret: "留空则保留现有密钥。",
+  anthropicWorkspaceID: "Anthropic 工作区 ID",
+  anthropicWorkspaceHelp:
+    "未绑定工作区的 Key 必须填写。已绑定工作区的 Key 可留空，或填写与其一致的工作区 ID。该值随这把上游 Key 一同发送。",
+  invalidAnthropicWorkspace:
+    "请填写以 wrkspc_ 开头、后接字母和数字的工作区 ID，总长度不超过 128 个字符。",
   quotaGroup: "共享额度组",
   quotaHelp: "共享上游速率限制的密钥请使用同一个组。",
   proxy: "出口代理",
