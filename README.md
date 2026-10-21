@@ -10,7 +10,7 @@ Route native API requests across multiple upstream keys, control their usage and
 
 - **Native protocols:** OpenAI Chat Completions and Responses; Anthropic Messages and token counting; JSON and SSE streaming.
 - **Multiple upstreams:** official hosts by default, plus configurable compatible hosts and authentication modes.
-- **Key discovery:** verify credentials and import available models, workspaces, and rate limits when the provider exposes them. Discovery does not run paid inference.
+- **Key discovery and batch import:** verify credentials, discover models, and publish a selection in one operation without entering rates. Workspaces and rate limits are imported when the provider exposes them. Discovery does not run paid inference.
 - **Routing:** lowest load, highest remaining local budget, or a balanced strategy, with RPM, TPM, concurrency, and shared quota groups.
 - **Per-key egress:** direct connections or an assigned SOCKS5 proxy. A failed proxy does not silently fall back to a direct connection.
 - **Usage accounting:** integer micro-USD balances, price snapshots, reservations, settlement, and separate upstream cost budgets.
@@ -59,9 +59,9 @@ Open [localhost:4810](http://localhost:4810) and sign in with the email configur
 
 1. **Upstreams:** choose the official OpenAI or Anthropic endpoint, or add a compatible host.
 2. **Credentials:** paste the upstream API key and verify it. Save the detected workspace when needed. Proxy, capacity overrides, and budgets are under advanced settings.
-3. **Models & rates:** choose **Import from upstream**, select a saved key and model, then enter your usage and upstream cost rates before publishing. Model discovery alone does not publish a model.
+3. **Models & rates:** choose **Import from upstream**, select a saved key, then select the models to import. New models are enabled in **Usage only** mode without entering rates. Existing models are skipped without changing their configuration. Model discovery alone does not publish a model.
 4. **Routing:** select the routing policy and any shared quota groups.
-5. Create an access key and record an internal credit adjustment with a reason before making a billable request. New workspaces have no credit by default.
+5. Create an access key and call an imported model. Usage-only requests do not require a RelayPine balance. For models using **Metered** pricing, enter the rates and record an internal credit adjustment with a reason before making a billable request. New workspaces have no credit by default.
 
 Published model lists are filtered by protocol, enabled state, and access-key permissions. An empty `/v1/models` response usually means there is no matching published model. No example model prices or spendable balances are seeded.
 
@@ -84,7 +84,16 @@ Anthropic workspace headers come from the saved upstream credential. Only explic
 
 Budgets are **local accounting limits**, not live provider balances. Credential discovery imports limits only when the API exposes them with the supplied key's permissions. Otherwise, it uses conservative local defaults of 60 RPM, 100,000 TPM, and 10 concurrent requests; these are not provider guarantees. Unknown keys on one endpoint share a default quota group until configured otherwise.
 
-Usage prices and upstream costs are separate. Positive input/output rates are required to enable a model; disabled drafts may have zero rates. Internal balance adjustments do not charge a payment method or add credit to an upstream provider. See [usage and budgets](docs/commercial-billing.md) for settlement behavior.
+Each model has a billing mode:
+
+| Mode | Behavior |
+| --- | --- |
+| Usage only | Records requests and token usage without RelayPine charges, money reservations, or ledger entries. Upstream cost is **not priced**, rather than reported as free. The provider still bills your account normally. |
+| Metered | Uses configured sales and upstream cost rates for balance reservations and settlement. Positive input/output rates are required to enable the model; disabled drafts may have zero rates. |
+
+Batch import defaults to **Usage only**. You can switch an individual model to **Metered** and configure its rates later. Existing models retain their pricing, and in-flight requests retain the mode and rates captured when they started.
+
+Usage-only models require an upstream credential without a local monetary budget (`budget_micros=0`), because an unknown cost cannot be checked against a dollar limit. Import does not remove existing budgets or change access-key permissions. Authentication, RPM, TPM, concurrency, output limits, and proxy rules still apply. Internal balance adjustments do not charge a payment method or add credit to an upstream provider. See [usage and budgets](docs/commercial-billing.md) for settlement behavior.
 
 ## Development
 

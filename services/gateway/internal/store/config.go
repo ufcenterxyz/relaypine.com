@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 
 	"relaypine.com/gateway/internal/domain"
@@ -14,7 +16,22 @@ import (
 var (
 	ErrInvalidWorkspaceID        = errors.New("invalid Anthropic workspace ID")
 	ErrWorkspaceProviderMismatch = errors.New("workspace selection requires an Anthropic endpoint")
+	ErrInvalidModelBatch         = errors.New("invalid model import batch")
 )
+
+const MaxModelImportItems = 400
+
+type ModelImportItemResult struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type ModelImportResult struct {
+	CreatedCount int                     `json:"created_count"`
+	SkippedCount int                     `json:"skipped_count"`
+	Results      []ModelImportItemResult `json:"results"`
+}
 
 func listConfig[T any](ctx context.Context, db *sql.DB, table string) ([]T, error) {
 	// Table is a package constant at every call site, never input from a client.
@@ -41,7 +58,11 @@ func (s *Store) ListEndpoints(ctx context.Context) ([]domain.Endpoint, error) {
 	return listConfig[domain.Endpoint](ctx, s.DB, "endpoints")
 }
 func (s *Store) ListModels(ctx context.Context) ([]domain.Model, error) {
-	return listConfig[domain.Model](ctx, s.DB, "models")
+	models, err := listConfig[domain.Model](ctx, s.DB, "models")
+	for i := range models {
+		models[i].BillingMode = models[i].EffectiveBillingMode()
+	}
+	return models, err
 }
 func (s *Store) ListCredentials(ctx context.Context) ([]domain.Credential, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT config,encrypted_secret,budget_micros,spent_micros,held_micros FROM credentials ORDER BY id")
@@ -266,16 +287,9 @@ func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly bool) 
 	if m.ID == "" {
 		m.ID = newID("model_")
 	}
-	if !validID(m.ID) || !validName(m.Name) || !validName(m.UpstreamModel) || (m.Provider != "openai" && m.Provider != "anthropic") || m.MaxOutputTokens < 1 || m.MaxOutputTokens > 1000000 {
-		return m, errors.New("invalid model configuration")
-	}
-	for _, rate := range []int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate} {
-		if rate < 0 || rate > 1000000000000 {
-			return m, errors.New("model rates outside supported range")
-		}
-	}
-	if m.Enabled && (m.InputRate <= 0 || m.OutputRate <= 0 || m.CostInputRate <= 0 || m.CostOutputRate <= 0) {
-		return m, errors.New("enabled models require positive sales and upstream input/output rates")
+	m.BillingMode = m.EffectiveBillingMode()
+	if err := validateModel(m); err != nil {
+		return m, err
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -303,6 +317,93 @@ func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly bool) 
 		return m, dbError(err)
 	}
 	return m, tx.Commit()
+}
+
+func validateModel(m domain.Model) error {
+	if !validID(m.ID) || !validName(m.Name) || !validName(m.UpstreamModel) || (m.Provider != "openai" && m.Provider != "anthropic") || m.MaxOutputTokens < 1 || m.MaxOutputTokens > 1000000 {
+		return errors.New("invalid model configuration")
+	}
+	mode := m.EffectiveBillingMode()
+	if mode != domain.BillingMetered && mode != domain.BillingUsageOnly {
+		return errors.New("unsupported model billing mode")
+	}
+	for _, rate := range []int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate} {
+		if rate < 0 || rate > 1000000000000 {
+			return errors.New("model rates outside supported range")
+		}
+		if mode == domain.BillingUsageOnly && rate != 0 {
+			return errors.New("usage-only models require all sales and upstream cost rates to be zero")
+		}
+	}
+	if mode == domain.BillingMetered && m.Enabled && (m.InputRate <= 0 || m.OutputRate <= 0 || m.CostInputRate <= 0 || m.CostOutputRate <= 0) {
+		return errors.New("enabled metered models require positive sales and upstream input/output rates")
+	}
+	return nil
+}
+
+// CreateModels imports one bounded batch without overwriting any catalog entry.
+// All values are checked before opening the transaction. Only a duplicate-key
+// error is skipped; every other failure aborts the entire batch. A retry after a
+// lost response can therefore only create missing entries, never change prices.
+func (s *Store) CreateModels(ctx context.Context, models []domain.Model) (ModelImportResult, error) {
+	if len(models) == 0 || len(models) > MaxModelImportItems {
+		return ModelImportResult{}, ErrInvalidModelBatch
+	}
+	type item struct {
+		index int
+		model domain.Model
+		raw   []byte
+	}
+	items := make([]item, len(models))
+	seen := make(map[string]bool, len(models))
+	for i, m := range models {
+		// Unlike single-item saves, import IDs must be stable across retries.
+		if m.ID == "" || seen[m.ID] {
+			return ModelImportResult{}, fmt.Errorf("%w: duplicate or missing ID at index %d", ErrInvalidModelBatch, i)
+		}
+		seen[m.ID] = true
+		m.BillingMode = m.EffectiveBillingMode()
+		if err := validateModel(m); err != nil {
+			return ModelImportResult{}, fmt.Errorf("%w: item %d: %v", ErrInvalidModelBatch, i, err)
+		}
+		m.Version = 1
+		raw, err := json.Marshal(m)
+		if err != nil {
+			return ModelImportResult{}, err
+		}
+		items[i] = item{index: i, model: m, raw: raw}
+	}
+	// Consistent lock order reduces conflicts between overlapping imports; the
+	// response is reconstructed in the submitted order.
+	sort.Slice(items, func(i, j int) bool { return items[i].model.ID < items[j].model.ID })
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return ModelImportResult{}, err
+	}
+	defer tx.Rollback()
+	statement, err := tx.PrepareContext(ctx, "INSERT INTO models(id,config,version) VALUES(?,?,?)")
+	if err != nil {
+		return ModelImportResult{}, err
+	}
+	defer statement.Close()
+	result := ModelImportResult{Results: make([]ModelImportItemResult, len(items))}
+	for _, item := range items {
+		entry := ModelImportItemResult{ID: item.model.ID, Status: "created"}
+		if _, err = statement.ExecContext(ctx, item.model.ID, item.raw, 1); err != nil {
+			if !errors.Is(dbError(err), ErrConflict) {
+				return ModelImportResult{}, err
+			}
+			entry.Status, entry.Reason = "skipped", "already_exists"
+			result.SkippedCount++
+		} else {
+			result.CreatedCount++
+		}
+		result.Results[item.index] = entry
+	}
+	if err = tx.Commit(); err != nil {
+		return ModelImportResult{}, err
+	}
+	return result, nil
 }
 func (s *Store) Routing(ctx context.Context) (domain.RouteConfig, error) {
 	var r domain.RouteConfig

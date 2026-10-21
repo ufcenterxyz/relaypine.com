@@ -28,6 +28,9 @@ func amount(u domain.Usage, input, output, cached, write int64) (int64, error) {
 	return sum.Int64(), nil
 }
 func charges(u domain.Usage, m domain.Model) (int64, int64, error) {
+	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
+		return 0, 0, nil
+	}
 	sell, err := amount(u, m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate)
 	if err != nil {
 		return 0, 0, err
@@ -36,6 +39,9 @@ func charges(u domain.Usage, m domain.Model) (int64, int64, error) {
 	return sell, cost, err
 }
 func estimate(input, output int64, m domain.Model) (int64, int64, error) {
+	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
+		return 0, 0, nil
+	}
 	u := domain.Usage{InputTokens: input, OutputTokens: output, Known: true}
 	sell, err := amount(u, max(m.InputRate, m.CachedRate, m.CacheWriteRate), m.OutputRate, 0, 0)
 	if err != nil {
@@ -43,6 +49,18 @@ func estimate(input, output int64, m domain.Model) (int64, int64, error) {
 	}
 	cost, err := amount(u, max(m.CostInputRate, m.CostCachedRate, m.CostCacheWriteRate), m.CostOutputRate, 0, 0)
 	return sell, cost, err
+}
+
+func validAccounting(m domain.Model) bool {
+	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
+		for _, rate := range []int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate} {
+			if rate != 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return m.EffectiveBillingMode() == domain.BillingMetered && m.InputRate > 0 && m.OutputRate > 0 && m.CostInputRate > 0 && m.CostOutputRate > 0 && m.CachedRate >= 0 && m.CacheWriteRate >= 0 && m.CostCachedRate >= 0 && m.CostCacheWriteRate >= 0
 }
 func integer(raw json.RawMessage) (int64, bool) {
 	var n int64

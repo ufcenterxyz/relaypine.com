@@ -195,6 +195,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	candidates, err := h.candidates(ctx, p, config)
 	if err != nil {
+		if errors.Is(err, store.ErrUntrackedCostBudget) {
+			fail(w, 402, "untracked_cost_budget", "Usage-only models cannot enforce an upstream monetary budget. Use a credential without a local monetary cap, or configure this model for metered billing.")
+			return
+		}
 		fail(w, 503, "upstream_unavailable", "No usable upstream configuration")
 		return
 	}
@@ -212,6 +216,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var chosen *candidate
 	var capacityErr error
+	var untrackedBudget bool
 	for i := range candidates {
 		c := &candidates[i]
 		// Cost is a hard eligibility condition, even when load is the ranking
@@ -243,6 +248,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 503, "limiter_unavailable", "Unable to release route capacity")
 			return
 		}
+		if errors.Is(err, store.ErrUntrackedCostBudget) {
+			untrackedBudget = true
+			continue
+		}
 		if errors.Is(err, store.ErrBudgetExceeded) {
 			continue
 		}
@@ -255,6 +264,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if capacityErr != nil {
 			w.Header().Set("Retry-After", "1")
 			fail(w, 429, "rate_limit_exceeded", "All eligible upstream capacity is in use")
+		} else if untrackedBudget {
+			fail(w, 402, "untracked_cost_budget", "Usage-only models cannot enforce an upstream monetary budget. Use a credential without a local monetary cap, or configure this model for metered billing.")
 		} else {
 			fail(w, 402, "budget_unavailable", "No eligible upstream has sufficient remaining budget")
 		}
@@ -326,7 +337,7 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if p.model.ID == "" {
 		return errors.New("model is unavailable or not allowed for this key")
 	}
-	if p.model.InputRate <= 0 || p.model.OutputRate <= 0 || p.model.CostInputRate <= 0 || p.model.CostOutputRate <= 0 || p.model.CachedRate < 0 || p.model.CacheWriteRate < 0 || p.model.CostCachedRate < 0 || p.model.CostCacheWriteRate < 0 || p.model.MaxOutputTokens <= 0 {
+	if !validAccounting(p.model) || p.model.MaxOutputTokens <= 0 {
 		return errors.New("model has no complete price and output limit configuration")
 	}
 	if err = validatePayload(m, p.path); err != nil {
@@ -409,8 +420,9 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 		return nil, err
 	}
 	result := []candidate{}
+	untrackedBudget := false
 	for _, c := range credentials {
-		if !c.Enabled || c.Secret == "" || c.BudgetMicros > 0 && (c.SpentMicros >= c.BudgetMicros || c.HeldMicros >= c.BudgetMicros-c.SpentMicros) {
+		if !c.Enabled || c.Secret == "" {
 			continue
 		}
 		if p.binding != nil && c.ID != p.binding.CredentialID {
@@ -441,6 +453,13 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 				continue
 			}
 		}
+		if p.model.EffectiveBillingMode() == domain.BillingUsageOnly && c.BudgetMicros > 0 {
+			untrackedBudget = true
+			continue
+		}
+		if c.BudgetMicros > 0 && (c.SpentMicros >= c.BudgetMicros || c.HeldMicros >= c.BudgetMicros-c.SpentMicros) {
+			continue
+		}
 		buckets := []limits{{"tenant:" + p.key.TenantID, config.TenantRPM, 0, config.TenantConcurrency}, {"access:" + p.key.ID, p.key.RPM, 0, 0}, {"credential:" + c.ID, c.RPM, c.TPM, c.MaxConcurrency}}
 		if c.QuotaGroup != "" {
 			buckets = append(buckets, groupLimits(c, credentials))
@@ -454,6 +473,9 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 			balance = c.BudgetMicros - c.SpentMicros - c.HeldMicros
 		}
 		result = append(result, candidate{c, endpoint, proxyURL, buckets, load, balance})
+	}
+	if len(result) == 0 && untrackedBudget {
+		return nil, store.ErrUntrackedCostBudget
 	}
 	// Balanced strategy accounts for normalized load and the remaining budget
 	// fraction; priority is a stable tie-breaker, never an override of capacity.
@@ -666,6 +688,12 @@ func (h *Handler) saveResource(ctx context.Context, p plan, c candidate, id stri
 	return h.repo.SaveResource(ctx, domain.Resource{ID: id, TenantID: p.key.TenantID, ProjectID: p.key.ProjectID, CredentialID: c.credential.ID, EndpointID: c.endpoint.ID, Model: p.model.ID, InputTokens: p.input + p.output})
 }
 func (h *Handler) price(s *domain.Settlement, m domain.Model) {
+	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
+		// Token evidence is independent from pricing. Unknown cost must not
+		// erase verified usage or become a synthetic free monetary settlement.
+		s.ChargeMicros, s.CostMicros = 0, 0
+		return
+	}
 	if !s.Usage.Known {
 		return
 	}

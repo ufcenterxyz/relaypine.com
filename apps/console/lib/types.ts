@@ -66,6 +66,7 @@ export interface Model {
   provider: string;
   upstream_model: string;
   enabled: boolean;
+  billing_mode?: "metered" | "usage_only";
   input_rate: number;
   output_rate: number;
   cached_rate: number;
@@ -86,6 +87,8 @@ export interface RequestLog {
   provider: string;
   model: string;
   status: string;
+  billing_mode?: "metered" | "usage_only";
+  cost_status?: "untracked" | "recorded" | "pending";
   usage: {
     input_tokens: number;
     output_tokens: number;

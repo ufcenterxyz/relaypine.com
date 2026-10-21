@@ -16,7 +16,7 @@ export const consoleEn = {
   credentialStep: "Add an upstream key",
   credentialStepBody: "Set its capacity, budget, and egress",
   modelStep: "Publish your first model",
-  modelStepBody: "Define your model ID and usage rates",
+  modelStepBody: "Import models or configure rates manually",
   keyStep: "Create an API key",
   keyStepBody: "Keep access separate for every application",
   requestStep: "Send your first request",

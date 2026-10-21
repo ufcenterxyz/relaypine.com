@@ -44,6 +44,20 @@ import {
 } from "./shared";
 import { ResourceForm, type Field } from "./resource-form";
 import { Integration } from "./marketing";
+const requestCharge = (request: RequestLog) =>
+  request.billing_mode === "usage_only"
+    ? t.noRelayCharge
+    : money(request.charge_micros, true);
+const requestCost = (request: RequestLog) =>
+  request.cost_status === "untracked" || request.billing_mode === "usage_only"
+    ? t.notPriced
+    : request.cost_status === "pending"
+      ? t.costPending
+      : request.cost_status === "recorded"
+        ? money(request.cost_micros ?? 0, true)
+      : request.cost_micros !== undefined
+        ? money(request.cost_micros, true)
+        : t.emptyValue;
 export function RequestTable({
   requests,
   short = false,
@@ -73,6 +87,9 @@ export function RequestTable({
             <p className="mt-1 text-[11px] text-default-400">
               {row.id.slice(0, 14)}
             </p>
+            {row.billing_mode === "usage_only" && (
+              <p className="mt-1 text-xs text-default-500">{t.modelUsageOnly}</p>
+            )}
           </div>,
           ...(state.user.operator && !short
             ? [
@@ -99,7 +116,7 @@ export function RequestTable({
             {count(row.usage.input_tokens + row.usage.output_tokens)}
           </span>,
           <span key="charge" className="font-mono text-xs">
-            {money(row.charge_micros, true)}
+            {requestCharge(row)}
           </span>,
           ...(short
             ? []
@@ -147,12 +164,14 @@ export function RequestTable({
                   [t.model, detail.model],
                   [t.provider, detail.provider],
                   [t.status, detail.status],
+                  [t.modelBillingMode, detail.billing_mode === "usage_only" ? t.modelUsageOnly : t.modelMetered],
                   [t.inputTokens, count(detail.usage.input_tokens)],
                   [t.outputTokens, count(detail.usage.output_tokens)],
                   [t.cachedTokens, count(detail.usage.cached_tokens)],
                   [t.cacheWriteTokens, count(detail.usage.cache_write_tokens)],
                   [t.usageKnown, detail.usage.known ? t.yes : t.no],
-                  [t.charge, money(detail.charge_micros, true)],
+                  [t.charge, requestCharge(detail)],
+                  ...(state.user.operator ? [[t.cost, requestCost(detail)]] : []),
                   [t.held, money(detail.reserved_micros, true)],
                   [t.latency, `${count(detail.latency_ms)} ms`],
                   [t.key, detail.access_key_id],
@@ -172,6 +191,9 @@ export function RequestTable({
                     </div>
                   ))}
               </dl>
+              {detail.billing_mode === "usage_only" && (
+                <p className="mt-4 text-xs leading-5 text-default-500">{t.modelUsageOnlyHelp}</p>
+              )}
             </ModalBody>
           </ModalContent>
         </Modal>
@@ -255,6 +277,9 @@ export function Overview() {
           </div>
         ))}
       </div>
+      {state.models.some((model) => model.enabled && model.billing_mode === "usage_only") && (
+        <p className="mb-6 text-sm leading-6 text-default-500">{t.usageOnlyBalanceHelp}</p>
+      )}
       {completedSteps < steps.length && (
         <section className="rp-console-setup">
           <div className="rp-console-setup-intro">
@@ -590,6 +615,7 @@ export function Billing() {
           <p className="rp-console-eyebrow">{w.internalLabel}</p>
           <h2>{w.internalTitle}</h2>
           <p>{w.internalBody}</p>
+          <p>{t.usageOnlyBalanceHelp} {t.modelUsageOnlyHelp}</p>
           <Button
             as={Link}
             href="/app/usage"

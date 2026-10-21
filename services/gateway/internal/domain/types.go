@@ -85,12 +85,19 @@ type Proxy struct {
 	MaskedURL string `json:"masked_url"`
 	Enabled   bool   `json:"enabled"`
 }
+
+const (
+	BillingMetered   = "metered"
+	BillingUsageOnly = "usage_only"
+)
+
 type Model struct {
 	ID                 string `json:"id"`
 	Name               string `json:"name"`
 	Provider           string `json:"provider"`
 	UpstreamModel      string `json:"upstream_model"`
 	Enabled            bool   `json:"enabled"`
+	BillingMode        string `json:"billing_mode"`
 	InputRate          int64  `json:"input_rate"`
 	OutputRate         int64  `json:"output_rate"`
 	CachedRate         int64  `json:"cached_rate"`
@@ -101,6 +108,15 @@ type Model struct {
 	CostCacheWriteRate int64  `json:"cost_cache_write_rate"`
 	MaxOutputTokens    int    `json:"max_output_tokens"`
 	Version            int    `json:"version"`
+}
+
+// EffectiveBillingMode preserves the monetary policy of models and immutable
+// request snapshots written before explicit billing modes were introduced.
+func (m Model) EffectiveBillingMode() string {
+	if m.BillingMode == "" {
+		return BillingMetered
+	}
+	return m.BillingMode
 }
 
 // Rates are micro-USD per one million tokens. Amounts are micro-USD.
@@ -121,6 +137,8 @@ type Request struct {
 	Model          string    `json:"model"`
 	Status         string    `json:"status"`
 	Usage          Usage     `json:"usage"`
+	BillingMode    string    `json:"billing_mode"`
+	CostStatus     string    `json:"cost_status"`
 	ChargeMicros   int64     `json:"charge_micros"`
 	CostMicros     int64     `json:"cost_micros,omitempty"`
 	ReservedMicros int64     `json:"reserved_micros"`

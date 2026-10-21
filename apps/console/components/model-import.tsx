@@ -4,23 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Button,
-  Chip,
   Input,
   Modal,
   ModalBody,
   ModalContent,
   ModalFooter,
   ModalHeader,
-  Radio,
-  RadioGroup,
   Select,
   SelectItem,
+  addToast,
 } from "@heroui/react";
-import { Search } from "lucide-react";
 import { en as t } from "@/i18n/en";
 import { api, count, errorMessage } from "@/lib/api";
 import type { Credential, Endpoint, Model } from "@/lib/types";
 import { ErrorBox } from "./shared";
+import { ModelImportSelection, type ModelImportOption } from "./model-import-selection";
 
 interface DiscoveredModel {
   id: string;
@@ -75,26 +73,41 @@ function validDiscovery(value: unknown): value is Discovery {
   );
 }
 
-export interface ImportedModelDraft {
-  id: string;
-  name: string;
-  provider: string;
-  upstream_model: string;
-  max_output_tokens: number;
+interface ImportReceipt {
+  created_count: number;
+  skipped_count: number;
+  results: { id: string; status: "created" | "skipped"; reason?: string }[];
 }
+function validReceipt(value: unknown, ids: string[]): value is ImportReceipt {
+  if (!value || typeof value !== "object") return false;
+  const data = value as ImportReceipt;
+  if (!Number.isInteger(data.created_count) || !Number.isInteger(data.skipped_count) ||
+      data.created_count < 0 || data.skipped_count < 0 || !Array.isArray(data.results)) return false;
+  const requested = new Set(ids);
+  return data.results.length === requested.size &&
+    data.results.every((item) => item && requested.has(item.id) &&
+      (item.status === "created" || item.status === "skipped")) &&
+    new Set(data.results.map((item) => item.id)).size === requested.size &&
+    data.results.filter((item) => item.status === "created").length === data.created_count &&
+    data.results.filter((item) => item.status === "skipped").length === data.skipped_count;
+}
+const byteLength = (value: string) => new TextEncoder().encode(value).length;
+const importSummary = (receipt: ImportReceipt) => t.modelImportSummary
+  .replace("{created}", count(receipt.created_count))
+  .replace("{skipped}", count(receipt.skipped_count));
 
 export function ModelImport({
   credentials,
   endpoints,
   models,
-  onSelect,
+  onImported,
   onClose,
   onCredentialSaved,
 }: {
   credentials: Credential[];
   endpoints: Endpoint[];
   models: Model[];
-  onSelect: (model: ImportedModelDraft) => void;
+  onImported: () => Promise<void>;
   onClose: () => void;
   onCredentialSaved: () => Promise<void>;
 }) {
@@ -108,8 +121,9 @@ export function ModelImport({
   );
   const [credentialID, setCredentialID] = useState(eligible[0]?.id || "");
   const [result, setResult] = useState<Discovery | null>(null);
-  const [selected, setSelected] = useState("");
-  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [receipt, setReceipt] = useState<ImportReceipt | null>(null);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [slow, setSlow] = useState(false);
@@ -138,10 +152,16 @@ export function ModelImport({
     (!endpoint?.models.length ||
       endpoint.models.includes("*") ||
       endpoint.models.includes(model.id));
-  const visible = (result?.models || []).filter((model) =>
-    `${model.id} ${model.name}`.toLowerCase().includes(search.toLowerCase()),
-  );
-  const selectedModel = result?.models.find((model) => model.id === selected);
+  const options: ModelImportOption[] = (result?.models || []).map((model) => ({
+    id: model.id,
+    name: model.name.trim() || model.id,
+    unavailable: existing.has(model.id) ? "configured" : !allowed(model) ? "restricted" :
+      byteLength(model.id) > 64 ||
+      byteLength(model.name.trim() || model.id) > 120 ? "alias_required" : undefined,
+  }));
+  const selectedModels = (result?.models || []).filter((model) => selected.includes(model.id));
+  const budgetBlocked = !!credential && credential.budget_micros > 0;
+
 
   useEffect(
     () => () => {
@@ -165,7 +185,7 @@ export function ModelImport({
   function changeCredential(value: string) {
     if (
       !eligible.some((item) => item.id === value) ||
-      (busy.current && savingWorkspace)
+      (busy.current && !pending.current) || !!receipt
     )
       return;
     revision.current += 1;
@@ -174,8 +194,7 @@ export function ModelImport({
     busy.current = false;
     setCredentialID(value);
     setResult(null);
-    setSelected("");
-    setSearch("");
+    setSelected([]);
     setError("");
     setLoading(false);
     setSlow(false);
@@ -205,7 +224,7 @@ export function ModelImport({
     setSlow(false);
     setError("");
     setResult(null);
-    setSelected("");
+    setSelected([]);
     try {
       const data = await api<unknown>(
         "/api/admin/credentials/discover",
@@ -257,37 +276,74 @@ export function ModelImport({
       setSlow(false);
     }
   }
-  function choose() {
+  async function reloadImported(data: ImportReceipt) {
+    await onImported();
+    addToast({ title: importSummary(data), color: "success" });
+    onClose();
+  }
+  async function retryRefresh() {
+    if (busy.current || !receipt) return;
+    busy.current = true;
+    setLoading(true);
+    setError("");
+    try {
+      await reloadImported(receipt);
+    } catch (failure) {
+      setError(`${t.modelImportRefreshFailed} ${errorMessage(failure)}`);
+    } finally {
+      busy.current = false;
+      setLoading(false);
+    }
+  }
+  async function importModels() {
     if (busy.current) return;
-    if (
-      !selectedModel ||
-      !endpoint ||
-      !credential ||
-      result?.status !== "verified" ||
-      scopeChanged
-    ) {
-      setError(t.modelImportChooseModel);
+    if (!selectedModels.length || !endpoint || !credential || result?.status !== "verified" || scopeChanged) {
+      setError(t.modelImportChooseModels);
       return;
     }
-    if (!allowed(selectedModel)) {
-      setError(
-        existing.has(selectedModel.id)
-          ? t.modelIDExists
-          : t.modelImportHostRestriction,
-      );
+    if (budgetBlocked) {
+      setError(t.modelImportBudgetBlocked);
       return;
     }
-    const cap = selectedModel.max_output_tokens;
-    onSelect({
-      id: selectedModel.id,
-      name: selectedModel.name || selectedModel.id,
-      provider: endpoint.provider,
-      upstream_model: selectedModel.id,
-      max_output_tokens:
-        typeof cap === "number" && Number.isFinite(cap) && cap > 0
-          ? Math.min(65536, Math.max(1, Math.floor(cap)))
-          : 4096,
+    if (selectedModels.length > 400) {
+      setError(t.modelImportBatchLimit);
+      return;
+    }
+    if (selectedModels.some((model) => options.find((option) => option.id === model.id)?.unavailable)) {
+      setError(t.modelImportUnavailable);
+      return;
+    }
+    const payload = selectedModels.map((model) => {
+      const cap = model.max_output_tokens;
+      return {
+        id: model.id, name: model.name.trim() || model.id, provider: endpoint.provider,
+        upstream_model: model.id, enabled: true, billing_mode: "usage_only",
+        input_rate: 0, output_rate: 0, cached_rate: 0, cache_write_rate: 0,
+        cost_input_rate: 0, cost_output_rate: 0, cost_cached_rate: 0, cost_cache_write_rate: 0,
+        max_output_tokens: typeof cap === "number" && Number.isFinite(cap) && cap > 0
+          ? Math.min(65536, Math.max(1, Math.floor(cap))) : 4096,
+      };
     });
+    busy.current = true;
+    setImporting(true);
+    setLoading(true);
+    setSlow(false);
+    setError("");
+    let imported: ImportReceipt | null = null;
+    try {
+      const data = await api<unknown>("/api/admin/models/import", { models: payload });
+      if (!validReceipt(data, payload.map((model) => model.id))) throw new Error(t.modelImportResultInvalid);
+      imported = data;
+      setReceipt(data);
+      await reloadImported(data);
+    } catch (failure) {
+      setError(`${imported ? t.modelImportRefreshFailed + " " : ""}${errorMessage(failure)}`);
+    } finally {
+      busy.current = false;
+      setImporting(false);
+      setLoading(false);
+      setSlow(false);
+    }
   }
 
   return (
@@ -307,7 +363,8 @@ export function ModelImport({
           className="flex min-h-0 flex-col overflow-hidden"
           onSubmit={(event) => {
             event.preventDefault();
-            if (result?.status === "verified" && !scopeChanged) choose();
+            if (receipt) void retryRefresh();
+            else if (result?.status === "verified" && !scopeChanged) void importModels();
             else void discover();
           }}
         >
@@ -340,7 +397,7 @@ export function ModelImport({
                   selectedKeys={credentialID ? [credentialID] : []}
                   onChange={(event) => changeCredential(event.target.value)}
                   description={endpoint?.base_url}
-                  isDisabled={savingWorkspace}
+                  isDisabled={savingWorkspace || importing || !!receipt}
                 >
                   {eligible.map((item) => (
                     <SelectItem
@@ -355,7 +412,20 @@ export function ModelImport({
                     </SelectItem>
                   ))}
                 </Select>
-                {scopeChanged && (
+                {budgetBlocked && !receipt && (
+                  <div className="space-y-2 rounded-lg border border-warning-200 bg-warning-50 p-4 text-sm leading-6">
+                    <p>{t.modelImportBudgetBlocked}</p>
+                    <Button as={Link} href="/app/upstreams" variant="bordered" isDisabled={loading}>
+                      {t.modelImportConfigureBudget}
+                    </Button>
+                  </div>
+                )}
+                {receipt && (
+                  <div role="status" className="rounded-lg border border-success-200 bg-success-50 p-4 text-sm leading-6">
+                    {importSummary(receipt)}
+                  </div>
+                )}
+                {scopeChanged && !receipt && (
                   <div className="space-y-3 rounded-lg border border-warning-200 bg-warning-50 p-4">
                     <p className="text-sm font-medium">
                       {t.modelImportScopeTitle}
@@ -425,7 +495,7 @@ export function ModelImport({
                     ) : null}
                   </div>
                 )}
-                {result?.status === "verified" && !scopeChanged && (
+                {result?.status === "verified" && !scopeChanged && !receipt && (
                   <section className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium">
@@ -435,62 +505,25 @@ export function ModelImport({
                         size="sm"
                         variant="light"
                         onPress={() => void discover()}
+                        isDisabled={loading}
                       >
                         {t.credentialRecheck}
                       </Button>
                     </div>
-                    <Input
-                      aria-label={t.modelImportSearch}
-                      placeholder={t.modelImportSearch}
-                      value={search}
-                      onValueChange={setSearch}
-                      startContent={<Search size={16} />}
+                    <ModelImportSelection
+                      models={options}
+                      value={selected}
+                      onValueChange={setSelected}
+                      isDisabled={loading}
                     />
-                    {visible.length ? (
-                      <RadioGroup
-                        aria-label={t.modelImportChooseModel}
-                        value={selected}
-                        onValueChange={setSelected}
-                        classNames={{
-                          wrapper:
-                            "max-h-64 flex-nowrap gap-1 overflow-x-hidden overflow-y-auto rounded-lg border border-default-200 p-3",
-                        }}
-                      >
-                        {visible.map((model) => (
-                          <Radio
-                            key={model.id}
-                            value={model.id}
-                            isDisabled={!allowed(model)}
-                            classNames={{
-                              base: "m-0 w-full max-w-full shrink-0 p-3",
-                              labelWrapper: "min-w-0",
-                              label: "break-words text-sm",
-                              description: "break-all text-xs leading-5",
-                            }}
-                            description={model.id}
-                          >
-                            <span className="mr-2">
-                              {model.name || model.id}
-                            </span>
-                            {existing.has(model.id) ? (
-                              <Chip size="sm" variant="flat">
-                                {t.modelImportExists}
-                              </Chip>
-                            ) : !allowed(model) ? (
-                              <Chip size="sm" variant="flat">
-                                {t.modelImportRestricted}
-                              </Chip>
-                            ) : null}
-                          </Radio>
-                        ))}
-                      </RadioGroup>
-                    ) : (
-                      <p className="py-5 text-sm text-default-500">
-                        {search ? t.noResults : t.modelImportEmpty}
-                      </p>
+                    {selected.length > 400 && (
+                      <p role="alert" className="text-sm text-danger">{t.modelImportBatchLimit}</p>
+                    )}
+                    {options.some((option) => option.unavailable === "alias_required") && (
+                      <p className="text-xs leading-5 text-default-500">{t.modelImportAliasHelp}</p>
                     )}
                     <p className="text-xs leading-5 text-default-500">
-                      {t.modelImportPricingNote}
+                      {t.modelUsageOnlyHelp}
                     </p>
                   </section>
                 )}
@@ -509,12 +542,13 @@ export function ModelImport({
           </ModalBody>
           <ModalFooter className="shrink-0">
             <Button variant="light" isDisabled={loading} onPress={close}>
-              {t.cancel}
+              {receipt ? t.close : t.cancel}
             </Button>
             {!!eligible.length && !scopeChanged && (
-              <Button color="primary" type="submit" isLoading={loading}>
-                {result?.status === "verified"
-                  ? t.modelImportSetRates
+              <Button color="primary" type="submit" isLoading={loading}
+                isDisabled={!receipt && result?.status === "verified" && (!selected.length || selected.length > 400 || budgetBlocked)}>
+                {receipt ? t.modelImportRefresh : result?.status === "verified"
+                  ? t.modelImportBatchAction.replace("{count}", count(selected.length))
                   : t.modelImportDiscover}
               </Button>
             )}

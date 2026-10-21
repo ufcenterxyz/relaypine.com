@@ -8,6 +8,7 @@ import {
   SelectItem,
   RadioGroup,
   Radio,
+  Chip,
   addToast,
 } from "@heroui/react";
 import {
@@ -29,7 +30,7 @@ import { api, count, dollars, errorMessage, money } from "@/lib/api";
 import type { Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
 import { useConsole } from "./console-provider";
 import { CredentialForm } from "./credential-form";
-import { ModelImport, type ImportedModelDraft } from "./model-import";
+import { ModelImport } from "./model-import";
 import {
   PageHeader,
   DataTable,
@@ -529,6 +530,7 @@ export function Models() {
   async function save(body: Model | Record<string, unknown>) {
     if (
       body.enabled &&
+      body.billing_mode !== "usage_only" &&
       ["input_rate", "output_rate", "cost_input_rate", "cost_output_rate"].some(
         (key) =>
           !Number.isFinite(Number(body[key as keyof typeof body])) ||
@@ -540,10 +542,10 @@ export function Models() {
     await refresh();
     addToast({ title: t.saved, color: "success" });
   }
-  function open(model?: Model, imported?: ImportedModelDraft) {
+  function open(model?: Model) {
     setForm({
       title: model ? t.editModel : t.addModel,
-      description: `${imported ? t.modelImportRateIntro : t.ratesHelp} ${t.modelExplicitCacheRates}`,
+      description: t.modelBillingHelp,
       fields: [
         {
           key: "id",
@@ -565,12 +567,27 @@ export function Models() {
           required: true,
         },
         { key: "upstream_model", label: t.upstreamModel, required: true },
+        {
+          key: "billing_mode",
+          label: t.modelBillingMode,
+          type: "select",
+          required: true,
+          options: [
+            { key: "usage_only", label: t.modelUsageOnly },
+            { key: "metered", label: t.modelMetered },
+          ],
+          description: t.modelUsageOnlyHelp,
+          validate: (value) =>
+            !["usage_only", "metered"].includes(value) ? t.required : undefined,
+        },
         ...rateFields.map(
           (key, i): Field => ({
             key,
             label: rateLabels[i],
             type: "number",
             required: true,
+            visibleWhen: (values) => values.billing_mode !== "usage_only",
+            description: i === 0 ? t.modelExplicitCacheRates : undefined,
             validate: (value, values) =>
               values.enabled &&
               [
@@ -607,6 +624,7 @@ export function Models() {
             provider: model.provider,
             upstream_model: model.upstream_model,
             enabled: model.enabled,
+            billing_mode: model.billing_mode || "metered",
             max_output_tokens: model.max_output_tokens,
             ...Object.fromEntries(
               rateFields.map((key) => [
@@ -621,8 +639,8 @@ export function Models() {
             provider: "openai",
             upstream_model: "",
             enabled: true,
+            billing_mode: "metered",
             max_output_tokens: 4096,
-            ...imported,
             ...Object.fromEntries(rateFields.map((key) => [key, ""])),
           },
       onSubmit: async (values) => {
@@ -640,7 +658,10 @@ export function Models() {
           id,
           ...(!model ? { create_only: true } : {}),
           ...Object.fromEntries(
-            rateFields.map((key) => [key, dollars(values[key])]),
+            rateFields.map((key) => [
+              key,
+              values.billing_mode === "usage_only" ? 0 : dollars(values[key]),
+            ]),
           ),
           max_output_tokens: Number(values.max_output_tokens),
         });
@@ -708,6 +729,11 @@ export function Models() {
             <p className="mt-1 font-mono text-xs text-default-500">
               {model.id}
             </p>
+            {model.billing_mode === "usage_only" && (
+              <Chip size="sm" variant="flat" className="mt-2">
+                {t.modelUsageOnly}
+              </Chip>
+            )}
           </div>,
           model.provider,
           ...[
@@ -717,7 +743,7 @@ export function Models() {
             model.cache_write_rate,
           ].map((rate, i) => (
             <span key={i} className="font-mono text-xs">
-              {money(rate, true)}
+              {model.billing_mode === "usage_only" ? t.notPriced : money(rate, true)}
             </span>
           )),
           <Status key="enabled" enabled={model.enabled} />,
@@ -771,7 +797,9 @@ export function Models() {
           />
         }
       />
-      <p className="mt-3 text-xs text-default-400">{t.perMillion}</p>
+      <p className="mt-3 text-xs leading-5 text-default-500">
+        {t.perMillion}. {t.modelUsageOnlyHelp}
+      </p>
       {importing && (
         <ModelImport
           credentials={state.credentials || []}
@@ -779,10 +807,7 @@ export function Models() {
           models={state.models}
           onClose={() => setImporting(false)}
           onCredentialSaved={refresh}
-          onSelect={(draft) => {
-            setImporting(false);
-            open(undefined, draft);
-          }}
+          onImported={() => refresh({ throwOnError: true })}
         />
       )}
       {form && <ResourceForm {...form} onClose={() => setForm(null)} />}{" "}

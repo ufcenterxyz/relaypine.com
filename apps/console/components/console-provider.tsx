@@ -14,7 +14,7 @@ import { ErrorBox, Brand } from "./shared";
 import { en as t } from "@/i18n/en";
 const StateContext = createContext<{
   state: Snapshot;
-  refresh: () => Promise<void>;
+  refresh: (options?: { throwOnError?: boolean }) => Promise<void>;
   refreshing: boolean;
 } | null>(null);
 export function useConsole() {
@@ -27,7 +27,7 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { throwOnError?: boolean }) => {
     setRefreshing(true);
     try {
       const data = await api<Snapshot>("/api/state");
@@ -45,6 +45,7 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
       } else {
         setError(errorMessage(e));
       }
+      if (options?.throwOnError) throw e;
     } finally {
       setRefreshing(false);
     }

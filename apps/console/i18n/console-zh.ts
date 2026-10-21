@@ -16,7 +16,7 @@ export const consoleZh: ConsoleCopy = {
   credentialStep: "添加上游密钥",
   credentialStepBody: "配置容量、预算和出口",
   modelStep: "发布第一个模型",
-  modelStepBody: "设置模型 ID 和用量费率",
+  modelStepBody: "导入模型或手动配置费率",
   keyStep: "创建 API 密钥",
   keyStepBody: "为每个应用单独管理访问权限",
   requestStep: "发起首次请求",

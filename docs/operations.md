@@ -34,6 +34,7 @@ Go 网关每 15 秒运行请求恢复。Stripe 客户端、支付收件箱处理
 
 ## 用量与预算监控
 
+- 模型的 `billing_mode=usage_only` 表示仅记录请求和 Token，上游成本未计价，不应把 0 金额字段当作免费。此类请求不产生金额预留或费用账本，且只能使用 `budget_micros=0` 的凭据。
 - `requests` 中未知用量、`cost_pending` 需供应商证据核对，不能当作零成本。
 - `wallets.held_micros` 与 `credentials.held_micros` 分别表示调用额度和上游成本预留。
 - 配置代理不可用时拒绝相应路线；不允许静默绕过代理。

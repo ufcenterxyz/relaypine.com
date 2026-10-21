@@ -14,6 +14,12 @@ import (
 
 const maxAmount int64 = 9000000000000000
 
+// A local dollar budget cannot safely admit a request whose cost is untracked.
+var ErrUntrackedCostBudget = errors.New("usage-only models require a credential without a local monetary cap")
+
+const usageOnlyPending = "usage_only_pending"
+const usageOnlyExpired = "usage_only_expired"
+
 // Money transactions lock the request (if any), wallet, then credential. Keep
 // this order when composing additional accounting operations with Store.DB.
 func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
@@ -22,6 +28,21 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 		r.CredentialID = q.CredentialID
 	}
 	q.CredentialID = r.CredentialID
+	mode := r.Model.EffectiveBillingMode()
+	if mode != domain.BillingMetered && mode != domain.BillingUsageOnly {
+		return errors.New("invalid billing mode")
+	}
+	usageOnly := mode == domain.BillingUsageOnly
+	if usageOnly && (q.ReservedMicros != 0 || r.CostReserve != 0) {
+		return errors.New("usage-only requests cannot reserve money")
+	}
+	if usageOnly {
+		for _, rate := range []int64{r.Model.InputRate, r.Model.OutputRate, r.Model.CachedRate, r.Model.CacheWriteRate, r.Model.CostInputRate, r.Model.CostOutputRate, r.Model.CostCachedRate, r.Model.CostCacheWriteRate} {
+			if rate != 0 {
+				return errors.New("usage-only request snapshots cannot contain prices")
+			}
+		}
+	}
 	if !validID(q.ID) || !validID(q.TenantID) || !validID(q.ProjectID) || !validID(q.AccessKeyID) || !validID(r.CredentialID) || q.ReservedMicros < 0 || q.ReservedMicros > maxAmount || r.CostReserve < 0 || r.CostReserve > maxAmount {
 		return errors.New("invalid reservation")
 	}
@@ -73,6 +94,9 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 	if !cred.Enabled {
 		return ErrUnauthorized
 	}
+	if usageOnly && budget > 0 {
+		return ErrUntrackedCostBudget
+	}
 	if !budgetAllows(budget, spent, costHeld, r.CostReserve) {
 		return ErrBudgetExceeded
 	}
@@ -94,15 +118,20 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE wallets SET held_micros=held_micros+? WHERE tenant_id=?", q.ReservedMicros, q.TenantID)
-	if err != nil {
-		return err
+	phase := "reserved"
+	if usageOnly {
+		phase = usageOnlyPending
+	} else {
+		_, err = tx.ExecContext(ctx, "UPDATE wallets SET held_micros=held_micros+? WHERE tenant_id=?", q.ReservedMicros, q.TenantID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE credentials SET held_micros=held_micros+? WHERE id=?", r.CostReserve, r.CredentialID)
+		if err != nil {
+			return err
+		}
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE credentials SET held_micros=held_micros+? WHERE id=?", r.CostReserve, r.CredentialID)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO requests(id,tenant_id,project_id,access_key_id,credential_id,provider,model,status,phase,usage_json,price_snapshot,reserved_micros,cost_reserved_micros,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'in_progress','reserved',?,?,?,?,?,?)`, q.ID, q.TenantID, q.ProjectID, q.AccessKeyID, q.CredentialID, q.Provider, q.Model, usageRaw, modelRaw, q.ReservedMicros, r.CostReserve, now, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO requests(id,tenant_id,project_id,access_key_id,credential_id,provider,model,status,phase,usage_json,price_snapshot,reserved_micros,cost_reserved_micros,customer_hold_active,cost_hold_active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'in_progress',?,?,?,?,?,?,?,?,?)`, q.ID, q.TenantID, q.ProjectID, q.AccessKeyID, q.CredentialID, q.Provider, q.Model, phase, usageRaw, modelRaw, q.ReservedMicros, r.CostReserve, !usageOnly, !usageOnly, now, now)
 	if err != nil {
 		return dbError(err)
 	}
@@ -155,12 +184,29 @@ func (s *Store) Settle(ctx context.Context, requestID string, v domain.Settlemen
 	var tenant, cred, phase, oldStatus string
 	var reserved, costReserved, oldCharge int64
 	var customerHeld, costHeld bool
-	err = tx.QueryRowContext(ctx, "SELECT tenant_id,credential_id,phase,status,reserved_micros,cost_reserved_micros,charge_micros,customer_hold_active,cost_hold_active FROM requests WHERE id=? FOR UPDATE", requestID).Scan(&tenant, &cred, &phase, &oldStatus, &reserved, &costReserved, &oldCharge, &customerHeld, &costHeld)
+	var modelRaw []byte
+	var oldLatency int64
+	var oldError string
+	err = tx.QueryRowContext(ctx, "SELECT tenant_id,credential_id,phase,status,reserved_micros,cost_reserved_micros,charge_micros,customer_hold_active,cost_hold_active,price_snapshot,latency_ms,error_code FROM requests WHERE id=? FOR UPDATE", requestID).Scan(&tenant, &cred, &phase, &oldStatus, &reserved, &costReserved, &oldCharge, &customerHeld, &costHeld, &modelRaw, &oldLatency, &oldError)
 	if err != nil {
 		return dbError(err)
 	}
 	if phase == "settled" {
 		return tx.Commit()
+	}
+	var model domain.Model
+	if err = json.Unmarshal(modelRaw, &model); err != nil {
+		return err
+	}
+	if model.EffectiveBillingMode() == domain.BillingUsageOnly {
+		if customerHeld || costHeld || reserved != 0 || costReserved != 0 || oldCharge != 0 {
+			return errors.New("usage-only monetary state invariant violated")
+		}
+		prior := domain.Settlement{Status: oldStatus, LatencyMS: oldLatency, ErrorCode: oldError}
+		return settleUsageOnly(ctx, tx, requestID, phase, prior, v)
+	}
+	if model.EffectiveBillingMode() != domain.BillingMetered {
+		return errors.New("invalid billing mode in request snapshot")
 	}
 	customerWasHeld := customerHeld
 	var walletHeld, balance int64
@@ -232,6 +278,40 @@ func (s *Store) Settle(ctx context.Context, requestID string, v domain.Settlemen
 	return tx.Commit()
 }
 
+// Usage-only requests persist execution evidence independently of money. A
+// trustworthy late usage report can fill an unknown total, but cannot change a
+// completed failure/cancellation into success or introduce a charge later.
+func settleUsageOnly(ctx context.Context, tx *sql.Tx, id, phase string, prior, v domain.Settlement) error {
+	if phase == usageOnlyExpired && !v.Usage.Known {
+		return tx.Commit()
+	}
+	if prior.Status != "in_progress" && prior.Status != "unknown" && prior.Status != "pending_usage" && prior.Status != "usage_unavailable" {
+		v.Status, v.LatencyMS, v.ErrorCode = prior.Status, prior.LatencyMS, prior.ErrorCode
+	}
+	if v.Usage.Known && v.ErrorCode == "reconciliation_expired" {
+		// Expiration describes missing usage, not an execution failure. Late
+		// evidence resolves it while retaining any genuine upstream error.
+		v.ErrorCode = ""
+	}
+	phase = usageOnlyPending
+	attemptStatus := "usage_pending"
+	if v.Usage.Known {
+		phase, attemptStatus = "settled", "usage_recorded"
+	}
+	raw, err := json.Marshal(v.Usage)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE requests SET status=?,phase=?,usage_json=?,charge_micros=0,cost_micros=0,latency_ms=?,error_code=?,updated_at=? WHERE id=?", v.Status, phase, raw, v.LatencyMS, v.ErrorCode, time.Now().UTC(), id)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status=?,cost_micros=0,updated_at=? WHERE request_id=?", attemptStatus, time.Now().UTC(), id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func insertLedger(ctx context.Context, tx *sql.Tx, tenant, kind string, amount int64, reference, reason string) error {
 	_, err := tx.ExecContext(ctx, "INSERT INTO ledger_entries(id,tenant_id,kind,amount_micros,reference,reason,created_at) VALUES(?,?,?,?,?,?,?)", newID("led_"), tenant, kind, amount, reference, reason, time.Now().UTC())
 	return dbError(err)
@@ -287,7 +367,7 @@ func (s *Store) CreditTx(ctx context.Context, tx *sql.Tx, tenantID string, amoun
 // reconciliation; late trustworthy usage can settle those costs with Settle.
 func (s *Store) Recover(ctx context.Context) error {
 	cutoff := time.Now().UTC().Add(-24 * time.Hour)
-	rows, err := s.DB.QueryContext(ctx, "SELECT id FROM requests WHERE customer_hold_active=TRUE AND created_at<? ORDER BY created_at LIMIT 500", cutoff)
+	rows, err := s.DB.QueryContext(ctx, "SELECT id FROM requests WHERE (customer_hold_active=TRUE OR phase=?) AND created_at<? ORDER BY created_at LIMIT 500", usageOnlyPending, cutoff)
 	if err != nil {
 		return err
 	}
@@ -323,11 +403,39 @@ func (s *Store) recoverRequest(ctx context.Context, id string, cutoff time.Time)
 	var reserved int64
 	var active, costActive bool
 	var created time.Time
-	err = tx.QueryRowContext(ctx, "SELECT tenant_id,reserved_micros,customer_hold_active,cost_hold_active,created_at FROM requests WHERE id=? FOR UPDATE", id).Scan(&tenant, &reserved, &active, &costActive, &created)
+	var oldPhase string
+	var modelRaw []byte
+	err = tx.QueryRowContext(ctx, "SELECT tenant_id,reserved_micros,customer_hold_active,cost_hold_active,created_at,phase,price_snapshot FROM requests WHERE id=? FOR UPDATE", id).Scan(&tenant, &reserved, &active, &costActive, &created, &oldPhase, &modelRaw)
 	if err != nil {
 		return dbError(err)
 	}
-	if !active || !created.Before(cutoff) {
+	if !created.Before(cutoff) {
+		return tx.Commit()
+	}
+	var model domain.Model
+	if err = json.Unmarshal(modelRaw, &model); err != nil {
+		return err
+	}
+	if model.EffectiveBillingMode() == domain.BillingUsageOnly {
+		if active || costActive || reserved != 0 {
+			return errors.New("usage-only monetary state invariant violated")
+		}
+		if oldPhase != usageOnlyPending {
+			return tx.Commit()
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE requests SET status=CASE WHEN status IN ('in_progress','unknown','pending_usage') THEN 'usage_unavailable' ELSE status END,phase=?,error_code=CASE WHEN error_code='' THEN 'reconciliation_expired' ELSE error_code END,updated_at=? WHERE id=?", usageOnlyExpired, time.Now().UTC(), id)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status='usage_unavailable',updated_at=? WHERE request_id=?", time.Now().UTC(), id); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	if model.EffectiveBillingMode() != domain.BillingMetered {
+		return errors.New("invalid billing mode in request snapshot")
+	}
+	if !active {
 		return tx.Commit()
 	}
 	var held int64

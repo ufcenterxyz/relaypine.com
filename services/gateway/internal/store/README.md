@@ -10,9 +10,19 @@ passwords, customer credits, API keys, or sale prices.
 
 All amounts are signed integer micro-USD (`1 USD = 1,000,000`); `wallets.currency`
 is `usd`. `balance_micros` includes active reservations; available funds equal
-`balance_micros - held_micros`. A request reserves both the customer wallet and
+`balance_micros - held_micros`. A metered request reserves both the customer wallet and
 credential cost budget atomically. Credentials with `budget_micros = 0` have no
 local monetary cap; they still retain spend/hold accounting.
+
+Models default to `billing_mode=metered`, including existing model definitions
+and immutable request snapshots that omit this field. `billing_mode=usage_only`
+requires all eight rates to be zero and records token usage without pricing it.
+It needs no wallet balance, creates neither customer nor credential holds, and
+never changes balances, credential spend, or the monetary ledger. The provider
+may still charge for those requests; `cost_status=untracked` distinguishes this
+unknown cost from a verified zero cost. A credential with a positive local dollar
+budget cannot serve usage-only models: routing filters it and `Reserve` repeats
+the check under its row lock to cover concurrent budget changes.
 
 Money transactions lock a request row when applicable, then its wallet, then its
 credential. Reserve/settle/recovery use `READ COMMITTED`; row locks and ledger
@@ -22,8 +32,9 @@ request before upstream I/O, along with a durable attempt `send_intent`.
 `ledger_entries` is an append-only journal for this implementation. Fields are
 `id`, `tenant_id`, `kind`, `amount_micros`, `reference`, `reason`, `created_at`.
 `UNIQUE(tenant_id, reference)` is the permanent business idempotency key. Credits
-are positive and usage charges negative. Zero charge entries record final free
-requests. This is not a full general ledger or separate cash/bonus lot system.
+are positive and usage charges negative. Zero charge entries record metered
+requests with a final zero charge; usage-only requests create no ledger entry.
+This is not a full general ledger or separate cash/bonus lot system.
 
 `CreditTx(ctx, tx, tenantID, amountMicros, reference, reason)` supports audited
 internal credits in an existing transaction. It locks
@@ -32,6 +43,9 @@ same balance separately. Repeating the same reference and amount is a no-op;
 changing the amount or kind returns `ErrConflict`.
 
 ## Settlement and recovery
+
+The following monetary rules apply to metered requests, using the immutable
+model snapshot taken at admission even if the model's billing mode changes:
 
 - `not_sent` proves the upstream was never called and releases both holds.
 - Known usage settles upstream cost once. Customer charges are capped at the
@@ -44,6 +58,16 @@ changing the amount or kind returns `ErrConflict`.
   upstream costs but never back-charge an already finalized customer request.
 - Final settlements are idempotent. A reservation with an existing request ID
   returns `ErrConflict` so the caller cannot accidentally send a second call.
+
+Usage-only requests retain the same durable send intention and execution status.
+Known token totals move them directly to `settled`; unknown totals remain in
+`usage_only_pending` without any money holds. Recovery moves these records to
+`usage_only_expired` after 24 hours and marks interrupted requests
+`usage_unavailable`. Late trustworthy usage can fill missing totals and clear
+the synthetic expiration error, but preserves recorded failures/cancellations
+and never introduces a monetary charge. `not_sent` is known zero usage. Snapshot
+responses expose `billing_mode` and `cost_status` (`untracked`, `pending`, or
+`recorded`) so consumers do not mistake unpriced usage for free upstream calls.
 
 ## Historical payment tables
 

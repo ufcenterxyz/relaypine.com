@@ -138,12 +138,11 @@ export const en = {
   noRequestsBody:
     "Requests appear here after an application uses one of your API keys.",
   setupOperator: "Configure your gateway",
-  setupOperatorBody:
-    "Add an upstream host and credential, then publish a model with its usage and cost rates.",
+  setupOperatorBody: "Add an upstream host and credential, then import models or configure their rates manually.",
   addUpstream: "Add upstream",
   createKey: "Create API key",
   walletHelp: "Balance after active reservations",
-  spendHelp: "Total charges in the loaded request history",
+  spendHelp: "RelayPine charges in the loaded history; excludes usage-only requests and unpriced provider costs.",
   requestsHelp: "Requests in the loaded history",
   keysDescription:
     "Give each application a separate key with its own model access and rate limit.",
@@ -162,8 +161,7 @@ export const en = {
   keyNamePlaceholder: "Production application",
   keyModels: "Model access",
   integrationBase: "SDK base URLs",
-  modelsDescription:
-    "Configured model IDs and usage rates. Rates are in USD per one million tokens.",
+  modelsDescription: "Configured models, billing modes, and rates in USD per one million tokens.",
   noModels: "No models published yet",
   noModelsBody: "Add and enable a model before the gateway can serve requests.",
   addModel: "Add model",
@@ -280,7 +278,7 @@ export const en = {
   amountPositive: "Enter an amount greater than zero.",
   protectedSecret: "Stored encrypted",
   more: "More",
-  billingHold: "Reservations are released or settled when requests finish.",
+  billingHold: "Metered request reservations are released or settled when requests finish.",
   keySecretLabel: "Your new secret key",
   totalRecords: "records",
   configureModels: "Configure models",
@@ -375,16 +373,21 @@ export const en = {
   credentialChangedHostSecret:
     "Enter a new API secret when switching hosts. The stored secret can only be reused with its original host.",
   modelImportTitle: "Import from upstream",
-  modelImportIntro:
-    "Choose a saved credential, discover its models, and select one model to configure.",
+  modelImportIntro: "Choose a saved credential, discover its models, and select the models to enable.",
   modelImportChooseCredential:
     "Choose an enabled credential on an enabled API host.",
   modelImportChooseModel: "Choose one model to configure.",
-  modelImportNoCredentials:
-    "Add and enable an upstream credential first, then return here to discover and price a model.",
+  modelImportNoCredentials: "Add and enable an upstream credential first, then return here to import models.",
   modelImportDiscover: "Discover models",
   modelImportSetRates: "Set model rates",
   modelImportSearch: "Search discovered models",
+  modelImportChooseModels: "Choose models to import",
+  modelImportSelectAll: "Select all available ({count})",
+  modelImportSelectMatching: "Select all matching ({count})",
+  modelImportClearSelection: "Clear selection",
+  modelImportSelectedCount: "{count} models selected.",
+  modelImportSelectionRetained: "Selections outside this search are kept.",
+  modelImportUnsupported: "Not supported",
   modelImportEmpty:
     "No model metadata was returned. You can add a model manually using its upstream ID.",
   modelImportExists: "Already configured",
@@ -402,8 +405,7 @@ export const en = {
     "The detected workspace differs from the saved credential. Configure and save the intended workspace in Upstreams, then return to import models. This form will not replace an existing workspace.",
   modelImportScopeSaveBody:
     "Use the detected workspace for requests from this credential. Save it to continue. Its secret, limits, budget, proxy, and other settings stay unchanged.",
-  modelImportSelectWorkspace:
-    "Choose the workspace for this key and verify model access. You will confirm saving it before importing a model.",
+  modelImportSelectWorkspace: "Choose the workspace for this key and verify model access. You will confirm saving it before importing models.",
   modelImportSaveWorkspace: "Save detected workspace and continue",
   modelImportConfigureWorkspace: "Configure workspace in Upstreams",
   modelImportRateIntro:
@@ -412,15 +414,34 @@ export const en = {
     "Enabled models require a rate greater than zero (at least $0.000001 per million tokens).",
   modelPositiveRates:
     "Set positive input and output rates for both sales and upstream costs before enabling this model.",
-  modelsEmptySetup:
-    "Verifying an upstream key does not publish models. Import a model, enter its rates, and enable it so client API keys can request it.",
+  modelsEmptySetup: "Verifying an upstream key does not publish models. Import models to enable them with usage tracking, or add a model with explicit rates.",
   modelsNextStepTitle: "Next: publish models for this upstream",
-  modelsNextStepBody:
-    "Your credential is saved, but a provider has no enabled models. Import model metadata and configure rates to make models available to client API keys.",
+  modelsNextStepBody: "Your credential is saved, but a provider has no enabled models. Import models to make them available to client API keys; rates can be configured later.",
   modelOutputCapRange: "Use a whole number from 1 to 65,536 tokens.",
   modelExplicitCacheRates:
     "Enter all eight rates explicitly. Use 0 only when a cache category is free or not used; cache rates are never inferred.",
   modelImportDiscoveryInvalid:
     "The model lookup returned an unexpected result. Try again or close this dialog and add a model manually.",
+  modelBillingMode: "Billing mode",
+  modelUsageOnly: "Usage only",
+  modelMetered: "Metered",
+  modelBillingHelp: "Usage-only models work without entering rates. To charge through RelayPine and track provider costs, choose Metered and set all rates.",
+  modelUsageOnlyHelp: "Usage-only models record usage without RelayPine charges. Your provider bills normally.",
+  notPriced: "Not priced",
+  noRelayCharge: "Not charged",
+  costPending: "Pending",
+  usageOnlyBalanceHelp: "Usage-only models do not reserve or deduct RelayPine balance and can be used with a zero balance. Metered models still require sufficient balance.",
+  modelImportBatchAction: "Import {count} models",
+  modelImportBatchLimit: "Select up to 400 models per import.",
+  modelImportSummary: "{created} models imported; {skipped} already configured and left unchanged.",
+  modelImportRefresh: "Refresh models",
+  modelImportRefreshFailed: "Models were imported, but the list could not be refreshed. Retry the refresh; the import will not be submitted again.",
+  modelImportResultInvalid: "The import result could not be confirmed. Retry safely; existing models will not be overwritten.",
+  modelImportUnavailable: "Some selected models can no longer be imported. Review the available models and try again.",
+  modelImportAliasRequired: "Configure manually",
+  modelImportAliasHelp: "Model IDs are limited to 64 bytes; names and upstream IDs to 120 bytes. Configure longer values manually with valid field lengths. Values are never shortened automatically.",
+  modelImportBudgetBlocked: "This credential has a local cost budget. Usage-only models have no cost rates, so this credential cannot serve them. Choose another credential or explicitly review its budget in Upstreams.",
+  modelImportConfigureBudget: "Review credential budget",
+
 };
 export type Copy = typeof en;

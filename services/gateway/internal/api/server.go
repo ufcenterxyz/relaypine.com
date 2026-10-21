@@ -304,6 +304,8 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 			return
 		}
 		write(w, 200, value)
+	case "/api/admin/models/import":
+		s.importModels(w, r)
 	case "/api/admin/models":
 		var input struct {
 			domain.Model
@@ -314,19 +316,8 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 			return
 		}
 		v := input.Model
-		if (!nameOK(v.ID) || len(v.ID) > 64) || !nameOK(v.Name) || !validProvider(v.Provider) || !nameOK(v.UpstreamModel) || v.MaxOutputTokens < 1 || v.MaxOutputTokens > 65536 {
-			fail(w, 400, "invalid_model", "Enter a model ID, provider and output cap between 1 and 65,536.")
-			return
-		}
-		rates := []int64{v.InputRate, v.OutputRate, v.CachedRate, v.CacheWriteRate, v.CostInputRate, v.CostOutputRate, v.CostCachedRate, v.CostCacheWriteRate}
-		for _, rate := range rates {
-			if rate < 0 || rate > 1000000000 {
-				fail(w, 400, "invalid_price", "Rates must be between 0 and $1,000 per million tokens.")
-				return
-			}
-		}
-		if v.Enabled && (v.InputRate == 0 || v.OutputRate == 0 || v.CostInputRate == 0 || v.CostOutputRate == 0) {
-			fail(w, 400, "invalid_price", "Enabled models require positive input and output rates for both sales and upstream cost.")
+		if problem := validateModelInput(&v); problem != nil {
+			fail(w, 400, problem.Code, problem.Message)
 			return
 		}
 		var value domain.Model
