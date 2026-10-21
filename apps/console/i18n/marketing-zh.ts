@@ -5,7 +5,6 @@ export const marketingZh: Record<keyof typeof marketing, string> = {
   description:
     "通过统一入口连接 Claude 与 OpenAI。原生 API、清晰计费，让你专注构建。",
   heroNote: "熟悉的 SDK，所需的模型，一个 RelayPine Key。",
-  visualAlt: "绿色玻璃网关装置，抛光金属与玻璃连接从中穿过",
   supported: "为你的技术栈而建",
   openaiDetail: "Responses · Chat Completions",
   anthropicDetail: "Claude · Messages",

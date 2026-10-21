@@ -37,10 +37,11 @@
 .rp-hero-grid {
   min-height: 652px;
   display: grid;
-  grid-template-columns: 1.02fr 1fr;
+  grid-template-columns: 0.9fr 1.1fr;
   position: relative;
   align-items: center;
-  gap: 0;
+  gap: 44px;
+  padding-block: 44px;
 }
 .rp-hero-copy {
   position: relative;
@@ -115,26 +116,8 @@
 }
 .rp-hero-visual {
   position: relative;
-  margin: -6px -38px -6px -4px;
-  aspect-ratio: 1;
-}
-.rp-hero-image {
+  min-width: 0;
   width: 100%;
-  height: auto;
-  mask-image: radial-gradient(
-    ellipse 73% 73% at 50% 50%,
-    #000 58%,
-    transparent 75%
-  );
-}
-.rp-image-dark {
-  display: none;
-}
-.dark .rp-image-light {
-  display: none;
-}
-.dark .rp-image-dark {
-  display: block;
 }
 .rp-providers {
   border-top: 1px solid var(--rp-line);
@@ -450,6 +433,8 @@
   .rp-hero-grid {
     min-height: auto;
     grid-template-columns: 1fr;
+    gap: 42px;
+    padding-block: 0 32px;
   }
   .rp-hero-copy {
     padding: 59px 0 0;
@@ -480,8 +465,8 @@
     margin-top: 20px;
   }
   .rp-hero-visual {
-    width: min(470px, 110%);
-    margin: 5px auto -3px;
+    width: 100%;
+    margin: 0 auto 5px;
     justify-self: center;
   }
   .rp-providers {

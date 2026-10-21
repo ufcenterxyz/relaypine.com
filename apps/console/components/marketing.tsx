@@ -10,7 +10,6 @@ import {
   Tab,
 } from "@heroui/react";
 import Link from "next/link";
-import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
@@ -24,6 +23,7 @@ import {
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
 import { marketing as m } from "@/i18n/marketing-en";
+import { RoutingDemo } from "./routing-demo";
 import { AuthModal } from "./auth-modal";
 import { Brand, ThemeToggle, CodeBlock } from "./shared";
 
@@ -157,33 +157,9 @@ export function Marketing() {
                 {m.heroNote}
               </p>
             </motion.div>
-            <motion.div
-              {...entrance}
-              transition={{ ...entrance.transition, delay: 0.12 }}
-              className="rp-hero-visual"
-            >
-              <Image
-                src="/brand/relay-core-studio.webp"
-                alt={m.visualAlt}
-                width={1254}
-                height={1254}
-                sizes="(max-width: 760px) 100vw, 52vw"
-                priority
-                fetchPriority="high"
-                className="rp-hero-image rp-image-light"
-              />
-              <Image
-                src="/brand/relay-core-dark.webp"
-                alt=""
-                width={1254}
-                height={1254}
-                sizes="(max-width: 760px) 100vw, 52vw"
-                priority
-                fetchPriority="high"
-                className="rp-hero-image rp-image-dark"
-                aria-hidden
-              />
-            </motion.div>
+            <div className="rp-hero-visual">
+              <RoutingDemo />
+            </div>
           </div>
           <div className="rp-wrap rp-providers">
             <p className="rp-eyebrow">{m.supported}</p>

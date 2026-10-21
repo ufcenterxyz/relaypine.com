@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./marketing.css";
+@import "./routing-demo.css";
 @import "./console.css";
 @plugin '../hero.ts';
 @source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';

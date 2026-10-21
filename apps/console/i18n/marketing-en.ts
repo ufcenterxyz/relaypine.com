@@ -4,8 +4,6 @@ export const marketing = {
   description:
     "Claude and OpenAI, through one considered connection. Native APIs. Clear billing. Room to build.",
   heroNote: "Your SDK. Your models. One RelayPine key.",
-  visualAlt:
-    "A sculptural green glass gateway carrying polished metal and glass connections",
   supported: "BUILT AROUND YOUR STACK",
   openaiDetail: "Responses · Chat Completions",
   anthropicDetail: "Claude · Messages",
