@@ -13,7 +13,7 @@ import (
 	"relaypine.com/gateway/internal/domain"
 )
 
-func (s *Store) Register(ctx context.Context, email, name, password string, operator bool) (domain.User, error) {
+func (s *Store) register(ctx context.Context, email, name, password string, operator bool) (domain.User, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	name = strings.TrimSpace(name)
 	parsed, err := mail.ParseAddress(email)
@@ -52,7 +52,11 @@ func (s *Store) Register(ctx context.Context, email, name, password string, oper
 
 func (s *Store) Authenticate(ctx context.Context, email, password string) (domain.User, error) {
 	var user domain.User
-	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator,u.password_hash FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.email=? AND t.status='active'", strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator, &user.PasswordHash)
+	if NormalizeEmail(email) != SuperAdminEmail {
+		_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$7EqJtq98hPqEX7fNZaFWoO5u5DFX7IxtKxbmiQNsHq1bk.qKkTBza"), []byte(password))
+		return user, ErrUnauthorized
+	}
+	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator,u.password_hash FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE BINARY u.email=? AND u.operator=TRUE AND t.status='active'", strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator, &user.PasswordHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) { // Equalize missing-account password work.
 			_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$7EqJtq98hPqEX7fNZaFWoO5u5DFX7IxtKxbmiQNsHq1bk.qKkTBza"), []byte(password))
@@ -72,7 +76,7 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, error
 	if err != nil {
 		return "", err
 	}
-	res, err := s.DB.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at) SELECT ?,u.id,? FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND t.status='active'", tokenHash(token), time.Now().UTC().Add(30*24*time.Hour), userID)
+	res, err := s.DB.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at) SELECT ?,u.id,? FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC().Add(7*24*time.Hour), userID, SuperAdminEmail)
 	if err != nil {
 		return "", err
 	}
@@ -87,7 +91,7 @@ func (s *Store) SessionUser(ctx context.Context, token string) (domain.User, err
 	if !strings.HasPrefix(token, "rps_") || len(token) > 128 {
 		return u, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.expires_at>? AND t.status='active'", tokenHash(token), time.Now().UTC()).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
+	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.expires_at>? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC(), SuperAdminEmail).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, ErrUnauthorized
 	}
@@ -100,6 +104,9 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 
 func (s *Store) CreateKey(ctx context.Context, user domain.User, name string, models []string, rpm int) (domain.AccessKey, string, error) {
 	var key domain.AccessKey
+	if !IsSuperAdmin(user) {
+		return key, "", ErrUnauthorized
+	}
 	if !validName(name) || rpm < 1 || rpm > 1000000 || len(models) > 200 {
 		return key, "", errors.New("invalid access key configuration")
 	}
@@ -121,7 +128,7 @@ func (s *Store) CreateKey(ctx context.Context, user domain.User, name string, mo
 		return key, "", err
 	}
 	defer tx.Rollback()
-	err = tx.QueryRowContext(ctx, "SELECT p.id FROM projects p JOIN tenants t ON t.id=p.tenant_id JOIN users u ON u.tenant_id=t.id WHERE p.tenant_id=? AND u.id=? AND t.status='active' ORDER BY p.created_at,p.id LIMIT 1", user.TenantID, user.ID).Scan(&key.ProjectID)
+	err = tx.QueryRowContext(ctx, "SELECT p.id FROM projects p JOIN tenants t ON t.id=p.tenant_id JOIN users u ON u.tenant_id=t.id WHERE p.tenant_id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active' ORDER BY p.created_at,p.id LIMIT 1", user.TenantID, user.ID, SuperAdminEmail).Scan(&key.ProjectID)
 	if err != nil {
 		return domain.AccessKey{}, "", dbError(err)
 	}
@@ -155,7 +162,7 @@ func (s *Store) AuthenticateKey(ctx context.Context, secret string) (domain.Acce
 	if !strings.HasPrefix(secret, "rp_live_") || len(secret) > 128 {
 		return key, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT k.id,k.tenant_id,k.project_id,k.name,k.prefix,k.enabled,k.rpm,k.models,k.created_at FROM access_keys k JOIN tenants t ON t.id=k.tenant_id WHERE k.token_hash=? AND k.enabled=TRUE AND t.status='active'", tokenHash(secret)).Scan(&key.ID, &key.TenantID, &key.ProjectID, &key.Name, &key.Prefix, &key.Enabled, &key.RPM, &raw, &key.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT k.id,k.tenant_id,k.project_id,k.name,k.prefix,k.enabled,k.rpm,k.models,k.created_at FROM access_keys k JOIN tenants t ON t.id=k.tenant_id WHERE k.token_hash=? AND k.enabled=TRUE AND t.status='active' AND EXISTS (SELECT 1 FROM users u WHERE u.tenant_id=t.id AND BINARY u.email=? AND u.operator=TRUE)", tokenHash(secret), SuperAdminEmail).Scan(&key.ID, &key.TenantID, &key.ProjectID, &key.Name, &key.Prefix, &key.Enabled, &key.RPM, &raw, &key.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return key, ErrUnauthorized
 	}

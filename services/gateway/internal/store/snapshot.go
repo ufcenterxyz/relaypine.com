@@ -11,9 +11,12 @@ import (
 )
 
 func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot, error) {
-	result := domain.Snapshot{User: user, Keys: []domain.AccessKey{}, Models: []domain.Model{}, Requests: []domain.Request{}, Ledger: []domain.LedgerEntry{}, Orders: []domain.Order{}}
+	result := domain.Snapshot{User: user, Keys: []domain.AccessKey{}, Models: []domain.Model{}, Requests: []domain.Request{}, Ledger: []domain.LedgerEntry{}, Waitlist: []domain.WaitlistEntry{}}
+	if !IsSuperAdmin(user) {
+		return result, ErrUnauthorized
+	}
 	result.User.PasswordHash = ""
-	err := s.DB.QueryRowContext(ctx, "SELECT t.id,t.name,t.status,t.created_at FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE t.id=? AND u.id=? AND t.status='active'", user.TenantID, user.ID).Scan(&result.Tenant.ID, &result.Tenant.Name, &result.Tenant.Status, &result.Tenant.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT t.id,t.name,t.status,t.created_at FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE t.id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", user.TenantID, user.ID, SuperAdminEmail).Scan(&result.Tenant.ID, &result.Tenant.Name, &result.Tenant.Status, &result.Tenant.CreatedAt)
 	if err != nil {
 		return result, dbError(err)
 	}
@@ -55,7 +58,7 @@ func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot
 	if result.Ledger, err = s.listLedger(ctx, user.TenantID); err != nil {
 		return result, err
 	}
-	if result.Orders, err = s.listOrders(ctx, user); err != nil {
+	if result.Waitlist, err = s.listWaitlist(ctx); err != nil {
 		return result, err
 	}
 	if user.Operator {
@@ -144,29 +147,6 @@ func (s *Store) listLedger(ctx context.Context, tenant string) ([]domain.LedgerE
 			return nil, err
 		}
 		out = append(out, l)
-	}
-	return out, rows.Err()
-}
-func (s *Store) listOrders(ctx context.Context, user domain.User) ([]domain.Order, error) {
-	query := "SELECT id,tenant_id,amount_micros,currency,status,COALESCE(session_id,''),COALESCE(payment_id,''),created_at FROM topup_orders"
-	args := []any{}
-	if !user.Operator {
-		query += " WHERE tenant_id=?"
-		args = append(args, user.TenantID)
-	}
-	query += " ORDER BY created_at DESC LIMIT 100"
-	rows, err := s.DB.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []domain.Order{}
-	for rows.Next() {
-		var o domain.Order
-		if err = rows.Scan(&o.ID, &o.TenantID, &o.AmountMicros, &o.Currency, &o.Status, &o.SessionID, &o.PaymentID, &o.CreatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, o)
 	}
 	return out, rows.Err()
 }

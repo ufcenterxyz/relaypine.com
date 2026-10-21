@@ -14,7 +14,6 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"relaypine.com/gateway/internal/api"
-	"relaypine.com/gateway/internal/payments"
 	"relaypine.com/gateway/internal/relay"
 	"relaypine.com/gateway/internal/store"
 )
@@ -57,25 +56,20 @@ func main() {
 		slog.Error("Redis unavailable")
 		os.Exit(1)
 	}
-	if email, password := os.Getenv("BOOTSTRAP_EMAIL"), os.Getenv("BOOTSTRAP_PASSWORD"); email != "" && password != "" {
-		_, err = db.Register(ctx, email, env("BOOTSTRAP_NAME", "RelayPine Operator"), password, true)
-		if err != nil && !errors.Is(err, store.ErrConflict) {
-			slog.Error("Operator bootstrap failed")
-			os.Exit(1)
-		}
+	if email := os.Getenv("BOOTSTRAP_EMAIL"); email != "" && store.NormalizeEmail(email) != store.SuperAdminEmail {
+		slog.Error("BOOTSTRAP_EMAIL must match the configured super administrator")
+		os.Exit(1)
 	}
-	stripe := payments.New(db, os.Getenv("STRIPE_SECRET_KEY"), os.Getenv("STRIPE_WEBHOOK_SECRET"), appURL, env("STRIPE_API_VERSION", "2026-04-22.dahlia"))
-	if err = stripe.Migrate(ctx); err != nil {
-		slog.Error("Payment migration failed")
+	if _, err = db.EnsureSuperAdmin(ctx, env("BOOTSTRAP_NAME", "RelayPine Administrator"), os.Getenv("BOOTSTRAP_PASSWORD")); err != nil {
+		slog.Error("Super administrator bootstrap failed; configure BOOTSTRAP_PASSWORD")
 		os.Exit(1)
 	}
 	gateway := relay.New(db, redisClient, private)
-	app := &api.Server{Store: db, Redis: redisClient, Relay: gateway, Payments: stripe, AppURL: appURL, AllowPrivate: private}
+	app := &api.Server{Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AllowPrivate: private}
 	server := &http.Server{Addr: env("GATEWAY_ADDR", "127.0.0.1:4811"), Handler: app.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 << 10}
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
-		ticks := 0
 		for {
 			select {
 			case <-ctx.Done():
@@ -85,21 +79,12 @@ func main() {
 				if e := db.Recover(work); e != nil {
 					slog.Warn("Request recovery will retry")
 				}
-				if e := stripe.ProcessPending(work); e != nil {
-					slog.Warn("Payment inbox will retry")
-				}
-				ticks++
-				if ticks%4 == 0 {
-					if e := stripe.Reconcile(work); e != nil {
-						slog.Warn("Payment reconciliation will retry")
-					}
-				}
 				cancel()
 			}
 		}
 	}()
 	go func() {
-		slog.Info("RelayPine gateway ready", "address", server.Addr, "payments_configured", stripe.Enabled())
+		slog.Info("RelayPine gateway ready", "address", server.Addr, "access", "private")
 		if e := server.ListenAndServe(); e != nil && !errors.Is(e, http.ErrServerClosed) {
 			slog.Error("HTTP listener failed")
 			stop()

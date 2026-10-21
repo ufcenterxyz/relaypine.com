@@ -1,8 +1,8 @@
 # RelayPine 产品与架构方案
 
-本项目将多个 Claude、OpenAI 官方或兼容服务整合为统一 API 入口，面向外部客户销售 API 服务。第一版同时覆盖可靠转发、Key 调度、出口管理、租户隔离、客户充值和用量计费。
+当前采用超级管理员 + waitlist 模式：固定管理员 `ufcenterxyz@gmail.com` 经密码认证进入控制台，其他访客只登记候补。Stripe 在线充值与支付处理已移除；工作区用量账本和上游预算保留用于内部额度控制。
 
-用户已明确需要对外服务及客户计费。第一版建议采用预充值按量模式，`ss5` 按 SOCKS5 理解。项目已定名 RelayPine，域名 relaypine.com 已购入。本文保留完整目标规格；本地 v0.1 已实现范围与限制以 [README](../README.md) 为准。客户收费以[商业计费规格](commercial-billing.md)为准；本文上游预算预留规则不能直接当作客户扣费规则。
+以下是核心网关结构与长期技术设计；超出当前范围的多租户商业准入、团队角色和高级预算功能仍需另行实现。实际实现范围以 [README](../README.md) 和 [用量与额度说明](commercial-billing.md) 为准。
 
 ## 1. 平台与上游
 
@@ -24,7 +24,6 @@
 | Project | 租户内业务隔离单元；访问 Key、Responses 资源和子预算归属项目 |
 | CustomerWallet / WalletHold | 客户付费余额、赠送余额、冻结/预留；独立于上游预算账户 |
 | PriceBook / PriceVersion | 模型销售单价、客户专属价、生效时间；请求固定成交价版本 |
-| TopUpOrder / PaymentEvent / Refund | 充值订单、支付凭证、持久事件收件箱、退款及拒付状态 |
 | CustomerCharge / LedgerTransaction | 每次逻辑请求唯一费用单、不可变资金分录；与各 attempt 的上游成本关联 |
 
 官方默认 origin：OpenAI 为 `https://api.openai.com`；Anthropic 为 `https://api.anthropic.com`。配置界面接受常见的完整 base URL，内部拆分 origin 与路径前缀，统一拼接一次 `/v1`。同一平台允许多个 Endpoint，第三方可配置 `/api/v1` 等路径前缀，但不能以客户端提供的任意 URL 发起转发。
@@ -172,32 +171,30 @@ OpenAI Responses 的 `previous_response_id` 是上游状态引用，因此设计
 | Customers | 客户状态、成员、钱包、客户总限额、专属价、允许的路由组 |
 | Access keys | 管理客户访问 Key 的启停与权限；上游密钥不向客户展示 |
 | Pricing | 模型销售价、价格版本、客户覆盖价、生效时间 |
-| Payments | 充值、退款、拒付、赠送额度、支付与钱包对账 |
-| Revenue | 客户消费额、全部上游尝试成本、退款与毛差；支付手续费另列 |
+| Waitlist | 去重候补申请，只读查看与搜索，不授予访问权限 |
+| Balance & ledger | 内部额度、请求预留、实际用量和带理由的人工调整 |
 | Requests | 请求及各次尝试、命中 Key/出口、用量来源、费用、错误原因 |
 | Settings | 管理员权限、审计记录、保留时间与告警阈值 |
 
 余额展示来源与更新时间。模型不支持、Key 无效、代理断开、共享组限流和余额不足要能区分。后台数据从真实 API 获取，空状态明确引导添加上游。
 
-客户控制台提供注册登录、模型与价格、接入说明、API Key、用量、钱包充值、付款记录和消费账单。客户只看到自己租户的数据和客户可见错误，不看到上游 Key、代理密码、采购价格或其他租户的资源。跨租户操作在服务端验证，不能依赖前端隐藏按钮。
+当前控制台仅向固定超级管理员开放，提供模型、API Key、用量、内部额度、上游配置和候补名单。公众只能提交候补表单；未开放客户自注册或付款。所有访问检查都在服务端执行，不能依赖前端隐藏按钮。
 
 ## 10. 部署结构
 
 ```mermaid
 flowchart TB
-    C[客户 SDK / 应用] --> G[Go Gateway]
-    U[客户与运营人员] --> W[Next.js 客户控制台与运营后台]
+    C[已授权管理员 SDK / 应用] --> G[Go Gateway]
+    U[超级管理员] --> W[Next.js 管理控制台]
     W --> A[Go 管理 API]
     G --> R[(Redis 限流与租约)]
     G --> D[(MySQL 配置与账本)]
     A --> D
-    X[支付服务] --> Q[验签入口与持久事件收件箱]
-    Q --> D
     G --> P[直连或 SOCKS5]
     P --> O[OpenAI / Claude / 兼容服务]
 ```
 
-第一版 Go 网关、客户 API、运营 API 和支付事件处理在同一代码库按模块隔离；API 层分别校验租户权限和运营角色，支付入口验签并写入持久收件箱；前端独立部署。结算恢复、支付对账和配置刷新先作为进程内后台任务，任务领取和幂等处理需支持多实例。后续有实际吞吐需求再拆 worker。
+Go 网关、管理员 API 和候补 API 在同一代码库按模块隔离；管理与中转入口同时检查固定管理员身份，候补提交仅写入名单。前端独立部署。结算恢复作为进程内任务运行；当前无支付入口、支付 worker 或外部收款。
 
 建议结构：`apps/console`、`services/gateway`、`contracts`、`deploy`、`docs`。关系模型和数据库迁移统一由服务端维护，避免两个 ORM 各自修改 schema。Redis 脚本与部署先按单主拓扑设计；以后采用 Cluster 时需确保原子操作涉及的 key 在同一 slot，或重设分区方式。
 

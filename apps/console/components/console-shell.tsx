@@ -26,9 +26,11 @@ import {
   Server,
   ShieldCheck,
   Users,
+  ListFilter,
   Waypoints,
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { waitlistEn as w } from "@/i18n/waitlist-en";
 import { consoleEn as c } from "@/i18n/console-en";
 import { api, errorMessage } from "@/lib/api";
 import { Brand, ThemeToggle } from "./shared";
@@ -45,6 +47,7 @@ const operatorNav = [
   { id: "proxies", label: t.proxies, icon: Network },
   { id: "routing", label: t.routing, icon: GitBranch },
   { id: "customers", label: t.customers, icon: Users },
+  { id: "waitlist", label: w.pageTitle, icon: ListFilter },
 ];
 export function ConsoleShell({ children }: { children: React.ReactNode }) {
   const { state, refresh, refreshing } = useConsole();

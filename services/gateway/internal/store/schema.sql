@@ -80,3 +80,8 @@ CREATE TABLE IF NOT EXISTS payment_events (
  status VARCHAR(32) NOT NULL DEFAULT 'pending', last_error TEXT NULL, attempts INT NOT NULL DEFAULT 0,
  created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL, INDEX(status,created_at)
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS waitlist_entries (
+ id VARCHAR(64) PRIMARY KEY, email VARCHAR(254) NOT NULL UNIQUE, name VARCHAR(200) NOT NULL DEFAULT '', created_at DATETIME(6) NOT NULL,
+ INDEX(created_at)
+) ENGINE=InnoDB;

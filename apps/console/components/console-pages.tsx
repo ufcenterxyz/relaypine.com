@@ -4,7 +4,14 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@heroui/react";
 import { useConsole } from "./console-provider";
-import { Overview, Keys, Usage, Billing, Customers } from "./customer-pages";
+import {
+  Overview,
+  Keys,
+  Usage,
+  Billing,
+  Customers,
+  Waitlist,
+} from "./customer-pages";
 import { Models, Upstreams, Proxies, Routing } from "./operator-pages";
 import { Empty } from "./shared";
 import { en as t } from "@/i18n/en";
@@ -12,8 +19,9 @@ export function ConsolePage({ section }: { section: string }) {
   const { state } = useConsole();
   const router = useRouter();
   const forbidden =
-    ["upstreams", "proxies", "routing", "customers"].includes(section) &&
-    !state.user.operator;
+    ["upstreams", "proxies", "routing", "customers", "waitlist"].includes(
+      section,
+    ) && !state.user.operator;
   useEffect(() => {
     if (forbidden) router.replace("/app");
   }, [forbidden, router]);
@@ -48,6 +56,8 @@ export function ConsolePage({ section }: { section: string }) {
       return <Routing />;
     case "customers":
       return <Customers />;
+    case "waitlist":
+      return <Waitlist />;
     default:
       return (
         <Empty

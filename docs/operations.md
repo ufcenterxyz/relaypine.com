@@ -1,58 +1,42 @@
-# RelayPine v0.1 运维说明
+# RelayPine 运维说明
 
 ## 环境与进程
 
-本地端口：Next.js 4810，Go 4811，MySQL 4812，Redis 4813。控制台运行 `yarn build` 会同时准备 standalone 静态资源，随后 `yarn start` 启动生成的服务；`PORT` 默认 4810，`HOSTNAME` 默认 0.0.0.0，本地预览可显式设为 127.0.0.1。`GATEWAY_URL` 用于构建时生成控制台 API 转发地址，部署环境变更后需要重新构建。Compose 数据卷属于 `relaypine` 项目。`docker compose stop` 可停止依赖；不要使用 `down -v`，除非明确要删除数据。
+本地端口：Next.js 4810、Go 4811、MySQL 4812、Redis 4813。`yarn build` 准备 standalone 静态资源，`HOSTNAME=127.0.0.1 PORT=4810 yarn start` 启动本地生产预览。`GATEWAY_URL` 用于构建时生成 API 转发地址，变更后需要重新构建。
 
-Go 网关同时运行恢复及支付任务；多副本依靠数据库行锁与幂等保护重复事件。每 15 秒处理支付收件箱及请求恢复，每约 60 秒核对待处理订单。API 暂无配置缓存；部署先采用单个 Redis 实例，Lua 跨多个额度键的脚本不能直接用于 Redis Cluster。
+Compose 数据卷属于 `relaypine`。停止依赖可用 `docker compose stop`；不要用 `down -v` 删除业务数据。
 
-生产必须设置 `APP_ENV=production`、`APP_URL=https://relaypine.com`、关闭 `ALLOW_PRIVATE_UPSTREAMS`。网关可设 `GATEWAY_ADDR=:8080`；反向代理将 `/api/*`、`/openai/*`、`/anthropic/*` 指向 Go，其余指向 Next.js。SSE 禁止代理缓冲，并设置足够读超时；Next.js rewrites 仅用于控制台 `/api`，原生流量直接到 Go。
+Go 网关每 15 秒运行请求恢复。Stripe 客户端、支付收件箱处理、支付对账及相关 HTTP 入口已移除，环境不再需要 `STRIPE_*` 变量。历史支付数据保留，不再自动处理。
 
-本版网关单次请求最长 5 分钟；并发租约 7 分钟，客户端写入有超时。失败后不自动再次提交生成，避免双重上游成本。
+生产要求 `APP_ENV=production`、HTTPS `APP_URL`，并关闭 `ALLOW_PRIVATE_UPSTREAMS`。反向代理将 `/api/*`、`/openai/*`、`/anthropic/*` 指向 Go，其余指向 Next.js。流式接口禁用代理缓冲并设置足够超时；单请求最长 5 分钟，发送后不自动重放。
 
-## Stripe 联调
+## 管理员与候补名单
 
-先用 Stripe 测试商户密钥，保持 Webhook 与 API key 同为 test mode。在线充值只有 secret key 和 webhook secret 都有值时启用。
+唯一管理员邮箱固定为 `ufcenterxyz@gmail.com`。通过部署 Secret 注入 `BOOTSTRAP_PASSWORD`（10–72 字节）及可选 `BOOTSTRAP_NAME`。`BOOTSTRAP_EMAIL` 不用于授权；不能通过环境替换它来增加第二个管理员。
 
-```sh
-stripe listen --forward-to http://localhost:4811/api/payments/stripe/webhook
-```
+启动初始化会确保固定管理员存在，校准引导密码和管理身份，将其他现有用户去重导入候补并撤销其他 operator 标记。已有同邮箱普通用户提升为管理员时会重新设置安全的引导密码，撤销旧会话与 API Key。更新引导密码后重启网关即可执行凭据更新，具体会话撤销由初始化流程负责。
 
-将监听器提供的 signing secret 安全写入 `.env`，重启网关，从真实客户控制台创建 Checkout 并在测试支付页完成付款。单纯 `stripe trigger` 生成的随机订单不匹配本地订单，不会入账。
+管理员仍需通过密码认证，公开页面不会凭邮箱字符串自动登录。候补提交仅保存联系资料，不授予 API、钱包或控制台权限，也不自动发送邮件。管理员在 **Waitlist** 查看名单；当前没有放行申请的 API。
 
-订阅事件：
+升级前备份 MySQL。迁移是增加候补表并限制访问，历史用户、钱包、请求、订单等数据不会被删除。现有非管理员会话与访问 Key 即使仍存在于数据库，也会被访问检查拒绝。
 
-- `checkout.session.completed`
-- `checkout.session.async_payment_succeeded`
-- `refund.created`、`refund.updated`、`refund.failed`
-- `charge.refunded`
-- `charge.dispute.created`、`charge.dispute.closed`
+## 用量与预算监控
 
-Webhook 校验原始请求体 HMAC、5 分钟时间窗和模式；先落 `payment_events` 再返回 200。重复事件可以安全重送；入账前从 Stripe 读取当前 Checkout 和 PaymentIntent / Charge。不能凭成功回跳 URL 或客户端报文加钱。
+- `requests` 中未知用量、`cost_pending` 需供应商证据核对，不能当作零成本。
+- `wallets.held_micros` 与 `credentials.held_micros` 分别表示调用额度和上游成本预留。
+- 配置代理不可用时拒绝相应路线；不允许静默绕过代理。
+- 内部额度调整需填写原因，保留操作者及唯一业务参考。
 
-退款只支持完全未使用订单的全额退款。退款请求前锁定钱包；网络超时保留冻结并按相同幂等键重试。平台外退款及争议冻结受影响客户进入人工核对；争议关闭不会自动恢复账户。已有消费、部分退款、奖金归属、手续费与税务单据需要后续账务功能。
+本地预算不等于供应商余额；管理员自己的调用仍受访问 Key、租户限流和预算约束。移除 Stripe 不等于将钱包设为无限。
 
-## 需要监控的状态
+## 备份与秘密
 
-- `payment_events.status='pending'`、`attempts`、`last_error`：应报警并核查，不能删除支付事件来“解决”重复充值。
-- `topup_orders`：`pending`、`refund_pending`、`review_required`、`refund_failed` 需要核对 Stripe 当前状态。
-- `requests`：未知用量与 `cost_pending` 需要供应商账单证据；不能当作零成本。
-- `wallets.held_micros` 与 `credentials.held_micros`：客户和供应商预留分别管理。
+上游 Key / SOCKS5 凭据使用 AES-GCM，访问 Key 和会话只存哈希，密码用 bcrypt。备份 MySQL 和 `MASTER_KEY` 并验证恢复；不要随意重新生成加密主密钥。引导密码、环境文件、完整访问 Key 和备份不进入 Git。
 
-后台不是完整财务管理系统。人工状态修复必须核对订单、钱包、账本、上游证据，并留下审计记录。正式上线前应实现专门的修复界面、报警和周期性对账任务。
+反向代理部署前需配置受信代理及真实 IP 处理；当前限流使用网关连接地址，不无条件信任 `X-Forwarded-For`。候补表单与登录均有来源检查和频率限制。
 
-## 密钥与备份
+## 集成测试
 
-上游 Key / SOCKS5 凭据用 AES-GCM 加密；客户 API Key 与会话 token 仅存哈希，密码用 bcrypt。代理和 API Key 列表只返回掩码。不要将 `.env`、截图中的完整访问 Key、数据库备份放进 Git。
+`make test-integration` 默认建立独立 `relaypine_test` schema 并运行串行包级测试。不要将 `MYSQL_TEST_DSN` 指向应用库；脚本会拒绝与 `MYSQL_DSN` 相同的连接串。CI 使用临时 MySQL / Redis。
 
-备份 MySQL 与 MASTER_KEY，并验证恢复；单独备份任一项不足以恢复上游凭据。当前未实现密钥轮换迁移工具。生产应关闭已完成初始化的 BOOTSTRAP 环境变量，并通过基础设施 Secret 注入。
-
-生产认证仍需邮箱验证、密码找回和更完善的滥用控制。原型的 IP 限流取网关连接地址；反向代理部署前需要明确受信代理与真实客户端 IP 的处理方式，不能无条件信任客户端传入的 X-Forwarded-For。
-
-## 实现参考
-
-- [Stripe Webhook](https://docs.stripe.com/webhooks)
-- [Stripe PaymentIntent 查询](https://docs.stripe.com/api/payment_intents/retrieve)
-- [Stripe 退款](https://docs.stripe.com/refunds)
-- [OpenAI API](https://platform.openai.com/docs/api-reference)
-- [Anthropic API](https://platform.claude.com/docs/en/api/overview)
+当前没有邮箱所有权验证或邮件发送服务。不要把候补邮箱视为已验证身份，也不要仅凭候补记录直接恢复管理权限。

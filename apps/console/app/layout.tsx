@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     template: "%s | RelayPine",
   },
   description:
-    "Connect to Claude and OpenAI through one API gateway. Native APIs, transparent token billing, and one prepaid balance.",
+    "Connect to Claude and OpenAI through one API gateway. Native APIs, capacity-aware routing, and clear usage. Join the waitlist for access.",
 };
 export const viewport: Viewport = {
   themeColor: [

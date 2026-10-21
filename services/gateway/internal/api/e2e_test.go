@@ -81,7 +81,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 	f.h = f.s.Handler()
 	// Request rows must be removed before the base fixture removes users/keys.
 	t.Cleanup(func() {
-		for _, tenant := range []string{f.customer.TenantID, f.other.TenantID} {
+		for _, tenant := range []string{f.operator.TenantID, f.other.TenantID} {
 			if _, err := f.db.DB.ExecContext(context.Background(), "DELETE a FROM attempts a JOIN requests r ON r.id=a.request_id WHERE r.tenant_id=?", tenant); err != nil {
 				t.Logf("attempt cleanup: %v", err)
 			}
@@ -178,9 +178,10 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 		expectStatus(t, w, 201)
 		return decodeResponse[issued](t, w)
 	}
-	access := issue(f.customerCookie)
-	emptyAccess := issue(f.otherCookie)
-	redisScopes := []string{"tenant:" + f.customer.TenantID, "tenant:" + f.other.TenantID, "access:" + access.Key.ID, "access:" + emptyAccess.Key.ID}
+	access := issue(f.operatorCookie)
+	legacyKey, legacySecret := f.legacyKey(t, f.other)
+	emptyAccess := issued{Key: legacyKey, Secret: legacySecret}
+	redisScopes := []string{"tenant:" + f.operator.TenantID, "tenant:" + f.other.TenantID, "access:" + access.Key.ID, "access:" + emptyAccess.Key.ID}
 	for _, u := range upstreams {
 		redisScopes = append(redisScopes, "credential:"+u.credential, "group:"+f.prefix+u.provider)
 	}
@@ -206,7 +207,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 		}
 	})
 	const initialBalance int64 = 1000000
-	expectStatus(t, f.call(t, "POST", "/api/admin/credits", f.operatorCookie, f.s.AppURL, map[string]any{"tenant_id": f.customer.TenantID, "amount_micros": initialBalance, "reason": "E2E verified test credit", "idempotency_key": f.prefix + "funds"}), 200)
+	expectStatus(t, f.call(t, "POST", "/api/admin/credits", f.operatorCookie, f.s.AppURL, map[string]any{"tenant_id": f.operator.TenantID, "amount_micros": initialBalance, "reason": "E2E verified test credit", "idempotency_key": f.prefix + "funds"}), 200)
 	gateway := httptest.NewServer(f.h)
 	t.Cleanup(gateway.Close)
 	client := gateway.Client()
@@ -277,7 +278,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 			var charge, cost int64
 			var customerHeld, costHeld bool
 			var usageRaw []byte
-			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT status,phase,charge_micros,cost_micros,customer_hold_active,cost_hold_active,usage_json FROM requests WHERE id=? AND tenant_id=?", id, f.customer.TenantID).Scan(&status, &phase, &charge, &cost, &customerHeld, &costHeld, &usageRaw); err != nil {
+			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT status,phase,charge_micros,cost_micros,customer_hold_active,cost_hold_active,usage_json FROM requests WHERE id=? AND tenant_id=?", id, f.operator.TenantID).Scan(&status, &phase, &charge, &cost, &customerHeld, &costHeld, &usageRaw); err != nil {
 				t.Fatal(err)
 			}
 			var usage domain.Usage
@@ -289,7 +290,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 			}
 			var ledgerCount, attemptCount int
 			var ledgerAmount, attemptCost int64
-			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*),COALESCE(SUM(amount_micros),0) FROM ledger_entries WHERE tenant_id=? AND reference=?", f.customer.TenantID, "request:"+id).Scan(&ledgerCount, &ledgerAmount); err != nil {
+			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*),COALESCE(SUM(amount_micros),0) FROM ledger_entries WHERE tenant_id=? AND reference=?", f.operator.TenantID, "request:"+id).Scan(&ledgerCount, &ledgerAmount); err != nil {
 				t.Fatal(err)
 			}
 			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*),COALESCE(SUM(cost_micros),0) FROM attempts WHERE request_id=? AND status='settled'", id).Scan(&attemptCount, &attemptCost); err != nil {
@@ -308,7 +309,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 		})
 	}
 	var balance, held int64
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT balance_micros,held_micros FROM wallets WHERE tenant_id=?", f.customer.TenantID).Scan(&balance, &held); err != nil {
+	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT balance_micros,held_micros FROM wallets WHERE tenant_id=?", f.operator.TenantID).Scan(&balance, &held); err != nil {
 		t.Fatal(err)
 	}
 	if totalCharge != 153 || totalCost != 77 || balance != initialBalance-153 || held != 0 {
@@ -328,16 +329,16 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 		}
 	}
 	var charges int
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM ledger_entries WHERE tenant_id=? AND kind='charge'", f.customer.TenantID).Scan(&charges); err != nil {
+	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM ledger_entries WHERE tenant_id=? AND kind='charge'", f.operator.TenantID).Scan(&charges); err != nil {
 		t.Fatal(err)
 	}
 	if charges != 4 {
 		t.Fatalf("duplicate/missing fees: %d", charges)
 	}
-	// A fresh second tenant has zero funds. Its key must never spend another
-	// tenant's wallet or send a request to either mocked supplier.
+	// A legacy second tenant is waitlisted. Its old key must never spend
+	// another tenant's wallet or send a request to either mocked supplier.
 	response, raw := request(cases[0], emptyAccess)
-	if response.StatusCode != 402 {
+	if response.StatusCode != 401 {
 		t.Fatalf("zero-balance request status=%d body=%s", response.StatusCode, raw)
 	}
 	if upstreams[0].hits.Load() != 2 || upstreams[1].hits.Load() != 2 {

@@ -17,7 +17,7 @@ import {
   ArrowRight,
   Check,
   Code2,
-  CreditCard,
+  ReceiptText,
   Eye,
   KeyRound,
   Plus,
@@ -28,8 +28,9 @@ import {
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
 import { consoleEn as c } from "@/i18n/console-en";
+import { waitlistEn as w } from "@/i18n/waitlist-en";
 import { api, count, date, dollars, money } from "@/lib/api";
-import type { AccessKey, Order, RequestLog } from "@/lib/types";
+import type { AccessKey, RequestLog } from "@/lib/types";
 import { useConsole } from "./console-provider";
 import {
   PageHeader,
@@ -184,47 +185,26 @@ export function Overview() {
   const active = state.keys.filter((key) => key.enabled).length;
   const available = state.wallet.balance_micros - state.wallet.held_micros;
   const [docs, setDocs] = useState(false);
-  const steps = state.user.operator
-    ? [
-        {
-          title: c.hostStep,
-          body: c.hostStepBody,
-          done: !!state.endpoints?.some((host) => host.enabled),
-          href: "/app/upstreams",
-        },
-        {
-          title: c.credentialStep,
-          body: c.credentialStepBody,
-          done: !!state.credentials?.some((credential) => credential.enabled),
-          href: "/app/upstreams",
-        },
-        {
-          title: c.modelStep,
-          body: c.modelStepBody,
-          done: state.models.some((model) => model.enabled),
-          href: "/app/models",
-        },
-      ]
-    : [
-        {
-          title: c.keyStep,
-          body: c.keyStepBody,
-          done: active > 0,
-          href: "/app/keys",
-        },
-        {
-          title: c.balanceStep,
-          body: c.balanceStepBody,
-          done: available > 0,
-          href: "/app/billing",
-        },
-        {
-          title: c.requestStep,
-          body: c.requestStepBody,
-          done: state.requests.length > 0,
-          href: "/app/usage",
-        },
-      ];
+  const steps = [
+    {
+      title: c.hostStep,
+      body: c.hostStepBody,
+      done: !!state.endpoints?.some((host) => host.enabled),
+      href: "/app/upstreams",
+    },
+    {
+      title: c.credentialStep,
+      body: c.credentialStepBody,
+      done: !!state.credentials?.some((credential) => credential.enabled),
+      href: "/app/upstreams",
+    },
+    {
+      title: c.modelStep,
+      body: c.modelStepBody,
+      done: state.models.some((model) => model.enabled),
+      href: "/app/models",
+    },
+  ];
   const completedSteps = steps.filter((step) => step.done).length;
   const metrics = [
     {
@@ -237,7 +217,7 @@ export function Overview() {
       label: t.spend,
       value: money(sum, true),
       help: t.spendHelp,
-      icon: CreditCard,
+      icon: ReceiptText,
     },
     {
       label: t.requests,
@@ -280,9 +260,7 @@ export function Overview() {
           <div className="rp-console-setup-intro">
             <p className="rp-console-eyebrow">{c.setupEyebrow}</p>
             <h2>{c.setupTitle}</h2>
-            <p className="rp-console-setup-description">
-              {state.user.operator ? c.setupBody : c.customerSetupBody}
-            </p>
+            <p className="rp-console-setup-description">{c.setupBody}</p>
             <div className="rp-console-setup-progress">
               <div
                 className="rp-console-setup-progress-track"
@@ -583,33 +561,10 @@ export function Usage() {
   );
 }
 export function Billing() {
-  const { state, refresh } = useConsole();
-  const [fund, setFund] = useState(false);
-  const [refund, setRefund] = useState<Order | null>(null);
-  const notice =
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("checkout")
-      : null;
+  const { state } = useConsole();
   return (
     <>
-      <PageHeader
-        title={t.billing}
-        description={t.billingDescription}
-        action={
-          <Button
-            color="primary"
-            isDisabled={!state.payments_enabled}
-            onPress={() => setFund(true)}
-          >
-            {t.topUp}
-          </Button>
-        }
-      />
-      {notice && (
-        <div className="mb-6 rounded-xl border border-default-200 bg-default-50 p-4 text-sm leading-6">
-          {notice === "cancelled" ? t.paymentCancelled : t.paymentReturn}
-        </div>
-      )}
+      <PageHeader title={t.billing} description={t.billingDescription} />
       <div className="rp-console-billing-summary">
         <section className="rp-console-wallet">
           <div className="rp-console-wallet-heading">
@@ -628,88 +583,24 @@ export function Billing() {
             <p>{t.billingHold}</p>
           </div>
         </section>
-        <section className="rp-console-payment-setup">
-          <div className="rp-console-payment-icon">
-            <CreditCard size={22} strokeWidth={1.5} />
+        <section className="rp-console-accounting-note">
+          <div className="rp-console-accounting-icon">
+            <ReceiptText size={22} strokeWidth={1.5} />
           </div>
-          <p className="rp-console-eyebrow">{c.paymentMethod}</p>
-          <h2>{state.payments_enabled ? c.stripe : t.paymentUnavailable}</h2>
-          <p>
-            {state.payments_enabled
-              ? t.topUpDescription
-              : t.paymentUnavailableBody}
-          </p>
-          {state.payments_enabled ? (
-            <Button
-              variant="bordered"
-              onPress={() => setFund(true)}
-              endContent={<ArrowRight size={15} />}
-            >
-              {t.topUp}
-            </Button>
-          ) : (
-            <span className="rp-console-payment-status">
-              <span />
-              {c.paymentSetup}
-            </span>
-          )}
+          <p className="rp-console-eyebrow">{w.internalLabel}</p>
+          <h2>{w.internalTitle}</h2>
+          <p>{w.internalBody}</p>
+          <Button
+            as={Link}
+            href="/app/usage"
+            variant="bordered"
+            endContent={<ArrowRight size={15} />}
+          >
+            {t.usage}
+          </Button>
         </section>
       </div>
-      <h2 className="rp-console-table-title">{t.payments}</h2>
-      <DataTable
-        caption={t.payments}
-        columns={[
-          t.orderID,
-          ...(state.user.operator ? [t.tenant] : []),
-          t.amount,
-          t.status,
-          t.date,
-          ...(state.user.operator ? [t.actions] : []),
-        ]}
-        rows={state.orders.map((order) => [
-          <code key="order" className="text-xs">
-            {order.id}
-          </code>,
-          ...(state.user.operator
-            ? [
-                state.customers?.find(
-                  (customer) => customer.id === order.tenant_id,
-                )?.name || order.tenant_id,
-              ]
-            : []),
-          money(order.amount_micros),
-          <Chip
-            key="status"
-            size="sm"
-            variant="flat"
-            color={order.status === "paid" ? "success" : "default"}
-          >
-            {order.status}
-          </Chip>,
-          date(order.created_at),
-          ...(state.user.operator
-            ? [
-                order.status === "paid" ? (
-                  <Button
-                    key="refund"
-                    size="sm"
-                    variant="light"
-                    color="danger"
-                    onPress={() => setRefund(order)}
-                  >
-                    {t.refund}
-                  </Button>
-                ) : (
-                  t.emptyValue
-                ),
-              ]
-            : []),
-        ])}
-        empty={<Empty title={t.noPayments} body={t.noPaymentsBody} />}
-      />
-      <h2 className="rp-console-table-title rp-console-table-title-spaced">
-        {t.ledger}
-      </h2>
+      <h2 className="rp-console-table-title">{t.ledger}</h2>
       <DataTable
         caption={t.ledger}
         columns={[t.entryType, t.amount, t.reason, t.reference, t.date]}
@@ -728,51 +619,60 @@ export function Billing() {
         ])}
         empty={<Empty title={t.noLedger} body={t.noLedgerBody} />}
       />
-      {fund && (
-        <ResourceForm
-          title={t.topUpTitle}
-          description={t.topUpDescription}
-          fields={[
-            {
-              key: "amount",
-              label: t.topUpAmount,
-              type: "number",
-              min: 5,
-              required: true,
-            },
-          ]}
-          initial={{ amount: 20 }}
-          submitLabel={t.checkout}
-          onClose={() => setFund(false)}
-          onSubmit={async (v) => {
-            const amount = Number(v.amount);
-            if (amount < 5 || amount > 1000) throw new Error(t.amountRange);
-            const result = await api<{ url: string }>("/api/billing/checkout", {
-              amount_cents: Math.round(amount * 100),
-            });
-            const url = new URL(result.url);
-            if (
-              url.protocol !== "https:" ||
-              url.hostname !== "checkout.stripe.com"
-            )
-              throw new Error(t.externalRedirectError);
-            window.location.assign(url.href);
-          }}
-        />
-      )}
-      {refund && (
-        <Confirm
-          title={t.refundTitle}
-          body={`${money(refund.amount_micros)} · ${refund.id}. ${t.refundBody}`}
-          action={t.refund}
-          onClose={() => setRefund(null)}
-          onConfirm={async () => {
-            await api("/api/admin/refunds", { order_id: refund.id });
-            await refresh();
-            addToast({ title: t.refundDone, color: "success" });
-          }}
-        />
-      )}
+    </>
+  );
+}
+export function Waitlist() {
+  const { state } = useConsole();
+  const [search, setSearch] = useState("");
+  const entries = (state.waitlist ?? []).filter((entry) =>
+    `${entry.name} ${entry.email}`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
+  return (
+    <>
+      <PageHeader title={w.pageTitle} description={w.pageDescription} />
+      <Input
+        aria-label={w.search}
+        placeholder={w.search}
+        value={search}
+        onValueChange={setSearch}
+        isClearable
+        onClear={() => setSearch("")}
+        startContent={<Search size={17} className="text-default-400" />}
+        className="rp-console-search max-w-md"
+      />
+      <DataTable
+        caption={w.pageTitle}
+        columns={[t.name, t.email, t.status, w.joined]}
+        rows={entries.map((entry) => [
+          <span key="name" className="font-medium">
+            {entry.name}
+          </span>,
+          entry.email,
+          <Chip key="status" size="sm" variant="flat">
+            {w.status}
+          </Chip>,
+          date(entry.created_at),
+        ])}
+        empty={
+          <Empty
+            title={search ? w.noMatches : w.noEntries}
+            body={search ? t.resetSearch : w.noEntriesBody}
+            action={
+              search ? (
+                <Button variant="flat" onPress={() => setSearch("")}>
+                  {t.all}
+                </Button>
+              ) : undefined
+            }
+          />
+        }
+      />
+      <p className="mt-3 text-xs text-default-400">
+        {w.entries}: {count(entries.length)}
+      </p>
     </>
   );
 }

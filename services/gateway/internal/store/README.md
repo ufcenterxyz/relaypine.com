@@ -25,8 +25,8 @@ request before upstream I/O, along with a durable attempt `send_intent`.
 are positive and usage charges negative. Zero charge entries record final free
 requests. This is not a full general ledger or separate cash/bonus lot system.
 
-`CreditTx(ctx, tx, tenantID, amountMicros, reference, reason)` lets payments commit
-an order/event transition and wallet credit in the same transaction. It locks
+`CreditTx(ctx, tx, tenantID, amountMicros, reference, reason)` supports audited
+internal credits in an existing transaction. It locks
 the wallet and owns the credit journal insertion. Callers must not update the
 same balance separately. Repeating the same reference and amount is a no-op;
 changing the amount or kind returns `ErrConflict`.
@@ -45,7 +45,7 @@ changing the amount or kind returns `ErrConflict`.
 - Final settlements are idempotent. A reservation with an existing request ID
   returns `ErrConflict` so the caller cannot accidentally send a second call.
 
-## Payment tables
+## Historical payment tables
 
 `topup_orders`: `id VARCHAR(64) PRIMARY KEY`, `tenant_id VARCHAR(64)`,
 `amount_micros BIGINT`, `currency VARCHAR(8)`, `status VARCHAR(32)`, nullable unique
@@ -54,19 +54,40 @@ changing the amount or kind returns `ErrConflict`.
 
 `payment_events`: `id VARCHAR(255) PRIMARY KEY`, `event_type VARCHAR(128)`,
 `payload JSON`, `status VARCHAR(32)` default `pending`, `last_error TEXT NULL`,
-`attempts INT` default zero, plus `created_at` and `updated_at`. Payment processing
-and supplemental refund tables are owned by the payments package.
+`attempts INT` default zero, plus `created_at` and `updated_at`. These and any
+existing supplemental refund tables are retained for historical data only.
+There is no checkout, refund, webhook, payment worker, or Stripe integration.
 
 ## Security and verification
 
 Passwords use bcrypt. Session and customer API tokens use 256 bits from the OS
 random source and are stored only as SHA-256 hashes. Credential secrets and
 proxy URLs use AES-GCM with their configuration identity as associated data.
-Customer snapshots omit upstream costs and infrastructure configuration.
+Only the fixed administrator can obtain a snapshot. Secrets and token hashes
+are always omitted.
 Responses mappings are immutable and scoped to tenant and project.
 
 Run `go test ./internal/store` for pure invariant/crypto tests. Set
 `MYSQL_TEST_DSN` to run real MySQL integration tests; optionally set `MASTER_KEY`
-to the development key. Tests create random users/configuration and remove their
-own records, without truncating shared tables. `go test -race ./internal/store`
+to the development key. Use an isolated test database: tests provision the fixed
+administrator and remove their fixtures. Run packages sequentially (`-p 1`)
+because the administrator address is globally unique. Never point tests at the
+application database. `go test -race ./internal/store`
 also exercises concurrent wallet reservations under the race detector.
+
+## Private access and waitlist
+
+`store.SuperAdminEmail` is fixed to `ufcenterxyz@gmail.com`; an email match alone
+never authenticates a user. The gateway requires `BOOTSTRAP_PASSWORD` (10–72
+bytes) and runs `EnsureSuperAdmin` on startup. It creates the administrator when
+absent, enforces the configured password, demotes other operators, invalidates
+other accounts' sessions and keys, and backfills other existing users into the
+waitlist. Promoting an existing public account resets its password and revokes
+its old sessions and API keys before granting access. Repeating bootstrap with
+the same password preserves a verified administrator's sessions.
+
+Login, sessions, snapshots, key creation and relay key authentication require
+the exact administrator identity and its operator flag in durable state. Public
+`JoinWaitlist` writes only a normalized, unique email, optional name, and original
+submission time into `waitlist_entries`. It never provisions a tenant, user,
+wallet, session or key. Historical accounts, balances and usage remain intact.

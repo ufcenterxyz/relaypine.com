@@ -1,8 +1,8 @@
 export const marketing = {
-  eyebrow: "INTELLIGENCE, WELL CONNECTED",
+  eyebrow: "PRIVATE PREVIEW · JOIN THE WAITLIST",
   title: "One gateway.\nEvery next idea.",
   description:
-    "Claude and OpenAI, through one considered connection. Native APIs. Clear billing. Room to build.",
+    "Claude and OpenAI, through one considered connection. Native APIs. Clear usage. Room to build.",
   heroNote: "Your SDK. Your models. One RelayPine key.",
   supported: "BUILT AROUND YOUR STACK",
   openaiDetail: "Responses · Chat Completions",
@@ -13,7 +13,7 @@ export const marketing = {
     "Use the OpenAI and Anthropic libraries you already know. Update your key and base URL, then get back to building.",
   nativeProtocol: "Native request & response formats",
   streamProtocol: "Streaming, end to end",
-  modelLink: "Explore models & pricing",
+  modelLink: "See how to connect",
   codeFile: "quickstart.ts",
   capabilitiesLabel: "THE DETAILS, TAKEN CARE OF",
   capabilitiesTitle: "Less to manage.\nMore to make.",
@@ -25,16 +25,16 @@ export const marketing = {
   routingFrom: "Your request",
   routingTo: "An eligible upstream",
   routingCaption: "Capacity-aware routing",
-  walletTitle: "One balance. A clear account.",
+  walletTitle: "Every request. A clearer picture.",
   walletDescription:
-    "A prepaid wallet for both providers. Follow token usage and recorded charges, request by request.",
+    "Follow token usage, request status, and latency across both providers in one place.",
   walletDetail: "Input · Output · Cached tokens",
   keysTitle: "Access with boundaries.",
   keysDescription:
     "Give each application its own key, model access, and rate limits. Keep your projects in control.",
   keysDetail: "Separate keys · Defined limits",
-  startTitle: "Your next idea starts here.",
+  startTitle: "Be part of what comes next.",
   startDescription:
-    "Create a workspace, add funds, and make your first request.",
+    "RelayPine is in private preview. Join the waitlist for access.",
   footerTagline: "A considered connection to AI.",
 };

@@ -14,7 +14,7 @@ if not target.exists():
         'MYSQL_PASSWORD': password,
         'MYSQL_DSN': f'relaypine:{password}@tcp(127.0.0.1:4812)/relaypine?parseTime=true&loc=UTC',
         'MASTER_KEY': base64.b64encode(os.urandom(32)).decode(),
-        'BOOTSTRAP_EMAIL': 'operator@relaypine.local',
+        'BOOTSTRAP_EMAIL': 'ufcenterxyz@gmail.com',
         'BOOTSTRAP_PASSWORD': secrets.token_urlsafe(24),
     }
     lines = []

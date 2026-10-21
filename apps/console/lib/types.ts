@@ -108,14 +108,10 @@ export interface LedgerEntry {
   reason: string;
   created_at: string;
 }
-export interface Order {
+export interface WaitlistEntry {
   id: string;
-  tenant_id: string;
-  amount_micros: number;
-  currency: string;
-  status: string;
-  session_id: string;
-  payment_id: string;
+  name: string;
+  email: string;
   created_at: string;
 }
 export interface RouteConfig {
@@ -132,11 +128,10 @@ export interface Snapshot {
   models: Model[];
   requests: RequestLog[];
   ledger: LedgerEntry[];
-  orders: Order[];
   endpoints?: Endpoint[];
   credentials?: Credential[];
   proxies?: Proxy[];
   customers?: Tenant[];
   routing: RouteConfig;
-  payments_enabled: boolean;
+  waitlist?: WaitlistEntry[];
 }

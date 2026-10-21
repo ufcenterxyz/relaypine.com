@@ -124,15 +124,11 @@ type LedgerEntry struct {
 	Reason       string    `json:"reason"`
 	CreatedAt    time.Time `json:"created_at"`
 }
-type Order struct {
-	ID           string    `json:"id"`
-	TenantID     string    `json:"tenant_id"`
-	AmountMicros int64     `json:"amount_micros"`
-	Currency     string    `json:"currency"`
-	Status       string    `json:"status"`
-	SessionID    string    `json:"session_id"`
-	PaymentID    string    `json:"payment_id"`
-	CreatedAt    time.Time `json:"created_at"`
+type WaitlistEntry struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
 }
 type RouteConfig struct {
 	Strategy          string `json:"strategy"`
@@ -140,21 +136,20 @@ type RouteConfig struct {
 	TenantConcurrency int    `json:"tenant_concurrency"`
 }
 type Snapshot struct {
-	User            User          `json:"user"`
-	Tenant          Tenant        `json:"tenant"`
-	Project         Project       `json:"project"`
-	Wallet          Wallet        `json:"wallet"`
-	Keys            []AccessKey   `json:"keys"`
-	Models          []Model       `json:"models"`
-	Requests        []Request     `json:"requests"`
-	Ledger          []LedgerEntry `json:"ledger"`
-	Orders          []Order       `json:"orders"`
-	Endpoints       []Endpoint    `json:"endpoints,omitempty"`
-	Credentials     []Credential  `json:"credentials,omitempty"`
-	Proxies         []Proxy       `json:"proxies,omitempty"`
-	Customers       []Tenant      `json:"customers,omitempty"`
-	Routing         RouteConfig   `json:"routing"`
-	PaymentsEnabled bool          `json:"payments_enabled"`
+	User        User            `json:"user"`
+	Tenant      Tenant          `json:"tenant"`
+	Project     Project         `json:"project"`
+	Wallet      Wallet          `json:"wallet"`
+	Keys        []AccessKey     `json:"keys"`
+	Models      []Model         `json:"models"`
+	Requests    []Request       `json:"requests"`
+	Ledger      []LedgerEntry   `json:"ledger"`
+	Waitlist    []WaitlistEntry `json:"waitlist"`
+	Endpoints   []Endpoint      `json:"endpoints,omitempty"`
+	Credentials []Credential    `json:"credentials,omitempty"`
+	Proxies     []Proxy         `json:"proxies,omitempty"`
+	Customers   []Tenant        `json:"customers,omitempty"`
+	Routing     RouteConfig     `json:"routing"`
 }
 type Reservation struct {
 	Request      Request

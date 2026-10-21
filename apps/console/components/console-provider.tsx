@@ -34,8 +34,14 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
       setState(data);
       setError("");
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        router.replace("/?auth=login");
+      if (
+        e instanceof ApiError &&
+        (e.status === 401 || e.code === "waitlist_required")
+      ) {
+        setState(null);
+        router.replace(
+          e.code === "waitlist_required" ? "/?auth=waitlist" : "/?auth=login",
+        );
       } else {
         setError(errorMessage(e));
       }
@@ -54,8 +60,13 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
       })
       .catch((e) => {
         if (cancelled) return;
-        if (e instanceof ApiError && e.status === 401)
-          router.replace("/?auth=login");
+        if (
+          e instanceof ApiError &&
+          (e.status === 401 || e.code === "waitlist_required")
+        )
+          router.replace(
+            e.code === "waitlist_required" ? "/?auth=waitlist" : "/?auth=login",
+          );
         else setError(errorMessage(e));
       });
     return () => {

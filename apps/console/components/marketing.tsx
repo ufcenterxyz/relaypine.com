@@ -9,7 +9,6 @@ import {
   Tabs,
   Tab,
 } from "@heroui/react";
-import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
@@ -19,12 +18,13 @@ import {
   KeyRound,
   Layers3,
   Route,
-  Wallet,
+  Activity,
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
 import { marketing as m } from "@/i18n/marketing-en";
 import { RoutingDemo } from "./routing-demo";
-import { AuthModal } from "./auth-modal";
+import { AuthModal, type AuthMode } from "./auth-modal";
+import { waitlistEn as w } from "@/i18n/waitlist-en";
 import { Brand, ThemeToggle, CodeBlock } from "./shared";
 
 export function sdkCode(provider: string) {
@@ -71,13 +71,14 @@ export function Integration({ onClose }: { onClose: () => void }) {
   );
 }
 export function Marketing() {
-  const [auth, setAuth] = useState<"login" | "register" | null>(null);
+  const [auth, setAuth] = useState<AuthMode | null>(null);
   const [docs, setDocs] = useState(false);
   const [provider, setProvider] = useState("openai");
   const reducedMotion = useReducedMotion();
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("auth") === "login") {
-      const timer = setTimeout(() => setAuth("login"), 0);
+    const mode = new URLSearchParams(window.location.search).get("auth");
+    if (mode === "login" || mode === "waitlist") {
+      const timer = setTimeout(() => setAuth(mode), 0);
       return () => clearTimeout(timer);
     }
   }, []);
@@ -104,16 +105,15 @@ export function Marketing() {
             </Button>
             <ThemeToggle />
             <Button variant="light" onPress={() => setAuth("login")}>
-              {t.signIn}
+              {w.adminSignIn}
             </Button>
             <Button
-              as={Link}
-              href="/app"
+              onPress={() => setAuth("waitlist")}
               color="primary"
               className="hidden sm:inline-flex"
               endContent={<ArrowUpRight size={15} />}
             >
-              {t.console}
+              {w.join}
             </Button>
           </nav>
         </div>
@@ -138,10 +138,10 @@ export function Marketing() {
                 <Button
                   size="lg"
                   color="primary"
-                  onPress={() => setAuth("register")}
+                  onPress={() => setAuth("waitlist")}
                   endContent={<ArrowUpRight size={17} />}
                 >
-                  {t.getStarted}
+                  {w.join}
                 </Button>
                 <Button
                   size="lg"
@@ -191,8 +191,7 @@ export function Marketing() {
               </li>
             </ul>
             <Button
-              as={Link}
-              href="/app/models"
+              onPress={() => setDocs(true)}
               variant="light"
               className="rp-text-link"
               endContent={<ArrowUpRight size={16} />}
@@ -263,7 +262,7 @@ export function Marketing() {
               </article>
               <div className="rp-side-features">
                 <article>
-                  <Wallet size={21} strokeWidth={1.4} />
+                  <Activity size={21} strokeWidth={1.4} />
                   <div>
                     <h3>{m.walletTitle}</h3>
                     <p>{m.walletDescription}</p>
@@ -290,10 +289,10 @@ export function Marketing() {
           <Button
             size="lg"
             color="primary"
-            onPress={() => setAuth("register")}
+            onPress={() => setAuth("waitlist")}
             endContent={<ArrowUpRight size={18} />}
           >
-            {t.signUp}
+            {w.join}
           </Button>
         </section>
       </main>

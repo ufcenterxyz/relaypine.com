@@ -10,7 +10,7 @@ gateway:
 console:
 	cd apps/console && yarn dev --port 4810
 test:
-	cd services/gateway && go test -race ./...
+	cd services/gateway && go test -race -p 1 ./...
 test-integration:
 	./scripts/test-integration.sh
 check:

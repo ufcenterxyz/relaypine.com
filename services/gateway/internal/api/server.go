@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
@@ -21,17 +20,10 @@ import (
 	"relaypine.com/gateway/internal/store"
 )
 
-type Payments interface {
-	Enabled() bool
-	Checkout(context.Context, domain.User, int64) (string, error)
-	Refund(context.Context, string, string) (string, error)
-	Webhook(http.ResponseWriter, *http.Request)
-}
 type Server struct {
 	Store        *store.Store
 	Redis        *redis.Client
 	Relay        http.Handler
-	Payments     Payments
 	AppURL       string
 	AllowPrivate bool
 }
@@ -52,7 +44,6 @@ func (s *Server) Handler() http.Handler {
 		}
 		write(w, 200, map[string]any{"status": "ready"})
 	})
-	mux.HandleFunc("POST /api/payments/stripe/webhook", s.Payments.Webhook)
 	mux.HandleFunc("/api/", s.console)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -105,36 +96,69 @@ func (s *Server) cookie(w http.ResponseWriter, token string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: "rp_session", Value: token, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(s.AppURL, "https://"), SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
 }
 func (s *Server) authLimit(ctx context.Context, r *http.Request, email string) bool {
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return s.publicLimit(ctx, r, email, "auth")
+}
+func (s *Server) publicLimit(ctx context.Context, r *http.Request, email, scope string) bool {
+	if s.Redis == nil {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
 	hash := func(v string) string { sum := sha256.Sum256([]byte(v)); return hex.EncodeToString(sum[:]) }
-	keys := []string{"rp:auth:pair:" + hash(host+"|"+strings.ToLower(email)), "rp:auth:ip:" + hash(host), "rp:auth:email:" + hash(strings.ToLower(email))}
+	email = store.NormalizeEmail(email)
+	prefix := "rp:" + scope + ":"
+	keys := []string{prefix + "pair:" + hash(host+"|"+email), prefix + "ip:" + hash(host), prefix + "email:" + hash(email)}
 	v, e := s.Redis.Eval(ctx, `local allowed=1; local limits={30,100,40}; for i,k in ipairs(KEYS) do local n=redis.call('INCR',k); if n==1 then redis.call('EXPIRE',k,600) end; if n>limits[i] then allowed=0 end end; return allowed`, keys).Int()
 	return e == nil && v == 1
 }
 func (s *Server) console(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if path == "/api/billing/checkout" || path == "/api/admin/refunds" || strings.HasPrefix(path, "/api/payments/") {
+		fail(w, 404, "not_found", "API route not found.")
+		return
+	}
 	if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("Origin") != s.AppURL {
 		fail(w, 403, "origin_rejected", "This request must come from the RelayPine console.")
 		return
 	}
-	path := strings.TrimSuffix(r.URL.Path, "/")
-	if path == "/api/auth/register" || path == "/api/auth/login" {
+	if path == "/api/waitlist" || path == "/api/auth/register" {
 		if r.Method != "POST" {
 			fail(w, 405, "method_not_allowed", "Use POST.")
 			return
 		}
 		var v struct {
-			Name     string `json:"name"`
+			Name  string `json:"name"`
+			Email string `json:"email"`
+			// Legacy clients may send a password. It is never stored or used.
+			Password string `json:"password"`
+		}
+		if read(r, &v) != nil || !store.ValidEmail(store.NormalizeEmail(v.Email)) || len(strings.TrimSpace(v.Name)) > 100 {
+			fail(w, 400, "invalid_waitlist", "Enter a valid email and an optional name up to 100 bytes.")
+			return
+		}
+		if !s.publicLimit(r.Context(), r, v.Email, "waitlist") {
+			fail(w, 429, "rate_limited", "Too many requests. Try again later.")
+			return
+		}
+		if err := s.Store.JoinWaitlist(r.Context(), v.Email, v.Name); err != nil {
+			s.report(w, err)
+			return
+		}
+		write(w, 202, map[string]string{"status": "waitlisted"})
+		return
+	}
+	if path == "/api/auth/login" {
+		if r.Method != "POST" {
+			fail(w, 405, "method_not_allowed", "Use POST.")
+			return
+		}
+		var v struct {
 			Email    string `json:"email"`
 			Password string `json:"password"`
 		}
-		if read(r, &v) != nil {
-			fail(w, 400, "invalid_request", "Enter a valid email and password.")
-			return
-		}
-		v.Email = strings.ToLower(strings.TrimSpace(v.Email))
-		v.Name = strings.TrimSpace(v.Name)
-		addr, e := mail.ParseAddress(v.Email)
-		if e != nil || addr.Address != v.Email || len(v.Email) > 254 || len(v.Password) < 10 || len(v.Password) > 72 {
+		if read(r, &v) != nil || !store.ValidEmail(store.NormalizeEmail(v.Email)) || len(v.Password) < 10 || len(v.Password) > 72 {
 			fail(w, 400, "invalid_credentials", "Use a valid email and a password between 10 and 72 bytes.")
 			return
 		}
@@ -142,18 +166,13 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			fail(w, 429, "rate_limited", "Too many sign-in attempts. Try again later.")
 			return
 		}
-		var user domain.User
-		if path == "/api/auth/register" {
-			if v.Name == "" || len(v.Name) > 100 {
-				fail(w, 400, "invalid_name", "Enter your name (up to 100 characters).")
-				return
-			}
-			user, e = s.Store.Register(r.Context(), v.Email, v.Name, v.Password, false)
-		} else {
-			user, e = s.Store.Authenticate(r.Context(), v.Email, v.Password)
+		if store.NormalizeEmail(v.Email) != store.SuperAdminEmail {
+			fail(w, 403, "waitlist_required", "RelayPine is in private preview. Join the waitlist for access.")
+			return
 		}
-		if e != nil {
-			fail(w, 401, "authentication_failed", "Unable to sign in or create this account. Check your details.")
+		user, e := s.Store.Authenticate(r.Context(), v.Email, v.Password)
+		if e != nil || !store.IsSuperAdmin(user) {
+			fail(w, 401, "authentication_failed", "Unable to sign in. Check your administrator credentials. Public access is by waitlist.")
 			return
 		}
 		token, e := s.Store.CreateSession(r.Context(), user.ID)
@@ -191,7 +210,6 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			s.report(w, e)
 			return
 		}
-		snap.PaymentsEnabled = s.Payments.Enabled()
 		write(w, 200, snap)
 	case path == "/api/keys" && r.Method == "POST":
 		var v struct {
@@ -216,26 +234,8 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		write(w, 200, map[string]bool{"ok": true})
-	case path == "/api/billing/checkout" && r.Method == "POST":
-		var v struct {
-			Amount int64 `json:"amount_cents"`
-		}
-		if read(r, &v) != nil || v.Amount < 500 || v.Amount > 100000 {
-			fail(w, 400, "invalid_amount", "Choose an amount between $5 and $1,000.")
-			return
-		}
-		if !s.Payments.Enabled() {
-			fail(w, 503, "payments_unavailable", "Online top-ups are not configured yet. Contact the operator.")
-			return
-		}
-		checkout, e := s.Payments.Checkout(r.Context(), user, v.Amount)
-		if e != nil {
-			fail(w, 502, "checkout_failed", "Unable to start checkout. Please try again later.")
-			return
-		}
-		write(w, 200, map[string]string{"url": checkout})
 	case strings.HasPrefix(path, "/api/admin/"):
-		if !user.Operator {
+		if !store.IsSuperAdmin(user) {
 			fail(w, 403, "forbidden", "Operator access is required.")
 			return
 		}
@@ -384,24 +384,6 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 			return
 		}
 		write(w, 200, map[string]bool{"ok": true})
-	case "/api/admin/refunds":
-		var v struct {
-			OrderID string `json:"order_id"`
-		}
-		if read(r, &v) != nil || v.OrderID == "" {
-			fail(w, 400, "invalid_refund", "Select an order.")
-			return
-		}
-		if !s.Payments.Enabled() {
-			fail(w, 503, "payments_unavailable", "Online payments are not configured.")
-			return
-		}
-		status, e := s.Payments.Refund(ctx, v.OrderID, user.ID)
-		if e != nil {
-			fail(w, 409, "refund_unavailable", "Only fully unused top-ups without active holds can be refunded here. Check the order and retry.")
-			return
-		}
-		write(w, 200, map[string]string{"status": status})
 	default:
 		fail(w, 404, "not_found", "Operator API route not found.")
 	}

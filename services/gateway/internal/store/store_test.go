@@ -90,7 +90,7 @@ func integrationFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	u, err := s.Register(ctx, newID("test_")+"@example.test", "Integration test", "test-password-strong", false)
+	u, err := s.EnsureSuperAdmin(ctx, "Integration administrator", "test-password-strong")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,14 +282,15 @@ func TestMySQLTenantIsolationAndSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Wallet.BalanceMicros != 0 || len(snap.Credentials) > 0 || len(snap.Customers) > 0 {
-		t.Fatal("nonzero initial funds or operator information leak")
+	if snap.Wallet.BalanceMicros != 0 {
+		t.Fatal("nonzero initial funds")
 	}
-	for _, m := range snap.Models {
-		if m.CostInputRate != 0 || m.CostOutputRate != 0 || m.UpstreamModel != "" {
-			t.Fatal("private model cost exposed")
+	for _, credential := range snap.Credentials {
+		if credential.Secret != "" {
+			t.Fatal("snapshot leaked upstream credential")
 		}
 	}
+
 }
 
 func TestMySQLUpstreamBudgetRollbackAndFailedCost(t *testing.T) {
