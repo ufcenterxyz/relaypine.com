@@ -305,8 +305,16 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 		}
 		write(w, 200, value)
 	case "/api/admin/models":
-		var v domain.Model
-		if read(r, &v) != nil || (!nameOK(v.ID) || len(v.ID) > 64) || !nameOK(v.Name) || !validProvider(v.Provider) || !nameOK(v.UpstreamModel) || v.MaxOutputTokens < 1 || v.MaxOutputTokens > 65536 {
+		var input struct {
+			domain.Model
+			CreateOnly bool `json:"create_only"`
+		}
+		if read(r, &input) != nil {
+			fail(w, 400, "invalid_model", "Enter a model ID, provider and output cap between 1 and 65,536.")
+			return
+		}
+		v := input.Model
+		if (!nameOK(v.ID) || len(v.ID) > 64) || !nameOK(v.Name) || !validProvider(v.Provider) || !nameOK(v.UpstreamModel) || v.MaxOutputTokens < 1 || v.MaxOutputTokens > 65536 {
 			fail(w, 400, "invalid_model", "Enter a model ID, provider and output cap between 1 and 65,536.")
 			return
 		}
@@ -317,11 +325,17 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 				return
 			}
 		}
-		if v.Enabled && (v.InputRate == 0 || v.OutputRate == 0) {
-			fail(w, 400, "invalid_price", "Enabled models require nonzero input and output sales rates.")
+		if v.Enabled && (v.InputRate == 0 || v.OutputRate == 0 || v.CostInputRate == 0 || v.CostOutputRate == 0) {
+			fail(w, 400, "invalid_price", "Enabled models require positive input and output rates for both sales and upstream cost.")
 			return
 		}
-		value, e := s.Store.SaveModel(ctx, v)
+		var value domain.Model
+		var e error
+		if input.CreateOnly {
+			value, e = s.Store.CreateModel(ctx, v)
+		} else {
+			value, e = s.Store.SaveModel(ctx, v)
+		}
 		if e != nil {
 			s.report(w, e)
 			return

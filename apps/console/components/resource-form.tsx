@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Input,
@@ -27,7 +27,7 @@ export interface Field {
   options?: { key: string; label: string }[];
   section?: string;
   visibleWhen?: (values: FormValues) => boolean;
-  validate?: (value: string) => string | undefined;
+  validate?: (value: string, values: FormValues) => string | undefined;
 }
 export type FormValues = Record<string, string | number | boolean>;
 export function ResourceForm({
@@ -53,6 +53,23 @@ export function ResourceForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const errorBlock = useRef<HTMLDivElement | null>(null);
+  const formElement = useRef<HTMLFormElement | null>(null);
+  useEffect(() => {
+    if (!Object.keys(errors).length) return;
+    const invalid = formElement.current?.querySelector<HTMLElement>(
+      '[aria-invalid="true"]',
+    );
+    invalid?.focus({ preventScroll: true });
+    invalid?.scrollIntoView({ block: "center", behavior: "instant" });
+  }, [errors]);
+  useEffect(() => {
+    if (error)
+      errorBlock.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "instant",
+      });
+  }, [error]);
   const visibleFields = fields.filter(
     (field) => !field.visibleWhen || field.visibleWhen(values),
   );
@@ -75,7 +92,7 @@ export function ResourceForm({
         (!Number.isFinite(Number(value)) || Number(value) < (field.min ?? 0))
       )
         next[field.key] = t.invalidNumber;
-      const message = field.validate?.(String(value ?? ""));
+      const message = field.validate?.(String(value ?? ""), values);
       if (message) next[field.key] = message;
     }
     setErrors(next);
@@ -102,6 +119,7 @@ export function ResourceForm({
     >
       <ModalContent>
         <form
+          ref={formElement}
           className="flex min-h-0 flex-col overflow-hidden"
           noValidate
           onSubmit={submit}
@@ -115,7 +133,11 @@ export function ResourceForm({
             )}
           </ModalHeader>
           <ModalBody className="gap-4 overflow-y-auto">
-            {error && <ErrorBox message={error} />}{" "}
+            {error && (
+              <div ref={errorBlock}>
+                <ErrorBox message={error} />
+              </div>
+            )}{" "}
             {visibleFields.map((field, index) => (
               <div key={field.key}>
                 {field.section && (

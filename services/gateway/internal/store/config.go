@@ -253,6 +253,16 @@ func (s *Store) SaveProxy(ctx context.Context, p domain.Proxy) (domain.Proxy, er
 	return p, dbError(err)
 }
 func (s *Store) SaveModel(ctx context.Context, m domain.Model) (domain.Model, error) {
+	return s.saveModel(ctx, m, false)
+}
+
+// CreateModel atomically refuses to overwrite an existing catalog entry. Model
+// imports use this path so a concurrent publication cannot replace its prices.
+func (s *Store) CreateModel(ctx context.Context, m domain.Model) (domain.Model, error) {
+	return s.saveModel(ctx, m, true)
+}
+
+func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly bool) (domain.Model, error) {
 	if m.ID == "" {
 		m.ID = newID("model_")
 	}
@@ -264,22 +274,31 @@ func (s *Store) SaveModel(ctx context.Context, m domain.Model) (domain.Model, er
 			return m, errors.New("model rates outside supported range")
 		}
 	}
+	if m.Enabled && (m.InputRate <= 0 || m.OutputRate <= 0 || m.CostInputRate <= 0 || m.CostOutputRate <= 0) {
+		return m, errors.New("enabled models require positive sales and upstream input/output rates")
+	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return m, err
 	}
 	defer tx.Rollback()
 	var version int
-	err = tx.QueryRowContext(ctx, "SELECT version FROM models WHERE id=? FOR UPDATE", m.ID).Scan(&version)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return m, err
+	if !createOnly {
+		err = tx.QueryRowContext(ctx, "SELECT version FROM models WHERE id=? FOR UPDATE", m.ID).Scan(&version)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return m, err
+		}
 	}
 	m.Version = version + 1
 	raw, err := json.Marshal(m)
 	if err != nil {
 		return m, err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO models(id,config,version) VALUES(?,?,?) ON DUPLICATE KEY UPDATE config=VALUES(config),version=VALUES(version)", m.ID, raw, m.Version)
+	query := "INSERT INTO models(id,config,version) VALUES(?,?,?)"
+	if !createOnly {
+		query += " ON DUPLICATE KEY UPDATE config=VALUES(config),version=VALUES(version)"
+	}
+	_, err = tx.ExecContext(ctx, query, m.ID, raw, m.Version)
 	if err != nil {
 		return m, dbError(err)
 	}

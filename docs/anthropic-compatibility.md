@@ -11,12 +11,18 @@ RelayPine 保留 Anthropic 的 Messages 和 SSE 协议。使用 Anthropic SDK，
 2. 在 **Credentials** 添加上游 Key。对于未绑定工作区的 identity key，在
    **Anthropic workspace ID** 填入 `wrkspc_...`。若 Key 已绑定工作区，可以留空，
    或填写与其绑定一致的工作区。不能仅根据 `sk-ant-usr` 前缀判断是否需要填写。
-3. 添加模型别名、实际上游模型 ID、用量和成本费率、输出上限，并启用模型。
+3. 在 **Models & rates → Import from upstream** 选择保存的 Key 和模型，自动填入
+   协议、模型别名、上游 ID 和输出上限；补齐销售和成本的输入/输出费率后启用。
+   也可手动添加。若导入发现了尚未保存的工作区，应先在流程中明确保存到凭据。
 4. 检查 RelayPine 访问 Key 的模型权限和可用余额，以及上游 Key 的预算、容量和出口。
 
 新增 Key 时可先点击验证：有权限的身份 Key 可以读取工作区列表，只有一个选项时
 自动选择，多个选项时请明确选择。模型列表及配置限额会作为可审阅的发现结果显示；
 工作区绑定 Key 或权限不足时，不会要求提供额外管理员 Key。
+
+**验证 Key 不等于发布模型。** `/anthropic/v1/models` 读取 RelayPine 的本地模型目录，
+只列出已启用、协议匹配且访问 Key 和上游配置允许的条目。本地目录为空时返回空列表，
+即使上游发现已成功。余额不影响模型列表，但余额为零会阻止付费生成请求。
 
 官方 [Rate Limits API](https://platform.claude.com/docs/en/manage-claude/rate-limits-api)
 允许未绑定工作区且具有相应权限的个人或服务账号 Key 查询组织和工作区限额。

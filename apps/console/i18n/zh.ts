@@ -335,4 +335,49 @@ export const zh: Copy = {
     "供应商报告当前无可用容量。请在保存前检查启用状态；导入这些建议将停用密钥。",
   credentialChangedHostSecret:
     "更换 API 地址时请输入新密钥。已存储的密钥只能在原 API 地址下复用。",
+  modelImportTitle: "从上游导入",
+  modelImportIntro: "选择已保存的密钥，查询模型，然后选择一个模型进行配置。",
+  modelImportChooseCredential: "请选择位于已启用 API 地址下的有效密钥。",
+  modelImportChooseModel: "请选择一个要配置的模型。",
+  modelImportNoCredentials:
+    "请先添加并启用上游密钥，然后返回此处发现模型并设置价格。",
+  modelImportDiscover: "查询模型",
+  modelImportSetRates: "设置模型费率",
+  modelImportSearch: "搜索已发现模型",
+  modelImportEmpty: "未返回模型元数据，可使用上游模型 ID 手动添加。",
+  modelImportExists: "已配置",
+  modelImportRestricted: "API 地址不允许",
+  modelImportHostRestriction:
+    "此模型未被 API 地址的模型权限允许。请先修改地址配置，再导入。",
+  modelIDExists:
+    "此模型 ID 已存在。请使用其他 ID 或编辑已有模型，导入不会覆盖现有配置。",
+  modelImportPricingNote:
+    "下一步需要手动填写费率。查询不会发布模型，也不会修改余额。",
+  modelImportDiscoveryNote:
+    "使用已保存的密钥和代理只读查询模型，不发送推理请求。",
+  modelImportScopeTitle: "请先确认密钥的工作空间",
+  modelImportScopeBody:
+    "检测到的工作空间与已保存的密钥不一致。请先在上游服务中确认并保存工作空间，再返回导入。此表单不会替换已有工作空间。",
+  modelImportScopeSaveBody:
+    "为此密钥的请求使用检测到的工作空间，保存后继续。原密钥、限制、预算、代理及其他设置保持不变。",
+  modelImportSelectWorkspace:
+    "选择密钥的工作空间并验证模型权限。导入模型前需要明确确认保存该工作空间。",
+  modelImportSaveWorkspace: "保存检测到的工作空间并继续",
+  modelImportConfigureWorkspace: "前往上游服务配置工作空间",
+  modelImportRateIntro:
+    "已预填模型元数据。请填写每百万 Token 的美元销售价和上游成本价，确认输出上限后保存发布。",
+  modelPositiveRate:
+    "启用模型时此费率必须大于零（每百万 Token 至少 0.000001 美元）。",
+  modelPositiveRates:
+    "启用模型前，请为销售价和上游成本价分别设置大于零的输入与输出费率。",
+  modelsEmptySetup:
+    "验证上游密钥不会发布模型。请导入模型、填写费率并启用，客户端 API 密钥才能使用该模型。",
+  modelsNextStepTitle: "下一步：发布此上游的模型",
+  modelsNextStepBody:
+    "密钥已保存，但对应平台尚无启用的模型。请导入模型元数据并配置费率，让客户端 API 密钥可以使用模型。",
+  modelOutputCapRange: "请输入 1 至 65,536 之间的整数 Token 数。",
+  modelExplicitCacheRates:
+    "请明确填写全部八项费率。仅在缓存类别免费或不使用时填 0；系统不会推测缓存价格。",
+  modelImportDiscoveryInvalid:
+    "模型查询返回了异常结果。请重试，或关闭此弹窗后手动添加模型。",
 };

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import {
   Button,
   Input,
@@ -25,9 +26,10 @@ import {
 import { en as t } from "@/i18n/en";
 import { consoleEn as c } from "@/i18n/console-en";
 import { api, count, dollars, errorMessage, money } from "@/lib/api";
-import type { Credential, Endpoint, Model, Proxy } from "@/lib/types";
+import type { Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
 import { useConsole } from "./console-provider";
 import { CredentialForm } from "./credential-form";
+import { ModelImport, type ImportedModelDraft } from "./model-import";
 import {
   PageHeader,
   DataTable,
@@ -71,6 +73,18 @@ export function Upstreams() {
     run: () => Promise<void>;
   } | null>(null);
   const [busy, setBusy] = useState("");
+  const needsModels = (state.credentials || []).some((credential) => {
+    const endpoint = state.endpoints?.find(
+      (host) => host.id === credential.endpoint_id,
+    );
+    return (
+      credential.enabled &&
+      endpoint?.enabled &&
+      !state.models.some(
+        (model) => model.enabled && model.provider === endpoint.provider,
+      )
+    );
+  });
   async function save(path: string, body: unknown) {
     await api(`/api/admin/${path}`, body);
     await refresh();
@@ -187,6 +201,19 @@ export function Upstreams() {
           </div>
         ))}
       </div>
+      {needsModels && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-default-200 p-5">
+          <div>
+            <h2 className="text-sm font-medium">{t.modelsNextStepTitle}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-default-500">
+              {t.modelsNextStepBody}
+            </p>
+          </div>
+          <Button as={Link} href="/app/models" variant="bordered">
+            {t.configureModels}
+          </Button>
+        </div>
+      )}
       <h2 className="rp-console-table-title">{t.hosts}</h2>
       <DataTable
         caption={t.hosts}
@@ -493,22 +520,42 @@ const rateLabels = [
 ];
 export function Models() {
   const { state, refresh } = useConsole();
+  const [importing, setImporting] = useState(false);
   const [form, setForm] = useState<FormConfig | null>(null);
   const [disable, setDisable] = useState<Model | null>(null);
   const [busy, setBusy] = useState("");
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState("all");
-  async function save(body: unknown) {
+  async function save(body: Model | Record<string, unknown>) {
+    if (
+      body.enabled &&
+      ["input_rate", "output_rate", "cost_input_rate", "cost_output_rate"].some(
+        (key) =>
+          !Number.isFinite(Number(body[key as keyof typeof body])) ||
+          Number(body[key as keyof typeof body]) <= 0,
+      )
+    )
+      throw new Error(t.modelPositiveRates);
     await api("/api/admin/models", body);
     await refresh();
     addToast({ title: t.saved, color: "success" });
   }
-  function open(model?: Model) {
+  function open(model?: Model, imported?: ImportedModelDraft) {
     setForm({
       title: model ? t.editModel : t.addModel,
-      description: t.ratesHelp,
+      description: `${imported ? t.modelImportRateIntro : t.ratesHelp} ${t.modelExplicitCacheRates}`,
       fields: [
-        { key: "id", label: t.modelID, required: true, readOnly: !!model },
+        {
+          key: "id",
+          label: t.modelID,
+          required: true,
+          readOnly: !!model,
+          validate: (value) =>
+            !model &&
+            state.models.some((existing) => existing.id === value.trim())
+              ? t.modelIDExists
+              : undefined,
+        },
         { key: "name", label: t.name, required: true },
         {
           key: "provider",
@@ -524,6 +571,17 @@ export function Models() {
             label: rateLabels[i],
             type: "number",
             required: true,
+            validate: (value, values) =>
+              values.enabled &&
+              [
+                "input_rate",
+                "output_rate",
+                "cost_input_rate",
+                "cost_output_rate",
+              ].includes(key) &&
+              (!Number.isFinite(Number(value)) || dollars(value) <= 0)
+                ? t.modelPositiveRate
+                : undefined,
             section: i === 0 ? t.salesRates : i === 4 ? t.costRates : undefined,
           }),
         ),
@@ -533,6 +591,12 @@ export function Models() {
           type: "number",
           min: 1,
           required: true,
+          validate: (value) =>
+            !Number.isInteger(Number(value)) ||
+            Number(value) < 1 ||
+            Number(value) > 65536
+              ? t.modelOutputCapRange
+              : undefined,
         },
         enabledField,
       ],
@@ -558,14 +622,23 @@ export function Models() {
             upstream_model: "",
             enabled: true,
             max_output_tokens: 4096,
-            ...Object.fromEntries(rateFields.map((key) => [key, 0])),
+            ...imported,
+            ...Object.fromEntries(rateFields.map((key) => [key, ""])),
           },
       onSubmit: async (values) => {
         if (model && values.id !== model.id)
           throw new Error(t.modelID + ": " + model.id);
+        const id = String(values.id).trim();
+        if (!model) {
+          const latest = await api<Snapshot>("/api/state");
+          if (latest.models.some((existing) => existing.id === id))
+            throw new Error(t.modelIDExists);
+        }
         await save({
           ...model,
           ...values,
+          id,
+          ...(!model ? { create_only: true } : {}),
           ...Object.fromEntries(
             rateFields.map((key) => [key, dollars(values[key])]),
           ),
@@ -586,9 +659,14 @@ export function Models() {
         description={t.modelsDescription}
         action={
           state.user.operator ? (
-            <Button color="primary" onPress={() => open()}>
-              {t.addModel}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="bordered" onPress={() => setImporting(true)}>
+                {t.modelImportTitle}
+              </Button>
+              <Button color="primary" onPress={() => open()}>
+                {t.addModel}
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -676,11 +754,17 @@ export function Models() {
         empty={
           <Empty
             title={search ? t.noResults : t.noModels}
-            body={search ? t.resetSearch : t.noModelsBody}
+            body={
+              search
+                ? t.resetSearch
+                : state.user.operator
+                  ? t.modelsEmptySetup
+                  : t.noModelsBody
+            }
             action={
               state.user.operator ? (
-                <Button color="primary" onPress={() => open()}>
-                  {t.addModel}
+                <Button color="primary" onPress={() => setImporting(true)}>
+                  {t.modelImportTitle}
                 </Button>
               ) : undefined
             }
@@ -688,6 +772,19 @@ export function Models() {
         }
       />
       <p className="mt-3 text-xs text-default-400">{t.perMillion}</p>
+      {importing && (
+        <ModelImport
+          credentials={state.credentials || []}
+          endpoints={state.endpoints || []}
+          models={state.models}
+          onClose={() => setImporting(false)}
+          onCredentialSaved={refresh}
+          onSelect={(draft) => {
+            setImporting(false);
+            open(undefined, draft);
+          }}
+        />
+      )}
       {form && <ResourceForm {...form} onClose={() => setForm(null)} />}{" "}
       {disable && (
         <Confirm

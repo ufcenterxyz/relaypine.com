@@ -372,5 +372,53 @@ export const en = {
     "The provider reported no available capacity. Review the enabled setting before saving; importing these suggestions disables the credential.",
   credentialChangedHostSecret:
     "Enter a new API secret when switching hosts. The stored secret can only be reused with its original host.",
+  modelImportTitle: "Import from upstream",
+  modelImportIntro:
+    "Choose a saved credential, discover its models, and select one model to configure.",
+  modelImportChooseCredential:
+    "Choose an enabled credential on an enabled API host.",
+  modelImportChooseModel: "Choose one model to configure.",
+  modelImportNoCredentials:
+    "Add and enable an upstream credential first, then return here to discover and price a model.",
+  modelImportDiscover: "Discover models",
+  modelImportSetRates: "Set model rates",
+  modelImportSearch: "Search discovered models",
+  modelImportEmpty:
+    "No model metadata was returned. You can add a model manually using its upstream ID.",
+  modelImportExists: "Already configured",
+  modelImportRestricted: "Not allowed by host",
+  modelImportHostRestriction:
+    "This model is excluded by the API host’s allowed-model settings. Update the host before importing it.",
+  modelIDExists:
+    "This model ID already exists. Choose a different ID or edit the existing model; importing will not overwrite it.",
+  modelImportPricingNote:
+    "The next step requires you to enter rates. No model is published and no balance is changed by discovery.",
+  modelImportDiscoveryNote:
+    "Uses the saved key and proxy for a read-only model lookup. No inference request is sent.",
+  modelImportScopeTitle: "Confirm the credential’s workspace first",
+  modelImportScopeBody:
+    "The detected workspace differs from the saved credential. Configure and save the intended workspace in Upstreams, then return to import models. This form will not replace an existing workspace.",
+  modelImportScopeSaveBody:
+    "Use the detected workspace for requests from this credential. Save it to continue. Its secret, limits, budget, proxy, and other settings stay unchanged.",
+  modelImportSelectWorkspace:
+    "Choose the workspace for this key and verify model access. You will confirm saving it before importing a model.",
+  modelImportSaveWorkspace: "Save detected workspace and continue",
+  modelImportConfigureWorkspace: "Configure workspace in Upstreams",
+  modelImportRateIntro:
+    "Model metadata is prefilled. Enter your sales and upstream cost rates in USD per million tokens, review the output cap, then save to publish this model.",
+  modelPositiveRate:
+    "Enabled models require a rate greater than zero (at least $0.000001 per million tokens).",
+  modelPositiveRates:
+    "Set positive input and output rates for both sales and upstream costs before enabling this model.",
+  modelsEmptySetup:
+    "Verifying an upstream key does not publish models. Import a model, enter its rates, and enable it so client API keys can request it.",
+  modelsNextStepTitle: "Next: publish models for this upstream",
+  modelsNextStepBody:
+    "Your credential is saved, but a provider has no enabled models. Import model metadata and configure rates to make models available to client API keys.",
+  modelOutputCapRange: "Use a whole number from 1 to 65,536 tokens.",
+  modelExplicitCacheRates:
+    "Enter all eight rates explicitly. Use 0 only when a cache category is free or not used; cache rates are never inferred.",
+  modelImportDiscoveryInvalid:
+    "The model lookup returned an unexpected result. Try again or close this dialog and add a model manually.",
 };
 export type Copy = typeof en;
