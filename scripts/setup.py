@@ -8,6 +8,7 @@ import re
 import secrets
 import shlex
 import sys
+from urllib.parse import urlsplit, urlunsplit
 
 
 def admin_email(value):
@@ -23,18 +24,18 @@ def admin_email(value):
     return value
 
 
-def configured_admin(contents):
-    """Read only the owner setting; never evaluate a shell configuration file."""
+def configured_value(contents, key):
+    """Read a setting without evaluating a shell configuration file."""
     value = None
     for line in contents.splitlines():
-        match = re.match(r'^\s*(?:export\s+)?SUPERADMIN_EMAIL\s*=(.*)$', line)
+        match = re.match(r'^\s*(?:export\s+)?' + re.escape(key) + r'\s*=(.*)$', line)
         if match:
             try:
                 words = shlex.split(match.group(1), comments=True)
             except ValueError:
-                raise SystemExit('Invalid SUPERADMIN_EMAIL assignment in .env; correct it before setup.')
+                raise SystemExit(f'Invalid {key} assignment in .env; correct it before setup.')
             if len(words) > 1:
-                raise SystemExit('Invalid SUPERADMIN_EMAIL assignment in .env; correct it before setup.')
+                raise SystemExit(f'Invalid {key} assignment in .env; correct it before setup.')
             value = words[0] if words else ''
     return value
 
@@ -71,7 +72,7 @@ def main():
         print('Created .env with local-only infrastructure credentials. Configure MAILGUN_* to enable email-code sign-in.')
     else:
         contents = target.read_text()
-        owner = configured_admin(contents)
+        owner = configured_value(contents, 'SUPERADMIN_EMAIL')
         if owner:
             admin_email(owner)
             print('Existing .env preserved, including its administrator setting.')
@@ -84,9 +85,32 @@ def main():
                              'SUPERADMIN_EMAIL=' + shlex.quote(owner) + '\n')
             target.chmod(0o600)
             print('Added SUPERADMIN_EMAIL; all existing configuration and secrets were preserved.')
+    contents = target.read_text()
+    app_url = configured_value(contents, 'APP_URL') or 'http://localhost:4810'
+    admin_url = configured_value(contents, 'ADMIN_APP_URL')
+    if not admin_url:
+        origin = urlsplit(app_url)
+        # Separate DNS names, even during development, keep cookies isolated.
+        hostname = 'admin.localhost' if origin.hostname in ('localhost', '127.0.0.1', '::1') else 'admin.' + (origin.hostname or 'localhost')
+        authority = hostname + (f':{origin.port}' if origin.port else '')
+        admin_url = urlunsplit((origin.scheme or 'http', authority, '', '', ''))
+        with target.open('a') as output:
+            output.write(('\n' if contents and not contents.endswith('\n') else '') +
+                         'ADMIN_APP_URL=' + shlex.quote(admin_url) + '\n')
+        print('Added a separate ADMIN_APP_URL; existing settings were preserved.')
     envlocal = root / 'apps/console/.env.local'
-    if not envlocal.exists():
-        envlocal.write_text('GATEWAY_URL=http://127.0.0.1:4811\n')
+    local_contents = envlocal.read_text() if envlocal.exists() else ''
+    additions = {key: value for key, value in {
+        'GATEWAY_URL': 'http://127.0.0.1:4811',
+        'APP_URL': app_url,
+        'ADMIN_APP_URL': admin_url,
+    }.items() if not configured_value(local_contents, key)}
+    if additions:
+        with envlocal.open('a') as output:
+            if local_contents and not local_contents.endswith('\n'):
+                output.write('\n')
+            for key, value in additions.items():
+                output.write(key + '=' + shlex.quote(value) + '\n')
     print('Next: make infra, then make gateway and make console in separate terminals.')
 
 

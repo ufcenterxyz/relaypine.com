@@ -27,11 +27,9 @@ import {
   Server,
   ShieldCheck,
   Users,
-  ListFilter,
   Waypoints,
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
-import { waitlistEn as w } from "@/i18n/waitlist-en";
 import { consoleEn as c } from "@/i18n/console-en";
 import { api, errorMessage } from "@/lib/api";
 import { Brand, ThemeToggle } from "./shared";
@@ -49,7 +47,6 @@ const operatorNav = [
   { id: "proxies", label: t.proxies, icon: Network },
   { id: "routing", label: t.routing, icon: GitBranch },
   { id: "customers", label: t.customers, icon: Users },
-  { id: "waitlist", label: w.pageTitle, icon: ListFilter },
 ];
 export function ConsoleShell({ children }: { children: React.ReactNode }) {
   const { state, refresh, refreshing } = useConsole();
@@ -94,12 +91,12 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="min-w-0">
           <p>{state.tenant.name}</p>
-          <span>{state.user.operator ? t.operator : c.personalWorkspace}</span>
+          <span>{state.surface === "admin" && state.user.operator ? t.operator : c.personalWorkspace}</span>
         </div>
       </div>
       <p className="rp-console-nav-label">{c.workspaceNavigation}</p>
       <nav aria-label={t.workspace}>{navItems(customerNav)}</nav>
-      {state.user.operator && (
+      {state.surface === "admin" && state.user.operator && (
         <>
           <p className="rp-console-nav-label rp-console-operations-label">
             {t.operations}

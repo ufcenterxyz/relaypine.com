@@ -14,6 +14,9 @@ import {
   SelectItem,
   addToast,
 } from "@heroui/react";
+import { pricingEn as p } from "@/i18n/pricing-en";
+import { validPricePreview, type PricePreview } from "@/lib/pricing";
+import { ModelPricePreview } from "./model-price-preview";
 import { en as t } from "@/i18n/en";
 import { api, count, errorMessage } from "@/lib/api";
 import type { Credential, Endpoint, Model } from "@/lib/types";
@@ -122,6 +125,7 @@ export function ModelImport({
   const [credentialID, setCredentialID] = useState(eligible[0]?.id || "");
   const [result, setResult] = useState<Discovery | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [pricePreview, setPricePreview] = useState<PricePreview | null>(null);
   const [receipt, setReceipt] = useState<ImportReceipt | null>(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
@@ -160,7 +164,6 @@ export function ModelImport({
       byteLength(model.name.trim() || model.id) > 120 ? "alias_required" : undefined,
   }));
   const selectedModels = (result?.models || []).filter((model) => selected.includes(model.id));
-  const budgetBlocked = !!credential && credential.budget_micros > 0;
 
 
   useEffect(
@@ -194,6 +197,7 @@ export function ModelImport({
     busy.current = false;
     setCredentialID(value);
     setResult(null);
+    setPricePreview(null);
     setSelected([]);
     setError("");
     setLoading(false);
@@ -224,6 +228,7 @@ export function ModelImport({
     setSlow(false);
     setError("");
     setResult(null);
+    setPricePreview(null);
     setSelected([]);
     try {
       const data = await api<unknown>(
@@ -295,14 +300,46 @@ export function ModelImport({
       setLoading(false);
     }
   }
+  async function reviewPrices() {
+    if (busy.current) return;
+    if (!endpoint || !credential || !selectedModels.length || selectedModels.length > 400) {
+      setError(t.modelImportChooseModels);
+      return;
+    }
+    busy.current = true;
+    setLoading(true);
+    setSlow(false);
+    setError("");
+    const controller = new AbortController();
+    pending.current = controller;
+    try {
+      const drafts = selectedModels.map((model) => ({
+        id: model.id, name: model.name.trim() || model.id, provider: endpoint.provider,
+        upstream_model: model.id, enabled: true, billing_mode: "metered",
+        input_rate: 0, output_rate: 0, cached_rate: 0, cache_write_rate: 0,
+        cost_input_rate: 0, cost_output_rate: 0, cost_cached_rate: 0, cost_cache_write_rate: 0,
+        max_output_tokens: model.max_output_tokens && model.max_output_tokens > 0
+          ? Math.min(65536, Math.max(1, Math.floor(model.max_output_tokens))) : 4096,
+      }));
+      const value = await api<unknown>("/api/admin/models/prices/preview", {
+        credential_id: credential.id, models: drafts,
+      }, "POST", controller.signal);
+      if (!validPricePreview(value) || value.kind !== "import" || value.items.length !== selected.length ||
+        value.items.some((item) => !selected.includes(item.id))) throw new Error(p.invalid);
+      setPricePreview(value);
+    } catch (failure) {
+      if (!controller.signal.aborted) setError(errorMessage(failure));
+    } finally {
+      busy.current = false;
+      pending.current = null;
+      setLoading(false);
+      setSlow(false);
+    }
+  }
   async function importModels() {
     if (busy.current) return;
     if (!selectedModels.length || !endpoint || !credential || result?.status !== "verified" || scopeChanged) {
       setError(t.modelImportChooseModels);
-      return;
-    }
-    if (budgetBlocked) {
-      setError(t.modelImportBudgetBlocked);
       return;
     }
     if (selectedModels.length > 400) {
@@ -313,17 +350,11 @@ export function ModelImport({
       setError(t.modelImportUnavailable);
       return;
     }
-    const payload = selectedModels.map((model) => {
-      const cap = model.max_output_tokens;
-      return {
-        id: model.id, name: model.name.trim() || model.id, provider: endpoint.provider,
-        upstream_model: model.id, enabled: true, billing_mode: "usage_only",
-        input_rate: 0, output_rate: 0, cached_rate: 0, cache_write_rate: 0,
-        cost_input_rate: 0, cost_output_rate: 0, cost_cached_rate: 0, cost_cache_write_rate: 0,
-        max_output_tokens: typeof cap === "number" && Number.isFinite(cap) && cap > 0
-          ? Math.min(65536, Math.max(1, Math.floor(cap))) : 4096,
-      };
-    });
+    if (!pricePreview) {
+      setError(p.expired);
+      setPricePreview(null);
+      return;
+    }
     busy.current = true;
     setImporting(true);
     setLoading(true);
@@ -331,8 +362,8 @@ export function ModelImport({
     setError("");
     let imported: ImportReceipt | null = null;
     try {
-      const data = await api<unknown>("/api/admin/models/import", { models: payload });
-      if (!validReceipt(data, payload.map((model) => model.id))) throw new Error(t.modelImportResultInvalid);
+      const data = await api<unknown>("/api/admin/models/import", { preview_id: pricePreview.preview_id, model_ids: selected });
+      if (!validReceipt(data, selected)) throw new Error(t.modelImportResultInvalid);
       imported = data;
       setReceipt(data);
       await reloadImported(data);
@@ -349,7 +380,7 @@ export function ModelImport({
   return (
     <Modal
       isOpen
-      size="lg"
+      size={pricePreview ? "2xl" : "lg"}
       scrollBehavior="inside"
       onClose={close}
       isDismissable={!loading}
@@ -364,14 +395,15 @@ export function ModelImport({
           onSubmit={(event) => {
             event.preventDefault();
             if (receipt) void retryRefresh();
-            else if (result?.status === "verified" && !scopeChanged) void importModels();
+            else if (pricePreview) void importModels();
+            else if (result?.status === "verified" && !scopeChanged) void reviewPrices();
             else void discover();
           }}
         >
           <ModalHeader className="flex-col gap-2">
             <h2>{t.modelImportTitle}</h2>
             <p className="text-sm font-normal leading-6 text-default-500">
-              {t.modelImportIntro}
+              {p.importIntro}
             </p>
           </ModalHeader>
           <ModalBody className="gap-4 overflow-y-auto">
@@ -397,7 +429,7 @@ export function ModelImport({
                   selectedKeys={credentialID ? [credentialID] : []}
                   onChange={(event) => changeCredential(event.target.value)}
                   description={endpoint?.base_url}
-                  isDisabled={savingWorkspace || importing || !!receipt}
+                  isDisabled={loading || savingWorkspace || importing || !!receipt || !!pricePreview}
                 >
                   {eligible.map((item) => (
                     <SelectItem
@@ -412,14 +444,6 @@ export function ModelImport({
                     </SelectItem>
                   ))}
                 </Select>
-                {budgetBlocked && !receipt && (
-                  <div className="space-y-2 rounded-lg border border-warning-200 bg-warning-50 p-4 text-sm leading-6">
-                    <p>{t.modelImportBudgetBlocked}</p>
-                    <Button as={Link} href="/app/upstreams" variant="bordered" isDisabled={loading}>
-                      {t.modelImportConfigureBudget}
-                    </Button>
-                  </div>
-                )}
                 {receipt && (
                   <div role="status" className="rounded-lg border border-success-200 bg-success-50 p-4 text-sm leading-6">
                     {importSummary(receipt)}
@@ -495,7 +519,8 @@ export function ModelImport({
                     ) : null}
                   </div>
                 )}
-                {result?.status === "verified" && !scopeChanged && !receipt && (
+                {pricePreview && !receipt && <ModelPricePreview preview={pricePreview} selected={selected} disabled={loading} />}
+                {result?.status === "verified" && !scopeChanged && !receipt && !pricePreview && (
                   <section className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium">
@@ -523,7 +548,7 @@ export function ModelImport({
                       <p className="text-xs leading-5 text-default-500">{t.modelImportAliasHelp}</p>
                     )}
                     <p className="text-xs leading-5 text-default-500">
-                      {t.modelUsageOnlyHelp}
+                      {p.importNote}
                     </p>
                   </section>
                 )}
@@ -540,16 +565,16 @@ export function ModelImport({
               </p>
             )}
           </ModalBody>
-          <ModalFooter className="shrink-0">
+          <ModalFooter className="shrink-0 flex-wrap">
+            {pricePreview && !receipt && <Button variant="bordered" isDisabled={loading} onPress={() => { setPricePreview(null); setError(""); }}>{p.back}</Button>}
             <Button variant="light" isDisabled={loading} onPress={close}>
               {receipt ? t.close : t.cancel}
             </Button>
             {!!eligible.length && !scopeChanged && (
               <Button color="primary" type="submit" isLoading={loading}
-                isDisabled={!receipt && result?.status === "verified" && (!selected.length || selected.length > 400 || budgetBlocked)}>
-                {receipt ? t.modelImportRefresh : result?.status === "verified"
-                  ? t.modelImportBatchAction.replace("{count}", count(selected.length))
-                  : t.modelImportDiscover}
+                isDisabled={!receipt && result?.status === "verified" && (!selected.length || selected.length > 400)}>
+                {receipt ? t.modelImportRefresh : pricePreview ? p.importAction.replace("{count}", count(selected.length)) : result?.status === "verified"
+                  ? p.importReview : t.modelImportDiscover}
               </Button>
             )}
           </ModalFooter>

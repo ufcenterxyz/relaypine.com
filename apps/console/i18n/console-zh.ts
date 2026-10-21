@@ -31,7 +31,7 @@ export const consoleZh: ConsoleCopy = {
   requestPrivacy: "你的提示词只属于你。",
   availableModels: "已启用模型",
   modelScope: "当前工作空间可用",
-  billingEyebrow: "内部余额",
+  billingEyebrow: "可用余额",
   currency: "美元",
   reservedBalance: "进行中的请求预留金额",
   routingEyebrow: "流量控制",

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -62,13 +63,13 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	}
 	t.Cleanup(func() { db.Close() })
 	f := &apiFixture{db: db, ctx: ctx, prefix: "apit_" + testID(), remote: "192.0.2.25:10001"}
-	f.s = &Server{Store: db, Relay: http.NotFoundHandler(), AppURL: "https://relaypine.test"}
+	f.s = &Server{Store: db, Relay: http.NotFoundHandler(), AppURL: "https://relaypine.test", AdminAppURL: "https://admin.relaypine.test"}
 	f.h = f.s.Handler()
 	t.Cleanup(func() {
 		ctx := context.Background()
 		db.DB.ExecContext(ctx, "DELETE FROM waitlist_entries WHERE email LIKE ?", f.prefix+"%")
 		for _, u := range f.users {
-			for _, q := range []string{"DELETE FROM resources WHERE tenant_id=?", "DELETE FROM ledger_entries WHERE tenant_id=?", "DELETE FROM access_keys WHERE tenant_id=?", "DELETE se FROM sessions se JOIN users u ON u.id=se.user_id WHERE u.tenant_id=?", "DELETE FROM users WHERE tenant_id=?", "DELETE FROM projects WHERE tenant_id=?", "DELETE FROM wallets WHERE tenant_id=?", "DELETE FROM tenants WHERE id=?"} {
+			for _, q := range []string{"DELETE a FROM attempts a JOIN requests r ON r.id=a.request_id WHERE r.tenant_id=?", "DELETE FROM requests WHERE tenant_id=?", "DELETE FROM resources WHERE tenant_id=?", "DELETE FROM ledger_entries WHERE tenant_id=?", "DELETE FROM access_keys WHERE tenant_id=?", "DELETE se FROM sessions se JOIN users u ON u.id=se.user_id WHERE u.tenant_id=?", "DELETE FROM users WHERE tenant_id=?", "DELETE FROM projects WHERE tenant_id=?", "DELETE FROM wallets WHERE tenant_id=?", "DELETE FROM tenants WHERE id=?"} {
 				if _, err := db.DB.ExecContext(ctx, q, u.TenantID); err != nil {
 					t.Logf("fixture cleanup: %v", err)
 				}
@@ -100,7 +101,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 }
 
 // Raw inserts model accounts/sessions created by the previous public release.
-// There is deliberately no runtime public account provisioning API.
+// Only OTP verification can restore these identities to customer access.
 func (f *apiFixture) legacyUser(t *testing.T, email string, operator bool) (domain.User, *http.Cookie) {
 	t.Helper()
 	u := domain.User{ID: "usr_" + testID(), TenantID: "ten_" + testID(), Email: email, Name: "Legacy account", Operator: operator}
@@ -167,6 +168,15 @@ func (f *apiFixture) call(t *testing.T, method, path string, cookie *http.Cookie
 		}
 	}
 	r := httptest.NewRequest(method, path, bytes.NewReader(data))
+	targetOrigin := f.s.AdminAppURL
+	if targetOrigin == "" {
+		targetOrigin = f.s.AppURL
+	}
+	if origin == f.s.AppURL {
+		targetOrigin = origin
+	}
+	parsed, _ := url.Parse(targetOrigin)
+	r.Host = parsed.Host
 	r.RemoteAddr = f.remote
 	r.Header.Set("Content-Type", "application/json")
 	if origin != "" {
@@ -217,7 +227,7 @@ func TestReadRejectsOversizeAndTrailingJSON(t *testing.T) {
 
 func TestAPIOriginAndOperatorAuthorization(t *testing.T) {
 	f := newAPIFixture(t)
-	origin := f.s.AppURL
+	origin := f.s.AdminAppURL
 	tests := []struct {
 		name, method, path, origin string
 		cookie                     *http.Cookie
@@ -260,7 +270,7 @@ func TestAPIOriginAndOperatorAuthorization(t *testing.T) {
 
 func TestAPIKeyOwnershipAndSecretRedaction(t *testing.T) {
 	f := newAPIFixture(t)
-	origin := f.s.AppURL
+	origin := f.s.AdminAppURL
 	proxyID := f.prefix + "p"
 	f.proxies = append(f.proxies, proxyID)
 	proxySecret := "proxy-password-" + testID()
@@ -319,7 +329,7 @@ func TestAPIKeyOwnershipAndSecretRedaction(t *testing.T) {
 
 func TestAPIConfigurationAndBillingBounds(t *testing.T) {
 	f := newAPIFixture(t)
-	origin := f.s.AppURL
+	origin := f.s.AdminAppURL
 	proxy := func(suffix, url string) map[string]any {
 		id := f.prefix + suffix
 		f.proxies = append(f.proxies, id)

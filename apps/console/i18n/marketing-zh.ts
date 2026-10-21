@@ -1,6 +1,6 @@
 import type { marketing } from "./marketing-en";
 export const marketingZh: Record<keyof typeof marketing, string> = {
-  eyebrow: "内测中 · 欢迎加入等候名单",
+  eyebrow: "一个密钥 · 两种原生 API",
   title: "一个网关。\n无限新想法。",
   description:
     "通过统一入口连接 Claude 与 OpenAI。原生 API、清晰用量，让你专注构建。",
@@ -32,7 +32,7 @@ export const marketingZh: Record<keyof typeof marketing, string> = {
   keysDescription:
     "为每个应用分配独立 Key、模型权限与速率限制，让项目管理有序。",
   keysDetail: "独立 Key · 明确限额",
-  startTitle: "一同期待接下来的进展。",
-  startDescription: "RelayPine 正在内测，欢迎加入访问等候名单。",
+  startTitle: "从这里，开始下一个想法。",
+  startDescription: "使用邮箱验证码登录，创建工作空间并接入你的应用。",
   footerTagline: "连接 AI，让细节恰到好处。",
 };

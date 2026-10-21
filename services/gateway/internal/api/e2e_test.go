@@ -164,9 +164,9 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 		if u.provider == "anthropic" {
 			basePath = "/bridge/v1"
 		}
-		expectStatus(t, f.call(t, "POST", "/api/admin/endpoints", f.operatorCookie, f.s.AppURL, domain.Endpoint{ID: u.endpoint, Name: "E2E " + u.provider, Provider: u.provider, BaseURL: u.server.URL + basePath, Enabled: true, Models: []string{u.model}}), 200)
-		expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, domain.Model{ID: u.model, Name: "E2E " + u.provider, Provider: u.provider, UpstreamModel: "mock-" + u.provider, Enabled: true, InputRate: 2000000, OutputRate: 4000000, CachedRate: 1000000, CacheWriteRate: 3000000, CostInputRate: 1000000, CostOutputRate: 2000000, CostCachedRate: 500000, CostCacheWriteRate: 1500000, MaxOutputTokens: 64}), 200)
-		expectStatus(t, f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, map[string]any{"id": u.credential, "name": "E2E " + u.provider, "endpoint_id": u.endpoint, "secret": u.secret, "quota_group": f.prefix + u.provider, "enabled": true, "rpm": 100, "tpm": 1000000, "max_concurrency": 10, "budget_micros": 1000000}), 200)
+		expectStatus(t, f.call(t, "POST", "/api/admin/endpoints", f.operatorCookie, f.s.AdminAppURL, domain.Endpoint{ID: u.endpoint, Name: "E2E " + u.provider, Provider: u.provider, BaseURL: u.server.URL + basePath, Enabled: true, Models: []string{u.model}}), 200)
+		expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, domain.Model{ID: u.model, Name: "E2E " + u.provider, Provider: u.provider, UpstreamModel: "mock-" + u.provider, Enabled: true, InputRate: 2000000, OutputRate: 4000000, CachedRate: 1000000, CacheWriteRate: 3000000, CostInputRate: 1000000, CostOutputRate: 2000000, CostCachedRate: 500000, CostCacheWriteRate: 1500000, MaxOutputTokens: 64}), 200)
+		expectStatus(t, f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, map[string]any{"id": u.credential, "name": "E2E " + u.provider, "endpoint_id": u.endpoint, "secret": u.secret, "quota_group": f.prefix + u.provider, "enabled": true, "rpm": 100, "tpm": 1000000, "max_concurrency": 10, "budget_micros": 1000000}), 200)
 	}
 	modelIDs := []string{upstreams[0].model, upstreams[1].model}
 	type issued struct {
@@ -174,7 +174,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 		Secret string           `json:"secret"`
 	}
 	issue := func(cookie *http.Cookie) issued {
-		w := f.call(t, "POST", "/api/keys", cookie, f.s.AppURL, map[string]any{"name": "Native SDK integration", "rpm": 100, "models": modelIDs})
+		w := f.call(t, "POST", "/api/keys", cookie, f.s.AdminAppURL, map[string]any{"name": "Native SDK integration", "rpm": 100, "models": modelIDs})
 		expectStatus(t, w, 201)
 		return decodeResponse[issued](t, w)
 	}
@@ -207,7 +207,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 		}
 	})
 	const initialBalance int64 = 1000000
-	expectStatus(t, f.call(t, "POST", "/api/admin/credits", f.operatorCookie, f.s.AppURL, map[string]any{"tenant_id": f.operator.TenantID, "amount_micros": initialBalance, "reason": "E2E verified test credit", "idempotency_key": f.prefix + "funds"}), 200)
+	expectStatus(t, f.call(t, "POST", "/api/admin/credits", f.operatorCookie, f.s.AdminAppURL, map[string]any{"tenant_id": f.operator.TenantID, "amount_micros": initialBalance, "reason": "E2E verified test credit", "idempotency_key": f.prefix + "funds"}), 200)
 	gateway := httptest.NewServer(f.h)
 	t.Cleanup(gateway.Close)
 	client := gateway.Client()

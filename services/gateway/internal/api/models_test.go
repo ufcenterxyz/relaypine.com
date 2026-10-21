@@ -7,9 +7,14 @@ import (
 )
 
 func TestModelInputBillingModesAndPublicBounds(t *testing.T) {
-	base := domain.Model{ID: "imported", Name: "Imported model", Provider: "anthropic", UpstreamModel: "upstream-model", Enabled: true, BillingMode: domain.BillingUsageOnly, MaxOutputTokens: 4096}
+	base := domain.Model{ID: "imported", Name: "Imported model", Provider: "anthropic", UpstreamModel: "upstream-model", Enabled: false, BillingMode: domain.BillingUsageOnly, MaxOutputTokens: 4096}
 	if problem := validateModelInput(&base); problem != nil {
-		t.Fatalf("enabled usage-only model rejected: %+v", problem)
+		t.Fatalf("disabled legacy usage-only draft rejected: %+v", problem)
+	}
+	enabled := base
+	enabled.Enabled = true
+	if problem := validateModelInput(&enabled); problem == nil {
+		t.Fatal("new usage-only publication allowed")
 	}
 	for _, field := range []string{"input", "output", "cached", "cache_write", "cost_input", "cost_output", "cost_cached", "cost_cache_write"} {
 		t.Run("usage_only_"+field, func(t *testing.T) {
@@ -24,6 +29,7 @@ func TestModelInputBillingModesAndPublicBounds(t *testing.T) {
 	for _, mode := range []string{"", domain.BillingMetered} {
 		m := base
 		m.BillingMode = mode
+		m.Enabled = true
 		if problem := validateModelInput(&m); problem == nil || problem.Code != "invalid_price" || m.BillingMode != domain.BillingMetered {
 			t.Fatal("missing or metered mode bypassed required rates")
 		}

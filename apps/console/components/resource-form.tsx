@@ -146,12 +146,15 @@ export function ResourceForm({
                   </h3>
                 )}
                 {field.type === "switch" ? (
+                  <div>
                   <Switch
                     isSelected={Boolean(values[field.key])}
                     onValueChange={(v) => update(field.key, v)}
                   >
                     {field.label}
                   </Switch>
+                  {field.description && <p className="mt-2 text-xs leading-5 text-default-500">{field.description}</p>}
+                  </div>
                 ) : field.type === "select" ? (
                   <Select
                     autoFocus={index === 0}

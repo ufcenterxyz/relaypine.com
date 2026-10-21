@@ -51,7 +51,7 @@ export const waitlistEn = {
   status: "Waiting for access",
   internalTitle: "Usage, accounted for.",
   internalBody:
-    "This balance is for internal usage accounting. Request reservations, recorded usage, and administrator adjustments appear in the ledger.",
-  internalLabel: "INTERNAL ACCOUNTING",
+    "Your RelayPine balance pays for model usage. Every reservation, charge, and balance adjustment appears in the ledger.",
+  internalLabel: "USAGE & BALANCE",
 };
 export type WaitlistCopy = typeof waitlistEn;

@@ -26,7 +26,7 @@ func TestModelPublicationRequiresUsablePrices(t *testing.T) {
 			case "cost_output":
 				invalid.CostOutputRate = 0
 			}
-			expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, invalid), 400)
+			expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, invalid), 400)
 			var count int
 			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM models WHERE id=?", m.ID).Scan(&count); err != nil || count != 0 {
 				t.Fatalf("invalid model was persisted: count=%d err=%v", count, err)
@@ -36,27 +36,27 @@ func TestModelPublicationRequiresUsablePrices(t *testing.T) {
 	// Incomplete drafts may be saved, but cannot be published until priced.
 	draft := m
 	draft.Enabled, draft.CostInputRate, draft.CostOutputRate = false, 0, 0
-	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, draft), 200)
+	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, draft), 200)
 	draft.Enabled = true
-	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, draft), 400)
-	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, m), 200)
+	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, draft), 400)
+	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, m), 200)
 }
 
 func usageOnlyImportModel(id string) domain.Model {
-	return domain.Model{ID: id, Name: "Imported model", Provider: "anthropic", UpstreamModel: "claude-test", BillingMode: domain.BillingUsageOnly, Enabled: true, MaxOutputTokens: 4096}
+	return domain.Model{ID: id, Name: "Imported model", Provider: "anthropic", UpstreamModel: "claude-test", BillingMode: domain.BillingUsageOnly, Enabled: false, MaxOutputTokens: 4096}
 }
 
 func TestUsageOnlyModelPublicationAndLegacyNormalization(t *testing.T) {
 	f := newAPIFixture(t)
 	m := usageOnlyImportModel(f.prefix + "usage")
 	f.models = append(f.models, m.ID)
-	w := f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, m)
+	w := f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, m)
 	expectStatus(t, w, 200)
-	if saved := decodeResponse[domain.Model](t, w); saved.BillingMode != domain.BillingUsageOnly || !saved.Enabled || saved.Version != 1 {
+	if saved := decodeResponse[domain.Model](t, w); saved.BillingMode != domain.BillingUsageOnly || saved.Enabled || saved.Version != 1 {
 		t.Fatal("usage-only model did not persist its explicit billing mode")
 	}
 	m.BillingMode, m.InputRate, m.OutputRate, m.CostInputRate, m.CostOutputRate = "", 1, 2, 1, 2
-	w = f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, m)
+	w = f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, m)
 	expectStatus(t, w, 200)
 	if saved := decodeResponse[domain.Model](t, w); saved.BillingMode != domain.BillingMetered || saved.Version != 2 {
 		t.Fatal("missing mode was not saved as metered")
@@ -82,6 +82,7 @@ func TestBatchModelImportCreateOnlyRetryAndResponseOrder(t *testing.T) {
 	first, existing, last := usageOnlyImportModel(f.prefix+"a"), usageOnlyImportModel(f.prefix+"b"), usageOnlyImportModel(f.prefix+"c")
 	f.models = append(f.models, first.ID, existing.ID, last.ID)
 	existing.BillingMode = domain.BillingMetered
+	existing.Enabled = true
 	existing.Name, existing.InputRate, existing.OutputRate, existing.CostInputRate, existing.CostOutputRate = "Original priced model", 7, 9, 5, 6
 	if _, err := f.db.CreateModel(f.ctx, existing); err != nil {
 		t.Fatal(err)
@@ -90,7 +91,7 @@ func TestBatchModelImportCreateOnlyRetryAndResponseOrder(t *testing.T) {
 	conflict.Name, conflict.Provider = "Must not replace original", "openai"
 	last.Version = 9000
 	input := map[string]any{"models": []domain.Model{last, conflict, first}}
-	w := f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AppURL, input)
+	w := f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AdminAppURL, input)
 	expectStatus(t, w, 200)
 	result := decodeResponse[store.ModelImportResult](t, w)
 	if result.CreatedCount != 2 || result.SkippedCount != 1 || len(result.Results) != 3 {
@@ -102,7 +103,7 @@ func TestBatchModelImportCreateOnlyRetryAndResponseOrder(t *testing.T) {
 			t.Fatal("results did not preserve input order or identify conflicts")
 		}
 	}
-	w = f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AppURL, input)
+	w = f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AdminAppURL, input)
 	expectStatus(t, w, 200)
 	result = decodeResponse[store.ModelImportResult](t, w)
 	if result.CreatedCount != 0 || result.SkippedCount != 3 {
@@ -122,7 +123,7 @@ func TestBatchModelImportCreateOnlyRetryAndResponseOrder(t *testing.T) {
 			}
 		case first.ID, last.ID:
 			found++
-			if saved.Version != 1 || saved.BillingMode != domain.BillingUsageOnly || !saved.Enabled {
+			if saved.Version != 1 || saved.BillingMode != domain.BillingUsageOnly || saved.Enabled {
 				t.Fatal("new model accepted injected version or lost usage-only mode")
 			}
 		}
@@ -141,7 +142,7 @@ func TestBatchModelImportRejectsInvalidItemsWithoutPartialWrites(t *testing.T) {
 		change func(*domain.Model)
 	}{
 		{"unknown billing mode", func(m *domain.Model) { m.BillingMode = "free" }},
-		{"missing billing mode defaults metered", func(m *domain.Model) { m.BillingMode = "" }},
+		{"enabled missing rates", func(m *domain.Model) { m.BillingMode = ""; m.Enabled = true }},
 		{"usage-only nonzero cache rate", func(m *domain.Model) { m.CostCachedRate = 1 }},
 		{"zero cap", func(m *domain.Model) { m.MaxOutputTokens = 0 }},
 		{"excessive cap", func(m *domain.Model) { m.MaxOutputTokens = 65537 }},
@@ -151,7 +152,7 @@ func TestBatchModelImportRejectsInvalidItemsWithoutPartialWrites(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			invalid := second
 			tc.change(&invalid)
-			w := f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AppURL, map[string]any{"models": []domain.Model{first, invalid}})
+			w := f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AdminAppURL, map[string]any{"models": []domain.Model{first, invalid}})
 			expectStatus(t, w, 400)
 			var count int
 			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM models WHERE id IN (?,?)", first.ID, second.ID).Scan(&count); err != nil || count != 0 {
@@ -171,12 +172,12 @@ func TestBatchModelImportAuthorizationAndDiscoverySizeBound(t *testing.T) {
 		cookie         *http.Cookie
 		status         int
 	}{
-		{"POST", f.s.AppURL, nil, 401},
-		{"POST", f.s.AppURL, f.customerCookie, 401},
+		{"POST", f.s.AdminAppURL, nil, 401},
+		{"POST", f.s.AdminAppURL, f.customerCookie, 401},
 		{"POST", "https://foreign.example", f.operatorCookie, 403},
 		{"POST", "", f.operatorCookie, 403},
 		{"GET", "", f.operatorCookie, 405},
-		{"PUT", f.s.AppURL, f.operatorCookie, 405},
+		{"PUT", f.s.AdminAppURL, f.operatorCookie, 405},
 	} {
 		expectStatus(t, f.call(t, tc.method, "/api/admin/models/import", tc.cookie, tc.origin, input), tc.status)
 	}
@@ -185,14 +186,14 @@ func TestBatchModelImportAuthorizationAndDiscoverySizeBound(t *testing.T) {
 		map[string]any{"models": make([]domain.Model, 401)},
 		map[string]any{"models": []domain.Model{m}, "overwrite": true},
 	} {
-		expectStatus(t, f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AppURL, invalid), 400)
+		expectStatus(t, f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AdminAppURL, invalid), 400)
 	}
 	batch := make([]domain.Model, 400)
 	for i := range batch {
 		batch[i] = usageOnlyImportModel(fmt.Sprintf("%s-size-%03d", f.prefix, i))
 		f.models = append(f.models, batch[i].ID)
 	}
-	w := f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AppURL, map[string]any{"models": batch})
+	w := f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AdminAppURL, map[string]any{"models": batch})
 	expectStatus(t, w, 200)
 	if result := decodeResponse[store.ModelImportResult](t, w); result.CreatedCount != 400 || result.SkippedCount != 0 || len(result.Results) != 400 {
 		t.Fatal("full bounded discovery list could not be imported")
@@ -239,9 +240,9 @@ func TestModelImportCannotOverwritePublishedCatalogEntry(t *testing.T) {
 		domain.Model
 		CreateOnly bool `json:"create_only"`
 	}{m, true}
-	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, input), 200)
+	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, input), 200)
 	input.Name, input.OutputRate = "Overwrite attempt", 1
-	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, input), 409)
+	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, input), 409)
 	models, err := f.db.ListModels(f.ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +261,7 @@ func TestModelImportCannotOverwritePublishedCatalogEntry(t *testing.T) {
 	}
 	// Ordinary editing retains the versioned update contract.
 	m.OutputRate++
-	w := f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, m)
+	w := f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, m)
 	expectStatus(t, w, 200)
 	if decodeResponse[domain.Model](t, w).Version != 2 {
 		t.Fatal("model edit did not advance pricing version")

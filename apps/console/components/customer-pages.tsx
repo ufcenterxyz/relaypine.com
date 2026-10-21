@@ -277,9 +277,6 @@ export function Overview() {
           </div>
         ))}
       </div>
-      {state.models.some((model) => model.enabled && model.billing_mode === "usage_only") && (
-        <p className="mb-6 text-sm leading-6 text-default-500">{t.usageOnlyBalanceHelp}</p>
-      )}
       {completedSteps < steps.length && (
         <section className="rp-console-setup">
           <div className="rp-console-setup-intro">
@@ -615,7 +612,7 @@ export function Billing() {
           <p className="rp-console-eyebrow">{w.internalLabel}</p>
           <h2>{w.internalTitle}</h2>
           <p>{w.internalBody}</p>
-          <p>{t.usageOnlyBalanceHelp} {t.modelUsageOnlyHelp}</p>
+          <p>{t.walletBalanceHelp}</p>
           <Button
             as={Link}
             href="/app/usage"
@@ -711,7 +708,7 @@ export function Customers() {
   } | null>(null);
   const [search, setSearch] = useState("");
   const customers = (state.customers ?? []).filter((c) =>
-    `${c.name} ${c.id}`.toLowerCase().includes(search.toLowerCase()),
+    `${c.name} ${c.email || ""} ${c.id}`.toLowerCase().includes(search.toLowerCase()),
   );
   return (
     <>
@@ -726,9 +723,10 @@ export function Customers() {
       />
       <DataTable
         caption={t.customers}
-        columns={[t.name, t.customerID, t.status, t.createdAt, t.actions]}
+        columns={[t.name, t.email, t.customerID, t.status, t.createdAt, t.actions]}
         rows={customers.map((customer) => [
           customer.name,
+          customer.email || t.emptyValue,
           <code key="id" className="text-xs">
             {customer.id}
           </code>,
@@ -740,7 +738,7 @@ export function Customers() {
             onPress={() =>
               setCredit({
                 id: customer.id,
-                name: customer.name,
+                name: customer.email ? `${customer.name} (${customer.email})` : customer.name,
                 idempotency: crypto.randomUUID(),
               })
             }

@@ -52,14 +52,6 @@ func estimate(input, output int64, m domain.Model) (int64, int64, error) {
 }
 
 func validAccounting(m domain.Model) bool {
-	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
-		for _, rate := range []int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate} {
-			if rate != 0 {
-				return false
-			}
-		}
-		return true
-	}
 	return m.EffectiveBillingMode() == domain.BillingMetered && m.InputRate > 0 && m.OutputRate > 0 && m.CostInputRate > 0 && m.CostOutputRate > 0 && m.CachedRate >= 0 && m.CacheWriteRate >= 0 && m.CostCachedRate >= 0 && m.CostCacheWriteRate >= 0
 }
 func integer(raw json.RawMessage) (int64, bool) {
@@ -97,6 +89,15 @@ func parseUsage(raw json.RawMessage, provider string) (domain.Usage, bool) {
 				return u, false
 			}
 		}
+		if raw, exists := m["cache_creation"]; exists {
+			detail := object(raw)
+			if v, present := detail["ephemeral_1h_input_tokens"]; present {
+				n, valid := integer(v)
+				if !valid || n != 0 {
+					return u, false
+				}
+			}
+		}
 		if v, exists := m["cache_creation_input_tokens"]; exists {
 			u.CacheWriteTokens, ok = integer(v)
 			if !ok {
@@ -122,6 +123,22 @@ func parseUsage(raw json.RawMessage, provider string) (domain.Usage, bool) {
 				return u, false
 			}
 			u.InputTokens -= u.CachedTokens
+		}
+		detail := object(m[details])
+		if v, exists := detail["cache_write_tokens"]; exists {
+			u.CacheWriteTokens, ok = integer(v)
+			if !ok || u.CacheWriteTokens > u.InputTokens {
+				return u, false
+			}
+			u.InputTokens -= u.CacheWriteTokens
+		}
+		if raw, exists := detail["cache_write_tokens_details"]; exists {
+			writes := object(raw)
+			short, valid := integer(writes["ttl_30m_tokens"])
+			long, validLong := integer(writes["ttl_12h_tokens"])
+			if !valid || !validLong || long != 0 || short != u.CacheWriteTokens {
+				return u, false
+			}
 		}
 	}
 	u.Known = true
@@ -160,8 +177,28 @@ func validatePayload(m map[string]json.RawMessage, path string) error {
 	if geo, ok := m["inference_geo"]; ok && str(geo) != "global" {
 		return errors.New("regional premium inference is not supported")
 	}
-	if cache, ok := m["prompt_cache_retention"]; ok && str(cache) != "in-memory" {
+	if cache, ok := m["prompt_cache_retention"]; ok && str(cache) != "in-memory" && str(cache) != "in_memory" {
 		return errors.New("extended prompt caching is not supported")
+	}
+	if raw, exists := m["prompt_cache_options"]; exists {
+		options := object(raw)
+		if options == nil {
+			return errors.New("invalid prompt cache options")
+		}
+		for key, value := range options {
+			switch key {
+			case "ttl":
+				if str(value) != "30m" {
+					return errors.New("only 30-minute OpenAI cache writes are priced")
+				}
+			case "mode":
+				if str(value) != "implicit" && str(value) != "explicit" {
+					return errors.New("invalid prompt cache mode")
+				}
+			default:
+				return errors.New("unsupported prompt cache option")
+			}
+		}
 	}
 	if _, ok := m["previous_response_id"]; ok && !strings.HasSuffix(path, "/responses") {
 		return errors.New("resource references are supported only by Responses")
@@ -212,6 +249,14 @@ func validateContent(v any, parent string) error {
 			}
 		}
 	case map[string]any:
+		if parent == "prompt_cache_breakpoint" {
+			for key, value := range x {
+				if key == "ttl" && value != "30m" || key == "mode" && value != "explicit" || key != "ttl" && key != "mode" {
+					return errors.New("only standard 30-minute cache breakpoints are supported")
+				}
+			}
+			return nil
+		}
 		if parent == "cache_control" {
 			if x["ttl"] == "1h" {
 				return errors.New("one-hour cache writes require separate pricing")

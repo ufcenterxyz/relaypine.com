@@ -26,8 +26,8 @@ import {
 import { en as t } from "@/i18n/en";
 import { marketing as m } from "@/i18n/marketing-en";
 import { RoutingDemo } from "./routing-demo";
-import { AuthModal, type AuthMode } from "./auth-modal";
-import { waitlistEn as w } from "@/i18n/waitlist-en";
+import { AuthModal } from "./auth-modal";
+import { authEn as w } from "@/i18n/auth-en";
 import { Brand, ThemeToggle, CodeBlock } from "./shared";
 import { GITHUB_REPOSITORY_URL } from "@/config/links";
 
@@ -75,14 +75,14 @@ export function Integration({ onClose }: { onClose: () => void }) {
   );
 }
 export function Marketing() {
-  const [auth, setAuth] = useState<AuthMode | null>(null);
+  const [auth, setAuth] = useState(false);
   const [docs, setDocs] = useState(false);
   const [provider, setProvider] = useState("openai");
   const reducedMotion = useReducedMotion();
   useEffect(() => {
     const mode = new URLSearchParams(window.location.search).get("auth");
     if (mode === "login" || mode === "waitlist") {
-      const timer = setTimeout(() => setAuth(mode), 0);
+      const timer = setTimeout(() => setAuth(true), 0);
       return () => clearTimeout(timer);
     }
   }, []);
@@ -123,16 +123,16 @@ export function Marketing() {
               </Button>
             </Tooltip>
             <ThemeToggle />
-            <Button variant="light" onPress={() => setAuth("login")}>
-              {w.adminSignIn}
+            <Button variant="light" onPress={() => setAuth(true)}>
+              {w.signIn}
             </Button>
             <Button
-              onPress={() => setAuth("waitlist")}
+              onPress={() => setAuth(true)}
               color="primary"
               className="hidden sm:inline-flex"
               endContent={<ArrowUpRight size={15} />}
             >
-              {w.join}
+              {w.getStarted}
             </Button>
           </nav>
         </div>
@@ -157,10 +157,10 @@ export function Marketing() {
                 <Button
                   size="lg"
                   color="primary"
-                  onPress={() => setAuth("waitlist")}
+                  onPress={() => setAuth(true)}
                   endContent={<ArrowUpRight size={17} />}
                 >
-                  {w.join}
+                  {w.getStarted}
                 </Button>
                 <Button
                   size="lg"
@@ -308,10 +308,10 @@ export function Marketing() {
           <Button
             size="lg"
             color="primary"
-            onPress={() => setAuth("waitlist")}
+            onPress={() => setAuth(true)}
             endContent={<ArrowUpRight size={18} />}
           >
-            {w.join}
+            {w.getStarted}
           </Button>
         </section>
       </main>
@@ -343,7 +343,7 @@ export function Marketing() {
         </div>
       </footer>
       {auth && (
-        <AuthModal mode={auth} onMode={setAuth} onClose={() => setAuth(null)} />
+        <AuthModal onClose={() => setAuth(false)} />
       )}
       {docs && <Integration onClose={() => setDocs(false)} />}
     </div>

@@ -25,6 +25,9 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { pricingEn as p } from "@/i18n/pricing-en";
+import { safeReferenceURL } from "@/lib/pricing";
+import { ModelPriceUpdate } from "./model-price-update";
 import { consoleEn as c } from "@/i18n/console-en";
 import { api, count, dollars, errorMessage, money } from "@/lib/api";
 import type { Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
@@ -522,6 +525,7 @@ const rateLabels = [
 export function Models() {
   const { state, refresh } = useConsole();
   const [importing, setImporting] = useState(false);
+  const [updatingPrices, setUpdatingPrices] = useState(false);
   const [form, setForm] = useState<FormConfig | null>(null);
   const [disable, setDisable] = useState<Model | null>(null);
   const [busy, setBusy] = useState("");
@@ -530,7 +534,6 @@ export function Models() {
   async function save(body: Model | Record<string, unknown>) {
     if (
       body.enabled &&
-      body.billing_mode !== "usage_only" &&
       ["input_rate", "output_rate", "cost_input_rate", "cost_output_rate"].some(
         (key) =>
           !Number.isFinite(Number(body[key as keyof typeof body])) ||
@@ -545,7 +548,7 @@ export function Models() {
   function open(model?: Model) {
     setForm({
       title: model ? t.editModel : t.addModel,
-      description: t.modelBillingHelp,
+      description: `${p.balanceHelp} ${p.manualHelp}`,
       fields: [
         {
           key: "id",
@@ -565,20 +568,14 @@ export function Models() {
           type: "select",
           options: providers,
           required: true,
+          validate: (value, values) => model?.pricing_reference && !values.manual_pricing && value !== model.provider ? p.manualRequired : undefined,
         },
-        { key: "upstream_model", label: t.upstreamModel, required: true },
+        { key: "upstream_model", label: t.upstreamModel, required: true,
+          validate: (value, values) => model?.pricing_reference && !values.manual_pricing && value !== model.upstream_model ? p.manualRequired : undefined,
+        },
         {
-          key: "billing_mode",
-          label: t.modelBillingMode,
-          type: "select",
-          required: true,
-          options: [
-            { key: "usage_only", label: t.modelUsageOnly },
-            { key: "metered", label: t.modelMetered },
-          ],
-          description: t.modelUsageOnlyHelp,
-          validate: (value) =>
-            !["usage_only", "metered"].includes(value) ? t.required : undefined,
+          key: "manual_pricing", label: p.useManual, type: "switch",
+          description: p.manualHelp, visibleWhen: () => !!model?.pricing_reference,
         },
         ...rateFields.map(
           (key, i): Field => ({
@@ -586,7 +583,7 @@ export function Models() {
             label: rateLabels[i],
             type: "number",
             required: true,
-            visibleWhen: (values) => values.billing_mode !== "usage_only",
+            visibleWhen: (values) => !model?.pricing_reference || !!values.manual_pricing,
             description: i === 0 ? t.modelExplicitCacheRates : undefined,
             validate: (value, values) =>
               values.enabled &&
@@ -624,7 +621,8 @@ export function Models() {
             provider: model.provider,
             upstream_model: model.upstream_model,
             enabled: model.enabled,
-            billing_mode: model.billing_mode || "metered",
+            billing_mode: "metered",
+            manual_pricing: !model.pricing_reference,
             max_output_tokens: model.max_output_tokens,
             ...Object.fromEntries(
               rateFields.map((key) => [
@@ -640,6 +638,7 @@ export function Models() {
             upstream_model: "",
             enabled: true,
             billing_mode: "metered",
+            manual_pricing: true,
             max_output_tokens: 4096,
             ...Object.fromEntries(rateFields.map((key) => [key, ""])),
           },
@@ -655,12 +654,15 @@ export function Models() {
         await save({
           ...model,
           ...values,
+          billing_mode: "metered",
+          manual_pricing: !!values.manual_pricing,
+          ...(values.manual_pricing ? { pricing_reference: null, pricing_note: "" } : {}),
           id,
           ...(!model ? { create_only: true } : {}),
           ...Object.fromEntries(
             rateFields.map((key) => [
               key,
-              values.billing_mode === "usage_only" ? 0 : dollars(values[key]),
+              dollars(values[key]),
             ]),
           ),
           max_output_tokens: Number(values.max_output_tokens),
@@ -681,6 +683,7 @@ export function Models() {
         action={
           state.user.operator ? (
             <div className="flex flex-wrap gap-2">
+              <Button variant="bordered" isDisabled={!state.models.length} onPress={() => setUpdatingPrices(true)}>{p.update}</Button>
               <Button variant="bordered" onPress={() => setImporting(true)}>
                 {t.modelImportTitle}
               </Button>
@@ -729,10 +732,15 @@ export function Models() {
             <p className="mt-1 font-mono text-xs text-default-500">
               {model.id}
             </p>
-            {model.billing_mode === "usage_only" && (
+            {(model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate) && (
               <Chip size="sm" variant="flat" className="mt-2">
-                {t.modelUsageOnly}
+                {p.legacy}
               </Chip>
+            )}
+            {model.pricing_reference && safeReferenceURL(model.pricing_reference.source_url) && (
+              <Link href={safeReferenceURL(model.pricing_reference.source_url)!} target="_blank" rel="noopener noreferrer" className="mt-2 block min-h-11 text-xs text-default-500 underline underline-offset-4" title={p.updatedAt.replace("{time}", new Date(model.pricing_reference.checked_at).toLocaleString())}>
+                {model.pricing_reference.source_name}
+              </Link>
             )}
           </div>,
           model.provider,
@@ -743,7 +751,7 @@ export function Models() {
             model.cache_write_rate,
           ].map((rate, i) => (
             <span key={i} className="font-mono text-xs">
-              {model.billing_mode === "usage_only" ? t.notPriced : money(rate, true)}
+              {model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate ? t.notPriced : money(rate, true)}
             </span>
           )),
           <Status key="enabled" enabled={model.enabled} />,
@@ -798,8 +806,9 @@ export function Models() {
         }
       />
       <p className="mt-3 text-xs leading-5 text-default-500">
-        {t.perMillion}. {t.modelUsageOnlyHelp}
+        {t.perMillion}. {p.balanceHelp}
       </p>
+      {updatingPrices && <ModelPriceUpdate onClose={() => setUpdatingPrices(false)} onUpdated={() => refresh({ throwOnError: true })} />}
       {importing && (
         <ModelImport
           credentials={state.credentials || []}

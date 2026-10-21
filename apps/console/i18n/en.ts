@@ -17,7 +17,7 @@ export const en = {
   operations: "Operations",
   console: "Open console",
   signIn: "Sign in",
-  signUp: "Join waitlist",
+  signUp: "Get started",
   signOut: "Sign out",
   cancel: "Cancel",
   close: "Close",
@@ -98,7 +98,7 @@ export const en = {
   landingTitle: "One gateway.\nEvery next idea.",
   landingDescription:
     "Native Claude and OpenAI APIs, capacity-aware routing, and clear usage for every request.",
-  getStarted: "Join waitlist",
+  getStarted: "Get started",
   integration: "View integration",
   nativeTitle: "Keep the SDK. Change the base URL.",
   nativeDescription:
@@ -112,7 +112,7 @@ export const en = {
   routingBody:
     "Requests are routed across eligible upstream keys using capacity and budget limits.",
   howTitle: "Get ready for your next request.",
-  stepAccount: "Join the waitlist",
+  stepAccount: "Create a workspace",
   stepAccountBody:
     "Register your interest while RelayPine is in private preview.",
   stepKey: "Connect your application",
@@ -188,7 +188,7 @@ export const en = {
   credential: "Credential",
   key: "API key",
   billingDescription:
-    "Review your internal balance, request reservations, and usage ledger.",
+    "Review your balance, request reservations, and usage ledger.",
   ledger: "Wallet ledger",
   noLedger: "No wallet activity",
   noLedgerBody: "Usage records and administrator adjustments will appear here.",
@@ -278,6 +278,7 @@ export const en = {
   amountPositive: "Enter an amount greater than zero.",
   protectedSecret: "Stored encrypted",
   more: "More",
+  walletBalanceHelp: "Requests reserve an estimated amount, then deduct the actual charge from your RelayPine balance. A sufficient available balance is required.",
   billingHold: "Metered request reservations are released or settled when requests finish.",
   keySecretLabel: "Your new secret key",
   totalRecords: "records",

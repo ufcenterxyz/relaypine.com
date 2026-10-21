@@ -13,18 +13,17 @@ import {
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { en as t } from "@/i18n/en";
-import { waitlistEn as w } from "@/i18n/waitlist-en";
+import { authEn as w } from "@/i18n/auth-en";
 import { ErrorBox } from "./shared";
-import { TreePine, ArrowRight, Check, Mail } from "lucide-react";
+import { TreePine, ArrowRight, Mail } from "lucide-react";
 
-export type AuthMode = "login" | "waitlist";
-type Step = "email" | "code" | "joined";
+type Step = "email" | "code";
 type CodeSent = {
   status: "code_sent";
   expires_in: number;
   resend_after: number;
 };
-type Verified = { status: "authenticated" | "waitlisted" };
+type Verified = { status: "authenticated" };
 
 function requestError(error: unknown) {
   if (!(error instanceof ApiError)) return w.requestFailed;
@@ -39,6 +38,8 @@ function requestError(error: unknown) {
       return w.expiredCode;
     case "email_unavailable":
       return w.emailUnavailable;
+    case "forbidden":
+      return w.forbidden;
     case "auth_unavailable":
       return w.authUnavailable;
     default:
@@ -46,15 +47,7 @@ function requestError(error: unknown) {
   }
 }
 
-export function AuthModal({
-  mode,
-  onMode,
-  onClose,
-}: {
-  mode: AuthMode;
-  onMode: (mode: AuthMode) => void;
-  onClose: () => void;
-}) {
+export function AuthModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const [values, setValues] = useState({ name: "", email: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -71,8 +64,6 @@ export function AuthModal({
   const codeInput = useRef<HTMLInputElement>(null);
   const codeHintId = useId();
   const codeErrorId = useId();
-  const waitlist = mode === "waitlist";
-  const joined = step === "joined";
   const checking = step === "code";
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const expirySeconds = Math.max(0, Math.ceil((expiresAt - now) / 1000));
@@ -117,10 +108,6 @@ export function AuthModal({
     setError("");
     setResent(false);
   }
-  function switchMode(next: AuthMode) {
-    changeEmail();
-    onMode(next);
-  }
   function isCurrent(controller: AbortController) {
     return request.current === controller && !controller.signal.aborted;
   }
@@ -130,14 +117,10 @@ export function AuthModal({
     setBusy(null);
   }
   async function sendCode(resend = false) {
-    if (request.current || joined) return;
+    if (request.current) return;
     if (resend && resendSeconds > 0) return;
     const next: Record<string, string> = {};
     const email = (resend ? sentEmail : values.email).trim().toLowerCase();
-    const name = values.name.trim();
-    if (waitlist && !name) next.name = t.required;
-    else if (waitlist && new TextEncoder().encode(name).length > 100)
-      next.name = w.nameTooLong;
     if (!/^\S+@\S+\.\S+$/.test(email)) next.email = t.invalidEmail;
     setErrors(next);
     if (Object.keys(next).length) return;
@@ -149,7 +132,7 @@ export function AuthModal({
     try {
       const result = await api<CodeSent>(
         "/api/auth/code",
-        { email, ...(waitlist ? { name } : {}) },
+        { email },
         "POST",
         controller.signal,
       );
@@ -211,10 +194,7 @@ export function AuthModal({
         navigating = true;
         return;
       }
-      if (result.status !== "waitlisted")
-        throw new Error("Unexpected response");
-      setStep("joined");
-      setCode("");
+      throw new Error("Unexpected response");
     } catch (error) {
       if (!isCurrent(controller)) return;
       if (
@@ -260,46 +240,21 @@ export function AuthModal({
         >
           <ModalHeader className="flex-col gap-2 px-6 pt-6 sm:gap-3 sm:px-8 sm:pt-8">
             <span className="mb-1 flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground sm:mb-3 sm:size-10">
-              {joined ? (
-                <Check size={23} strokeWidth={1.8} />
-              ) : checking ? (
+              {checking ? (
                 <Mail size={22} strokeWidth={1.5} />
               ) : (
                 <TreePine size={24} strokeWidth={1.5} />
               )}
             </span>
             <h2 className="text-[25px] font-medium leading-tight tracking-[-.04em] sm:text-[27px]">
-              {joined
-                ? w.successTitle
-                : checking
-                  ? w.verifyTitle
-                  : waitlist
-                    ? w.title
-                    : w.adminTitle}
+              {checking ? w.verifyTitle : w.title}
             </h2>
             <p className="text-[13px] font-normal leading-[1.6] text-default-500 sm:text-sm">
-              {joined
-                ? w.successBody
-                : checking
-                  ? w.verifyDescription
-                  : waitlist
-                    ? w.description
-                    : w.adminDescription}
+              {checking ? w.verifyDescription : w.description}
             </p>
           </ModalHeader>
           <ModalBody className="min-h-0 gap-4 overflow-y-auto px-6 pt-3 sm:gap-5 sm:px-8 sm:pt-4">
-            {joined ? (
-              <div
-                role="status"
-                className="rounded-xl border border-default-200 px-4 py-3"
-              >
-                <p className="mb-1 text-xs text-default-500">
-                  {w.successEmail}
-                </p>
-                <p className="break-all text-sm">{sentEmail}</p>
-              </div>
-            ) : (
-              <>
+            <>
                 {error && <ErrorBox message={error} />}
                 {checking ? (
                   <>
@@ -412,30 +367,12 @@ export function AuthModal({
                   </>
                 ) : (
                   <>
-                    {waitlist && (
-                      <Input
-                        variant="bordered"
-                        labelPlacement="outside"
-                        placeholder=" "
-                        classNames={fieldClasses}
-                        autoFocus
-                        label={t.fullName}
-                        autoComplete="name"
-                        maxLength={100}
-                        value={values.name}
-                        onValueChange={(name) => setValues({ ...values, name })}
-                        isReadOnly={!!busy}
-                        isInvalid={!!errors.name}
-                        errorMessage={errors.name}
-                      />
-                    )}
                     <Input
-                      key={mode}
                       variant="bordered"
                       labelPlacement="outside"
                       placeholder=" "
                       classNames={fieldClasses}
-                      autoFocus={!waitlist}
+                      autoFocus
                       label={t.email}
                       type="email"
                       autoComplete="email"
@@ -447,20 +384,13 @@ export function AuthModal({
                       errorMessage={errors.email}
                     />
                     <p className="text-xs leading-5 text-default-500">
-                      {waitlist ? w.privacy : w.loginNote}
+                      {w.loginNote}
                     </p>
                   </>
                 )}
-              </>
-            )}
+            </>
           </ModalBody>
           <ModalFooter className="flex-col gap-3 px-6 pb-6 pt-5 sm:gap-4 sm:px-8 sm:pb-7 sm:pt-6">
-            {joined ? (
-              <Button className="h-12 w-full" color="primary" onPress={close}>
-                {t.close}
-              </Button>
-            ) : (
-              <>
                 <Button
                   className="h-12 w-full"
                   endContent={<ArrowRight size={16} />}
@@ -471,28 +401,6 @@ export function AuthModal({
                 >
                   {checking ? w.verify : w.sendCode}
                 </Button>
-                {waitlist && !checking && (
-                  <p className="text-center text-[11px] leading-5 text-default-500">
-                    {w.note}
-                  </p>
-                )}
-                {!checking && (
-                  <div className="flex flex-wrap items-center justify-center text-xs text-default-500">
-                    {waitlist ? w.adminPrompt : w.invitePrompt}
-                    <Button
-                      variant="light"
-                      size="sm"
-                      className="min-h-11"
-                      onPress={() =>
-                        switchMode(waitlist ? "login" : "waitlist")
-                      }
-                    >
-                      {waitlist ? w.adminSignIn : w.join}
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
           </ModalFooter>
         </form>
       </ModalContent>

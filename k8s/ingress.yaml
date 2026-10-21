@@ -63,3 +63,52 @@ spec:
                 name: relaypine-web
                 port:
                   number: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: relaypine-admin
+  namespace: relaypine-dev
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod-http01
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "90"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "90"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [admin.relaypine.com]
+      secretName: relaypine-admin-tls
+  rules:
+    - host: admin.relaypine.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /readyz
+            pathType: Exact
+            backend:
+              service:
+                name: relaypine-gateway
+                port:
+                  number: 4811
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: relaypine-web
+                port:
+                  number: 3000

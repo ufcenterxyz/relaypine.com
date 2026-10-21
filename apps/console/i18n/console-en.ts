@@ -31,7 +31,7 @@ export const consoleEn = {
   requestPrivacy: "Your prompts stay yours.",
   availableModels: "Enabled models",
   modelScope: "Available to your workspace",
-  billingEyebrow: "INTERNAL BALANCE",
+  billingEyebrow: "AVAILABLE BALANCE",
   currency: "USD",
   reservedBalance: "Reserved for active requests",
   routingEyebrow: "TRAFFIC CONTROL",

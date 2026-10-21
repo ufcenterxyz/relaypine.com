@@ -14,15 +14,22 @@ is `usd`. `balance_micros` includes active reservations; available funds equal
 credential cost budget atomically. Credentials with `budget_micros = 0` have no
 local monetary cap; they still retain spend/hold accounting.
 
-Models default to `billing_mode=metered`, including existing model definitions
-and immutable request snapshots that omit this field. `billing_mode=usage_only`
-requires all eight rates to be zero and records token usage without pricing it.
-It needs no wallet balance, creates neither customer nor credential holds, and
-never changes balances, credential spend, or the monetary ledger. The provider
-may still charge for those requests; `cost_status=untracked` distinguishes this
-unknown cost from a verified zero cost. A credential with a positive local dollar
-budget cannot serve usage-only models: routing filters it and `Reserve` repeats
-the check under its row lock to cover concurrent budget changes.
+Models default to `billing_mode=metered`, including historical snapshots that
+omit this field. New relay calls require metered prices and spendable customer
+balance. Official reference imports and updates capture their source, verification
+time, standard-price context boundary, and official upstream routing policy.
+`UpdateModelPrices` atomically checks every expected model version and only updates
+price fields, reference metadata and the disabling of unpriced entries. It never
+changes historical requests, balances or ledger entries. Manual edits clear the
+reference policy when rates change; `SaveManualModel` explicitly clears it even
+when rates remain identical. Status-only edits preserve that policy.
+
+Historical `billing_mode=usage_only` snapshots remain supported during settlement
+and recovery. They require all eight rates to be zero, create no holds or charges,
+and keep `cost_status=untracked`; later catalog repricing never rebills that history.
+`Reserve` retains its positive credential-budget guard for durable historical
+compatibility, while current API publication and relay admission reject enabled
+usage-only models. Unknown reference models are saved disabled pending manual rates.
 
 Money transactions lock a request row when applicable, then its wallet, then its
 credential. Reserve/settle/recovery use `READ COMMITTED`; row locks and ledger
@@ -101,38 +108,48 @@ because bootstrap enforces one administrator per database. Never point tests at 
 application database. `go test -race ./internal/store`
 also exercises concurrent wallet reservations under the race detector.
 
-## Private access and waitlist
+## Verified users and administrative access
 
-`SUPERADMIN_EMAIL` is required at startup and is normalized to lowercase with
+`SUPERADMIN_EMAIL` is required at startup and normalized to lowercase with
 surrounding whitespace removed. Invalid or missing values fail before connecting
-to MySQL. `store.Open` also validates its explicit `Config.SuperAdminEmail`; the
-normalized identity is immutable, private instance state, not a process-global
-variable. Every gateway replica using one database must configure the same
-address. An email match alone never authenticates a user.
+to MySQL. `store.Open` copies this identity into immutable instance state. Every
+gateway replica sharing a database must configure the same administrator.
+An email match is an authorization policy, never proof of mailbox ownership.
 
-`EnsureSuperAdmin` provisions this identity without a
-password, demotes other operators, retires other accounts' sessions and keys,
-and backfills existing users into the waitlist. Migrating an administrator from
-password authentication or promoting an unverified public account replaces its
-password hash with an unusable `!email-otp` marker and revokes its sessions and
-API keys. Repeated bootstrap preserves sessions and keys created after migration.
+`EnsureSuperAdmin` provisions this identity without a usable password and demotes
+other operators. It revokes legacy password credentials and former operators'
+sessions/API keys, preserving their identities, tenants, money and history.
+Verified ordinary customers and their sessions/API keys survive repeated startup.
+The unusable `!email-otp` marker separates verified identities from legacy
+password identities; it is not an authentication secret.
 
-`SessionUser` requires `auth_method=email_otp`; old sessions default to `legacy`
-through an additive, serialized schema migration. The only public authentication
-path consumes a valid email challenge before `EmailAdministrator` and
-`CreateSession` are called. Login, snapshots, key creation and relay key
-authentication additionally require the exact administrator identity and its
-operator flag in durable state. Only a verified ordinary email challenge can
-call `JoinWaitlist` through the API. It writes a normalized, unique email,
-optional name and original submission time, never a tenant, user, wallet,
-session or key. Historical accounts, balances and usage remain intact.
+After consuming a successful OTP on the customer origin, `EmailUser` provisions
+a new tenant, user, default project and zero-balance wallet in one transaction.
+It never grants credit or creates an API key automatically. A previously
+waitlisted or legacy email must verify ownership first; existing identities keep
+their own historical tenant and balance. Restoring a legacy identity revokes its
+old sessions and API keys before enabling verified access. Duplicate concurrent
+sign-ins converge on the unique email identity. Lookup uses an exact normalized
+email comparison so database collation cannot authenticate a different mailbox.
+
+`CreateSurfaceSession` and `SurfaceSessionUser` use explicit `customer` or `admin`
+audiences stored as `email_otp_customer` / `email_otp_admin` in `auth_method`.
+Older `legacy` and `email_otp` sessions fail closed and require a fresh OTP.
+Admin sessions also require the exact configured email and durable operator flag.
+The gateway accepts only configured `APP_URL` / `ADMIN_APP_URL` hosts, checks the
+matching Origin for writes, and sets host-only cookies. On the public surface,
+even the administrator receives a customer audience and `operator=false`.
+
+Snapshot and key methods recheck durable user/tenant ownership, active status and
+mailbox-verification marker. Customer snapshots scope request, key, wallet and
+ledger queries to the tenant and remove procurement prices, pricing-reference
+metadata and operational resources. Relay keys authenticate for verified active
+customers and remain bound to their tenant/project and model permissions.
 
 Changing `SUPERADMIN_EMAIL` is an administrator change, not an account rename or
 data transfer. A new address gets a new tenant, project, and zero-balance wallet;
-an address already in `users` retains only its own existing tenant. Bootstrap
-demotes the former administrator and revokes its sessions and keys, preserving
-its tenant, balance, ledger, and usage. It never assigns the former tenant or
-credits to the new identity. Changing the address back does not reactivate
-revoked keys. Stop old replicas before starting replicas with a changed address
-so conflicting configurations cannot repeatedly replace each other's policy.
-The new owner still must verify a code sent to its configured mailbox.
+an existing address retains its own historical tenant. Bootstrap revokes the
+former administrator's sessions/keys and demotes its role, preserving its tenant,
+balance, ledger and usage. Changing back never reactivates revoked keys. Stop old
+replicas before changing the configured administrator to avoid policy conflicts.
+The new owner must still verify a code delivered to its mailbox.

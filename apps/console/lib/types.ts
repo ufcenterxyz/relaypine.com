@@ -6,6 +6,7 @@ export interface User {
   operator: boolean;
 }
 export interface Tenant {
+  email?: string;
   id: string;
   name: string;
   status: string;
@@ -61,6 +62,8 @@ export interface Proxy {
   enabled: boolean;
 }
 export interface Model {
+  pricing_reference?: { provider: string; model: string; source_url: string; source_name: string; checked_at: string; hash: string; scope: "standard_text"; max_input_tokens?: number };
+  pricing_note?: string;
   id: string;
   name: string;
   provider: string;
@@ -124,6 +127,9 @@ export interface RouteConfig {
   tenant_concurrency: number;
 }
 export interface Snapshot {
+  surface: "admin" | "customer";
+  app_url: string;
+  admin_app_url: string;
   user: User;
   tenant: Tenant;
   project: { id: string; tenant_id: string; name: string };

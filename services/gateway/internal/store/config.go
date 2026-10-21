@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"relaypine.com/gateway/internal/domain"
+	"relaypine.com/gateway/internal/pricing"
 )
 
 var (
@@ -274,16 +275,22 @@ func (s *Store) SaveProxy(ctx context.Context, p domain.Proxy) (domain.Proxy, er
 	return p, dbError(err)
 }
 func (s *Store) SaveModel(ctx context.Context, m domain.Model) (domain.Model, error) {
-	return s.saveModel(ctx, m, false)
+	return s.saveModel(ctx, m, false, false)
 }
 
 // CreateModel atomically refuses to overwrite an existing catalog entry. Model
 // imports use this path so a concurrent publication cannot replace its prices.
 func (s *Store) CreateModel(ctx context.Context, m domain.Model) (domain.Model, error) {
-	return s.saveModel(ctx, m, true)
+	return s.saveModel(ctx, m, true, false)
 }
 
-func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly bool) (domain.Model, error) {
+// SaveManualModel explicitly replaces reference pricing with administrator
+// rates, even when the numeric amounts happen to match the reference.
+func (s *Store) SaveManualModel(ctx context.Context, m domain.Model) (domain.Model, error) {
+	return s.saveModel(ctx, m, false, true)
+}
+
+func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly, manual bool) (domain.Model, error) {
 	if m.ID == "" {
 		m.ID = newID("model_")
 	}
@@ -297,10 +304,25 @@ func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly bool) 
 	}
 	defer tx.Rollback()
 	var version int
+	var previous []byte
+	// Client edits cannot assert an official reference. Preserve verified metadata
+	// only when the authoritative stored price and routing identity are unchanged.
+	m.PricingReference = nil
+	m.PricingNote = ""
 	if !createOnly {
-		err = tx.QueryRowContext(ctx, "SELECT version FROM models WHERE id=? FOR UPDATE", m.ID).Scan(&version)
+		err = tx.QueryRowContext(ctx, "SELECT config,version FROM models WHERE id=? FOR UPDATE", m.ID).Scan(&previous, &version)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return m, err
+		}
+	}
+	if len(previous) > 0 {
+		var old domain.Model
+		if err = json.Unmarshal(previous, &old); err != nil {
+			return m, err
+		}
+		if !manual && pricing.SameRates(old, m) && old.Provider == m.Provider && old.UpstreamModel == m.UpstreamModel {
+			m.PricingReference = old.PricingReference
+			m.PricingNote = old.PricingNote
 		}
 	}
 	m.Version = version + 1

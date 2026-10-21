@@ -1,12 +1,10 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,84 +12,119 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"relaypine.com/gateway/internal/domain"
+	"relaypine.com/gateway/internal/pricing"
 	"relaypine.com/gateway/internal/relay"
-	"relaypine.com/gateway/internal/store"
 )
 
-// Exercise the published API contract through the native relay and real durable
-// storage. The test database is isolated from any real upstream credentials.
-func TestBatchImportedUsageOnlyModelsWorkWithoutWalletFunds(t *testing.T) {
+func referencePriceFixture(t *testing.T) *apiFixture {
+	t.Helper()
 	f := newAPIFixture(t)
 	addr := os.Getenv("REDIS_TEST_ADDR")
 	if addr == "" {
 		addr = os.Getenv("REDIS_ADDR")
 	}
 	if addr == "" {
-		t.Skip("REDIS_TEST_ADDR/REDIS_ADDR required for complete gateway integration")
+		t.Skip("isolated Redis required")
 	}
-	redisClient := redis.NewClient(&redis.Options{Addr: addr, Password: os.Getenv("REDIS_PASSWORD")})
-	t.Cleanup(func() { redisClient.Close() })
-	if err := redisClient.Ping(f.ctx).Err(); err != nil {
+	rc := redis.NewClient(&redis.Options{Addr: addr, Password: os.Getenv("REDIS_PASSWORD")})
+	if err := rc.Ping(f.ctx).Err(); err != nil {
 		t.Fatal(err)
 	}
-	f.s.Redis, f.s.AllowPrivate = redisClient, true
-	f.s.Relay = relay.New(isolatedE2ERepository{Store: f.db, prefix: f.prefix}, redisClient, true)
+	t.Cleanup(func() { rc.Close() })
+	f.s.Redis = rc
+	f.s.PricingFetcher = func(context.Context, []string) pricing.Catalog {
+		now := time.Now().UTC()
+		return pricing.Catalog{Sources: []pricing.Source{{Provider: "anthropic", URL: pricing.AnthropicURL, CheckedAt: now}}, Rates: map[string]pricing.Rate{"anthropic:claude-opus-5-5": {Input: 4_000_000, Output: 20_000_000, Cached: 200_000, CacheWrite: 5_000_000, Reference: domain.PriceReference{Provider: "anthropic", Model: "claude-opus-5-5", SourceURL: pricing.AnthropicURL, SourceName: "Anthropic official reference", CheckedAt: now, Hash: "test-source", Scope: "standard_text", MaxInputTokens: 1000000}}}}
+	}
 	f.h = f.s.Handler()
-	t.Cleanup(func() {
-		ctx := context.Background()
-		for _, q := range []string{"DELETE a FROM attempts a JOIN requests r ON r.id=a.request_id WHERE r.tenant_id=?", "DELETE FROM requests WHERE tenant_id=?"} {
-			if _, err := f.db.DB.ExecContext(ctx, q, f.operator.TenantID); err != nil {
-				t.Logf("request cleanup: %v", err)
-			}
-		}
-	})
-	priced := domain.Model{ID: f.prefix + "priced", Name: "Preserved metered model", Provider: "anthropic", UpstreamModel: "paid-model", Enabled: true, InputRate: 4_000_000, OutputRate: 20_000_000, CostInputRate: 4_000_000, CostOutputRate: 20_000_000, MaxOutputTokens: 64}
-	f.models = append(f.models, priced.ID)
-	w := f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AppURL, priced)
+	return f
+}
+func pricePreview(t *testing.T, f *apiFixture, body any) pricing.Preview {
+	t.Helper()
+	w := f.call(t, "POST", "/api/admin/models/prices/preview", f.operatorCookie, f.s.AdminAppURL, body)
 	expectStatus(t, w, 200)
-	priced = decodeResponse[domain.Model](t, w)
-	var pricedBefore []byte
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT config FROM models WHERE id=?", priced.ID).Scan(&pricedBefore); err != nil {
+	p := decodeResponse[pricing.Preview](t, w)
+	t.Cleanup(func() { f.s.Redis.Del(context.Background(), "rp:price-preview:"+p.ID) })
+	return p
+}
+func legacyUnpricedModel(t *testing.T, f *apiFixture, suffix string) domain.Model {
+	t.Helper()
+	m := domain.Model{ID: f.prefix + suffix, Name: "Legacy unpriced model", Provider: "anthropic", UpstreamModel: "claude-opus-5-5", Enabled: true, BillingMode: domain.BillingUsageOnly, MaxOutputTokens: 64}
+	f.models = append(f.models, m.ID)
+	saved, err := f.db.CreateModel(f.ctx, m)
+	if err != nil {
 		t.Fatal(err)
 	}
-	models := []domain.Model{usageOnlyImportModel(f.prefix + "openai"), usageOnlyImportModel(f.prefix + "anthropic")}
-	models[0].Provider = "openai"
-	for i := range models {
-		models[i].UpstreamModel = "mock-" + models[i].Provider
-		models[i].MaxOutputTokens = 64
-		f.models = append(f.models, models[i].ID)
+	return saved
+}
+
+func TestReferencePriceBackfillChargesWalletAndRejectsUnfundedCalls(t *testing.T) {
+	f := referencePriceFixture(t)
+	customer, customerCookie := f.verifiedCustomer(t, "meteredcustomer")
+	m := legacyUnpricedModel(t, f, "priced")
+	p := pricePreview(t, f, map[string]any{"model_ids": []string{m.ID}})
+	if len(p.Items) != 1 || p.Items[0].Status != "matched" || p.Items[0].After.BillingMode != domain.BillingMetered {
+		t.Fatal("legacy reference not matched")
 	}
-	// A conflict must not silently convert an existing priced model.
-	batch := append([]domain.Model{usageOnlyImportModel(priced.ID)}, models...)
-	w = f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AppURL, map[string]any{"models": batch})
+	expectStatus(t, f.call(t, "POST", "/api/admin/models/prices/apply", f.operatorCookie, f.s.AdminAppURL, map[string]any{"preview_id": p.ID, "model_ids": []string{m.ID}}), 200)
+	var balance, held int64
+	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT balance_micros,held_micros FROM wallets WHERE tenant_id=?", customer.TenantID).Scan(&balance, &held); err != nil || balance != 0 || held != 0 {
+		t.Fatal("backfill changed balance", err)
+	}
+	// An explicit same-price manual edit permits our isolated compatible mock;
+	// automatic reference routing itself never contacts a compatible host.
+	m = p.Items[0].After
+	w := f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, struct {
+		domain.Model
+		Manual bool `json:"manual_pricing"`
+	}{m, true})
 	expectStatus(t, w, 200)
-	result := decodeResponse[store.ModelImportResult](t, w)
-	if result.CreatedCount != 2 || result.SkippedCount != 1 {
-		t.Fatalf("batch not published: %+v", result)
+	m = decodeResponse[domain.Model](t, w)
+	if m.PricingReference != nil {
+		t.Fatal("explicit identical manual rates did not clear reference routing policy")
 	}
-	type issued struct {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = io.WriteString(w, `{"id":"msg_test","type":"message","content":[],"usage":{"input_tokens":10,"output_tokens":4,"cache_read_input_tokens":2,"cache_creation_input_tokens":3}}`)
+	}))
+	defer upstream.Close()
+	endpointID, credentialID := f.prefix+"endpoint", f.prefix+"credential"
+	f.endpoints = append(f.endpoints, endpointID)
+	f.credentials = append(f.credentials, credentialID)
+	_, err := f.db.SaveEndpoint(f.ctx, domain.Endpoint{ID: endpointID, Name: "Isolated mock", Provider: "anthropic", BaseURL: upstream.URL, Enabled: true, Models: []string{m.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.db.SaveCredential(f.ctx, domain.Credential{ID: credentialID, EndpointID: endpointID, Name: "Mock key", Secret: "mock-test-secret", Enabled: true, RPM: 100, TPM: 1000000, MaxConcurrency: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuedResponse := f.call(t, "POST", "/api/keys", customerCookie, f.s.AppURL, map[string]any{"name": "Metered test", "rpm": 100, "models": []string{m.ID}})
+	expectStatus(t, issuedResponse, 201)
+	issued := decodeResponse[struct {
 		Key    domain.AccessKey `json:"key"`
 		Secret string           `json:"secret"`
-	}
-	w = f.call(t, "POST", "/api/keys", f.operatorCookie, f.s.AppURL, map[string]any{"name": "Usage-only integration", "rpm": 100, "models": []string{models[0].ID, models[1].ID, priced.ID}})
-	expectStatus(t, w, 201)
-	access := decodeResponse[issued](t, w)
-	scopes := []string{"tenant:" + f.operator.TenantID, "access:" + access.Key.ID}
+	}](t, issuedResponse)
+	key, secret := issued.Key, issued.Secret
+	f.s.Relay = relay.New(isolatedE2ERepository{Store: f.db, prefix: f.prefix}, f.s.Redis, true)
+	f.h = f.s.Handler()
 	t.Cleanup(func() {
-		for _, scope := range scopes {
+		for _, scope := range []string{"tenant:" + customer.TenantID, "access:" + key.ID, "credential:" + credentialID} {
 			sum := sha256.Sum256([]byte(scope))
+			prefix := "relay:" + hex.EncodeToString(sum[:16]) + ":"
 			var cursor uint64
 			for {
-				keys, next, err := redisClient.Scan(context.Background(), cursor, "relay:"+hex.EncodeToString(sum[:16])+":*", 100).Result()
-				if err != nil {
-					t.Logf("Redis cleanup: %v", err)
+				keys, next, e := f.s.Redis.Scan(context.Background(), cursor, prefix+"*", 100).Result()
+				if e != nil {
 					break
 				}
 				if len(keys) > 0 {
-					redisClient.Del(context.Background(), keys...)
+					f.s.Redis.Del(context.Background(), keys...)
 				}
 				cursor = next
 				if cursor == 0 {
@@ -100,118 +133,98 @@ func TestBatchImportedUsageOnlyModelsWorkWithoutWalletFunds(t *testing.T) {
 			}
 		}
 	})
-	for _, model := range models {
-		t.Run(model.Provider, func(t *testing.T) {
-			endpointID, credentialID := f.prefix+"e_"+model.Provider, f.prefix+"c_"+model.Provider
-			f.endpoints, f.credentials = append(f.endpoints, endpointID), append(f.credentials, credentialID)
-			quotaGroup := f.prefix + model.Provider
-			scopes = append(scopes, "credential:"+credentialID, "group:"+quotaGroup)
-			path := "/v1/chat/completions"
-			if model.Provider == "anthropic" {
-				path = "/v1/messages"
-			}
-			var hits atomic.Int32
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				hits.Add(1)
-				if r.Method != "POST" || r.URL.Path != path {
-					t.Errorf("native path changed: %s %s", r.Method, r.URL.Path)
-				}
-				if model.Provider == "openai" && r.Header.Get("Authorization") != "Bearer mock-secret" || model.Provider == "anthropic" && r.Header.Get("X-Api-Key") != "mock-secret" {
-					t.Error("upstream authentication changed")
-				}
-				var body map[string]json.RawMessage
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-					t.Error(err)
-					w.WriteHeader(400)
-					return
-				}
-				if string(body["model"]) != fmt.Sprintf("%q", model.UpstreamModel) || string(body["max_tokens"]) != "64" {
-					t.Error("imported upstream alias or output cap was not applied")
-				}
-				// Admission should persist the attempt without even temporary money holds.
-				var held, costHeld int64
-				if err := f.db.DB.QueryRowContext(f.ctx, "SELECT w.held_micros,c.held_micros FROM wallets w JOIN credentials c ON c.id=? WHERE w.tenant_id=?", credentialID, f.operator.TenantID).Scan(&held, &costHeld); err != nil || held != 0 || costHeld != 0 {
-					t.Errorf("money held while forwarding: customer=%d cost=%d err=%v", held, costHeld, err)
-				}
-				if string(body["stream"]) == "true" {
-					w.Header().Set("Content-Type", "text/event-stream")
-					if model.Provider == "openai" {
-						_, _ = io.WriteString(w, "data: {\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":2}}}\n\ndata: [DONE]\n\n")
-					} else {
-						_, _ = io.WriteString(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_read_input_tokens\":2}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
-					}
-				} else {
-					w.Header().Set("Content-Type", "application/json")
-					if model.Provider == "openai" {
-						_, _ = io.WriteString(w, `{"id":"chat_usage","usage":{"prompt_tokens":12,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":2}}}`)
-					} else {
-						_, _ = io.WriteString(w, `{"id":"msg_usage","usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":2}}`)
-					}
-				}
-			}))
-			t.Cleanup(upstream.Close)
-			expectStatus(t, f.call(t, "POST", "/api/admin/endpoints", f.operatorCookie, f.s.AppURL, domain.Endpoint{ID: endpointID, Name: "Usage-only fixture", Provider: model.Provider, BaseURL: upstream.URL, Enabled: true}), 200)
-			expectStatus(t, f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, map[string]any{"id": credentialID, "name": "Usage-only fixture", "endpoint_id": endpointID, "secret": "mock-secret", "quota_group": quotaGroup, "enabled": true, "rpm": 100, "tpm": 100000, "max_concurrency": 5, "budget_micros": 0}), 200)
-			for _, stream := range []bool{false, true} {
-				body, _ := json.Marshal(map[string]any{"model": model.ID, "messages": []any{map[string]string{"role": "user", "content": "hello"}}, "stream": stream})
-				r := httptest.NewRequest("POST", "/"+model.Provider+path, bytes.NewReader(body))
-				r.Header.Set("Content-Type", "application/json")
-				if model.Provider == "anthropic" {
-					r.Header.Set("X-Api-Key", access.Secret)
-					r.Header.Set("Anthropic-Version", "2023-06-01")
-				} else {
-					r.Header.Set("Authorization", "Bearer "+access.Secret)
-				}
-				response := httptest.NewRecorder()
-				f.h.ServeHTTP(response, r)
-				expectStatus(t, response, 200)
-				if stream && !strings.Contains(response.Header().Get("Content-Type"), "text/event-stream") {
-					t.Fatal("native stream was not returned")
-				}
-				id := response.Header().Get("X-Request-Id")
-				var phase string
-				var held, costHeld bool
-				var reserved, charge, cost int64
-				if err := f.db.DB.QueryRowContext(f.ctx, "SELECT phase,customer_hold_active,cost_hold_active,reserved_micros,charge_micros,cost_micros FROM requests WHERE id=?", id).Scan(&phase, &held, &costHeld, &reserved, &charge, &cost); err != nil {
-					t.Fatal(err)
-				}
-				if phase != "settled" || held || costHeld || reserved != 0 || charge != 0 || cost != 0 {
-					t.Fatalf("request was not durably settled without money: phase=%s holds=%t/%t reserved=%d charge=%d cost=%d", phase, held, costHeld, reserved, charge, cost)
-				}
-				state := f.call(t, "GET", "/api/state", f.operatorCookie, "", nil)
-				expectStatus(t, state, 200)
-				found := false
-				for _, request := range decodeResponse[domain.Snapshot](t, state).Requests {
-					if request.ID != id {
-						continue
-					}
-					found = true
-					if request.Status != "completed" || request.BillingMode != domain.BillingUsageOnly || request.CostStatus != "untracked" || request.Usage != (domain.Usage{InputTokens: 10, OutputTokens: 3, CachedTokens: 2, Known: true}) {
-						t.Fatalf("usage/cost evidence missing from console API: %+v", request)
-					}
-				}
-				if !found {
-					t.Fatal("completed imported-model request missing from console API")
-				}
-			}
-			var spent, held int64
-			if err := f.db.DB.QueryRowContext(f.ctx, "SELECT spent_micros,held_micros FROM credentials WHERE id=?", credentialID).Scan(&spent, &held); err != nil || spent != 0 || held != 0 || hits.Load() != 2 {
-				t.Fatalf("credential money/calls changed: spent=%d held=%d calls=%d err=%v", spent, held, hits.Load(), err)
-			}
-		})
+	call := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/anthropic/v1/messages", strings.NewReader(`{"model":"`+m.ID+`","messages":[{"role":"user","content":"hello"}],"max_tokens":64}`))
+		r.Header.Set("X-Api-Key", secret)
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		f.h.ServeHTTP(w, r)
+		return w
 	}
-	var balance, held, ledger int64
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT balance_micros,held_micros FROM wallets WHERE tenant_id=?", f.operator.TenantID).Scan(&balance, &held); err != nil {
+	expectStatus(t, call(), 402)
+	if calls.Load() != 0 {
+		t.Fatal("empty wallet reached upstream")
+	}
+	if err = f.db.Credit(f.ctx, customer.TenantID, 1_000_000, f.prefix+"credit", "isolated test credit"); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM ledger_entries WHERE tenant_id=?", f.operator.TenantID).Scan(&ledger); err != nil {
+	expectStatus(t, call(), 200)
+	if err = f.db.DB.QueryRowContext(f.ctx, "SELECT balance_micros,held_micros FROM wallets WHERE tenant_id=?", customer.TenantID).Scan(&balance, &held); err != nil || balance != 999864 || held != 0 || calls.Load() != 1 {
+		t.Fatalf("reference-rate charge mismatch balance=%d held=%d calls=%d err=%v", balance, held, calls.Load(), err)
+	}
+	var charge, cost int64
+	if err = f.db.DB.QueryRowContext(f.ctx, "SELECT charge_micros,cost_micros FROM requests WHERE tenant_id=? AND status='completed'", customer.TenantID).Scan(&charge, &cost); err != nil || charge != 136 || cost != 136 {
+		t.Fatal("durable charge/cost missing", charge, cost, err)
+	}
+}
+
+func TestReferencePricePreviewIsAtomicVersionedAndUnforgeable(t *testing.T) {
+	f := referencePriceFixture(t)
+	a, b := legacyUnpricedModel(t, f, "a"), legacyUnpricedModel(t, f, "b")
+	p := pricePreview(t, f, map[string]any{"model_ids": []string{a.ID, b.ID}})
+	b.Name = "Concurrent edit"
+	if _, err := f.db.SaveModel(f.ctx, b); err != nil {
 		t.Fatal(err)
 	}
-	if balance != 0 || held != 0 || ledger != 0 {
-		t.Fatalf("usage-only import required funds or created ledger entries: balance=%d held=%d ledger=%d", balance, held, ledger)
+	expectStatus(t, f.call(t, "POST", "/api/admin/models/prices/apply", f.operatorCookie, f.s.AdminAppURL, map[string]any{"preview_id": p.ID, "model_ids": []string{a.ID, b.ID}}), 409)
+	var raw []byte
+	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT config FROM models WHERE id=?", a.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
 	}
-	var pricedAfter []byte
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT config FROM models WHERE id=?", priced.ID).Scan(&pricedAfter); err != nil || !bytes.Equal(pricedBefore, pricedAfter) {
-		t.Fatal("batch import or usage-only requests changed existing metered configuration")
+	var unchanged domain.Model
+	_ = json.Unmarshal(raw, &unchanged)
+	if unchanged.Version != a.Version || unchanged.BillingMode != domain.BillingUsageOnly {
+		t.Fatal("stale batch partially updated")
+	}
+	expectStatus(t, f.call(t, "POST", "/api/admin/models/prices/apply", f.operatorCookie, f.s.AdminAppURL, map[string]any{"preview_id": strings.Repeat("a", 48), "model_ids": []string{a.ID}}), 409)
+	expectStatus(t, f.call(t, "POST", "/api/admin/models/prices/apply", f.operatorCookie, f.s.AdminAppURL, map[string]any{"preview_id": p.ID, "model_ids": []string{a.ID, a.ID}}), 409)
+	a.Enabled = true
+	expectStatus(t, f.call(t, "POST", "/api/admin/models", f.operatorCookie, f.s.AdminAppURL, a), 400)
+}
+
+func TestReferenceImportUsesServerPricesAndUnknownModelsStayDisabled(t *testing.T) {
+	f := referencePriceFixture(t)
+	endpointID, credentialID := f.prefix+"official", f.prefix+"cred"
+	f.endpoints = append(f.endpoints, endpointID)
+	f.credentials = append(f.credentials, credentialID)
+	if _, err := f.db.SaveEndpoint(f.ctx, domain.Endpoint{ID: endpointID, Name: "Official", Provider: "anthropic", BaseURL: "https://api.anthropic.com", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.SaveCredential(f.ctx, domain.Credential{ID: credentialID, EndpointID: endpointID, Name: "Stored mock", Secret: "never-sent-to-public-price-source", Enabled: true, RPM: 50, MaxConcurrency: 2}); err != nil {
+		t.Fatal(err)
+	}
+	known := domain.Model{ID: f.prefix + "known", Name: "Known", Provider: "anthropic", UpstreamModel: "claude-opus-5-5", Enabled: true, BillingMode: domain.BillingUsageOnly, InputRate: 1, CostInputRate: 1, MaxOutputTokens: 64, PricingReference: &domain.PriceReference{SourceURL: "https://malicious.invalid"}}
+	unknown := known
+	unknown.ID = f.prefix + "unknown"
+	unknown.UpstreamModel = "unknown-future-model"
+	f.models = append(f.models, known.ID, unknown.ID)
+	p := pricePreview(t, f, map[string]any{"credential_id": credentialID, "models": []domain.Model{known, unknown}})
+	if p.Kind != "import" || p.Items[0].After.InputRate != 4_000_000 || p.Items[0].After.PricingReference.SourceURL != pricing.AnthropicURL || p.Items[1].After.Enabled {
+		t.Fatal("client price claims trusted or unknown model enabled")
+	}
+	payload := map[string]any{"preview_id": p.ID, "model_ids": []string{known.ID, unknown.ID}}
+	expectStatus(t, f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AdminAppURL, payload), 200)
+	w := f.call(t, "POST", "/api/admin/models/import", f.operatorCookie, f.s.AdminAppURL, payload)
+	expectStatus(t, w, 200)
+	var receipt struct {
+		Created int `json:"created_count"`
+		Skipped int `json:"skipped_count"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &receipt)
+	if receipt.Created != 0 || receipt.Skipped != 2 {
+		t.Fatal("safe preview import retry changed models")
+	}
+	f.s.PricingFetcher = func(context.Context, []string) pricing.Catalog {
+		return pricing.Catalog{Rates: map[string]pricing.Rate{}, Sources: []pricing.Source{{Provider: "anthropic", URL: pricing.AnthropicURL, Error: "Official pricing could not be verified. Existing prices were not changed."}}}
+	}
+	expectStatus(t, f.call(t, "POST", "/api/admin/models/prices/preview", f.operatorCookie, f.s.AdminAppURL, map[string]any{"model_ids": []string{known.ID}}), 503)
+	var raw []byte
+	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT config FROM models WHERE id=?", known.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var saved domain.Model
+	_ = json.Unmarshal(raw, &saved)
+	if !saved.Enabled || saved.InputRate != 4_000_000 || saved.Version != 1 {
+		t.Fatal("source outage changed prices")
 	}
 }

@@ -16,7 +16,7 @@ func TestAdministratorCredentialWorkspaceRoundTripAndSecretRedaction(t *testing.
 		"enabled": true, "rpm": 100, "tpm": 10000, "max_concurrency": 10,
 		"budget_micros": 1000000, "priority": 1,
 	}
-	w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, payload)
+	w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, payload)
 	expectStatus(t, w, 200)
 	saved := decodeResponse[domain.Credential](t, w)
 	f.credentials = append(f.credentials, saved.ID)
@@ -26,7 +26,7 @@ func TestAdministratorCredentialWorkspaceRoundTripAndSecretRedaction(t *testing.
 	payload["id"] = saved.ID
 	payload["workspace_id"] = "wrkspc_ApiUpdated456"
 	delete(payload, "secret")
-	w = f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, payload)
+	w = f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, payload)
 	expectStatus(t, w, 200)
 	if strings.Contains(w.Body.String(), secret) {
 		t.Fatal("workspace-only update exposed the stored API key")
@@ -57,7 +57,7 @@ func TestAdministratorCredentialWorkspaceRoundTripAndSecretRedaction(t *testing.
 	}
 	// Omission intentionally clears the optional selection without a legacy mode.
 	delete(payload, "workspace_id")
-	w = f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, payload)
+	w = f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, payload)
 	expectStatus(t, w, 200)
 	if decodeResponse[domain.Credential](t, w).WorkspaceID != "" {
 		t.Fatal("omitting workspace did not clear explicit selection")
@@ -78,7 +78,7 @@ func TestAdministratorCredentialWorkspaceRejectsUnsafeAndWrongProviderValues(t *
 	}
 	for _, workspace := range []string{"wrkspc_", "wrkspc_has space", "wrkspc_valid\r\nX-Injected: true", "wrkspc_" + strings.Repeat("a", 122)} {
 		payload["workspace_id"] = workspace
-		w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, payload)
+		w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, payload)
 		expectStatus(t, w, 400)
 		if !strings.Contains(w.Body.String(), `"code":"invalid_workspace_id"`) || !strings.Contains(w.Body.String(), "wrkspc_") {
 			t.Fatal("invalid workspace response did not identify the field and expected format")
@@ -86,7 +86,7 @@ func TestAdministratorCredentialWorkspaceRejectsUnsafeAndWrongProviderValues(t *
 	}
 	payload["workspace_id"] = "wrkspc_Valid123"
 	payload["endpoint_id"] = "openai-official"
-	w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, payload)
+	w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, payload)
 	expectStatus(t, w, 400)
 	if !strings.Contains(w.Body.String(), `"code":"workspace_provider_mismatch"`) || !strings.Contains(w.Body.String(), "Anthropic") {
 		t.Fatal("provider mismatch response did not explain the supported provider")
@@ -100,7 +100,7 @@ func TestAdministratorCredentialWorkspaceRejectsUnsafeAndWrongProviderValues(t *
 	}
 	payload["endpoint_id"] = "anthropic-official"
 	delete(payload, "workspace_id")
-	w = f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, payload)
+	w = f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, payload)
 	expectStatus(t, w, 200)
 	saved := decodeResponse[domain.Credential](t, w)
 	f.credentials = append(f.credentials, saved.ID)

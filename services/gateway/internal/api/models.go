@@ -35,6 +35,9 @@ func validateModelInput(m *domain.Model) *modelInputProblem {
 	if m.BillingMode == domain.BillingMetered && m.Enabled && (m.InputRate == 0 || m.OutputRate == 0 || m.CostInputRate == 0 || m.CostOutputRate == 0) {
 		return &modelInputProblem{"invalid_price", "Enabled metered models require positive input and output rates for both sales and upstream cost."}
 	}
+	if m.Enabled && m.BillingMode == domain.BillingUsageOnly {
+		return &modelInputProblem{"invalid_price", "Enabled models must have metered prices so usage deducts from the customer's balance."}
+	}
 	return nil
 }
 
@@ -42,9 +45,30 @@ func validateModelInput(m *domain.Model) *modelInputProblem {
 // and POST before reaching this route. Imports never update existing models.
 func (s *Server) importModels(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Models []domain.Model `json:"models"`
+		Models    []domain.Model `json:"models"`
+		PreviewID string         `json:"preview_id"`
+		ModelIDs  []string       `json:"model_ids"`
 	}
-	if read(r, &input) != nil || len(input.Models) == 0 || len(input.Models) > store.MaxModelImportItems {
+	if read(r, &input) != nil || len(input.Models) > store.MaxModelImportItems || (input.PreviewID != "" && len(input.Models) > 0) {
+		fail(w, 400, "invalid_model_batch", "Choose a price preview or a manually priced batch.")
+		return
+	}
+	if input.PreviewID != "" {
+		_, models, err := s.selectedPricePreview(r, input.PreviewID, "import", input.ModelIDs)
+		if err != nil {
+			fail(w, 409, "price_preview_expired", "Refresh reference prices and review the import again.")
+			return
+		}
+		input.Models = models
+	} else {
+		// Only explicit manual rates can bypass reference lookup; never trust client
+		// claims about an official source or enable an unpriced model.
+		for i := range input.Models {
+			input.Models[i].PricingReference = nil
+			input.Models[i].PricingNote = ""
+		}
+	}
+	if len(input.Models) == 0 || len(input.Models) > store.MaxModelImportItems {
 		fail(w, 400, "invalid_model_batch", "Choose between 1 and 400 models to import in one request.")
 		return
 	}

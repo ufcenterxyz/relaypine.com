@@ -11,7 +11,7 @@ func TestMinimalCredentialCreationUsesLocalDefaultsAndSharedQuota(t *testing.T) 
 	f := newAPIFixture(t)
 	var first domain.Credential
 	for i := 0; i < 2; i++ {
-		w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, map[string]any{
+		w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, map[string]any{
 			"endpoint_id": "openai-official", "secret": "  test-onboarding-key  ",
 		})
 		expectStatus(t, w, 200)
@@ -47,7 +47,7 @@ func TestCredentialDefaultsNeverReplaceExplicitOverrides(t *testing.T) {
 		"quota_group": "manual-group", "rpm": 23, "tpm": 45678, "max_concurrency": 2,
 		"enabled": false, "budget_micros": 1000000, "priority": 3,
 	}
-	w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, payload)
+	w := f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, payload)
 	expectStatus(t, w, 200)
 	c := decodeResponse[domain.Credential](t, w)
 	f.credentials = append(f.credentials, c.ID)
@@ -56,6 +56,6 @@ func TestCredentialDefaultsNeverReplaceExplicitOverrides(t *testing.T) {
 	}
 	for _, field := range []string{"rpm", "tpm", "max_concurrency"} {
 		invalid := map[string]any{"endpoint_id": "anthropic-official", "secret": "test-manual-key", field: 0}
-		expectStatus(t, f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AppURL, invalid), 400)
+		expectStatus(t, f.call(t, "POST", "/api/admin/credentials", f.operatorCookie, f.s.AdminAppURL, invalid), 400)
 	}
 }

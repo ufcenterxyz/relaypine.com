@@ -47,30 +47,51 @@ func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
 		if t.anthropic == nil {
 			t.anthropic = map[string]json.RawMessage{}
 		}
-		u := object(obj["usage"])
+		usageRaw := obj["usage"]
 		if kind == "message_start" {
-			u = object(object(obj["message"])["usage"])
+			usageRaw = object(obj["message"])["usage"]
+		}
+		u := object(usageRaw)
+		if len(usageRaw) > 0 && string(usageRaw) != "null" && u == nil {
+			// A malformed explicit update invalidates earlier partial totals.
+			t.anthropic = map[string]json.RawMessage{}
 		}
 		for k, v := range u {
 			t.anthropic[k] = v
 		}
 		raw, _ := json.Marshal(t.anthropic)
-		if parsed, ok := parseUsage(raw, p.provider); ok {
+		parsed, ok := parseUsage(raw, p.provider)
+		t.usage = domain.Usage{}
+		if ok {
 			t.usage = parsed
 		}
 		if kind == "message_stop" {
 			t.completed = true
 		}
 	} else {
-		if parsed, ok := parseUsage(obj["usage"], p.provider); ok {
-			t.usage = parsed
+		if raw, exists := obj["usage"]; exists && string(raw) != "null" {
+			t.usage = domain.Usage{}
+			if parsed, ok := parseUsage(raw, p.provider); ok {
+				t.usage = parsed
+			}
+		}
+		// Responses terminal events must carry their own complete totals.
+		// A missing/null response object cannot inherit a prior progress event.
+		if kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" {
+			t.usage = domain.Usage{}
+			t.finalFailedUsage = false
 		}
 		if response := object(obj["response"]); response != nil {
 			resource = str(response["id"])
-			if parsed, ok := parseUsage(response["usage"], p.provider); ok {
-				t.usage = parsed
-				if kind == "response.failed" {
-					t.finalFailedUsage = true
+			raw, exists := response["usage"]
+			if exists && string(raw) != "null" || kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" {
+				t.usage = domain.Usage{}
+				t.finalFailedUsage = false
+				if parsed, ok := parseUsage(raw, p.provider); ok {
+					t.usage = parsed
+					if kind == "response.failed" {
+						t.finalFailedUsage = true
+					}
 				}
 			}
 		}

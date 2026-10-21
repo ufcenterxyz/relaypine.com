@@ -44,9 +44,13 @@ func emailHash(email string) string {
 }
 func challengeKey(email string) string { return "rp:otp:{" + emailHash(email) + "}:challenge" }
 func cooldownKey(email string) string  { return "rp:otp:{" + emailHash(email) + "}:cooldown" }
-func (a *EmailAuth) digest(email, id, code string) string {
+func (a *EmailAuth) digest(email, id, code string, surfaces ...string) string {
+	surface := ""
+	if len(surfaces) > 0 {
+		surface = surfaces[0]
+	}
 	mac := hmac.New(sha256.New, a.key)
-	mac.Write([]byte(email + "\x00" + id + "\x00" + code))
+	mac.Write([]byte(email + "\x00" + id + "\x00" + code + "\x00" + surface))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 func rateLimited(w http.ResponseWriter, seconds int) {
@@ -63,7 +67,7 @@ const issueScript = `
  if count>10 then return math.max(redis.call('TTL',KEYS[3]),1) end
  redis.call('SET',KEYS[2],ARGV[1],'EX',60)
  redis.call('DEL',KEYS[1])
- redis.call('HSET',KEYS[1],'id',ARGV[1],'digest',ARGV[2],'name',ARGV[3],'attempts',0,'ready',0)
+ redis.call('HSET',KEYS[1],'id',ARGV[1],'digest',ARGV[2],'name',ARGV[3],'attempts',0,'ready',0,'surface',ARGV[4])
  redis.call('EXPIRE',KEYS[1],600)
  return 0`
 const finishSendScript = `
@@ -71,7 +75,7 @@ const finishSendScript = `
  if ARGV[2]=='sent' then redis.call('HSET',KEYS[1],'ready',1) else redis.call('DEL',KEYS[1]) end
  return 1`
 const verifyScript = `
- if redis.call('HGET',KEYS[1],'id')~=ARGV[1] or redis.call('HGET',KEYS[1],'ready')~='1' then return {-1,''} end
+ if redis.call('HGET',KEYS[1],'id')~=ARGV[1] or redis.call('HGET',KEYS[1],'ready')~='1' or redis.call('HGET',KEYS[1],'surface')~=ARGV[3] then return {-1,''} end
  local attempts=redis.call('HINCRBY',KEYS[1],'attempts',1)
  if attempts>5 then redis.call('DEL',KEYS[1]);return {0,''} end
  if redis.call('HGET',KEYS[1],'digest')~=ARGV[2] then
@@ -116,8 +120,9 @@ func (s *Server) requestCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := hex.EncodeToString(random)
+	surface, _ := s.surface(r)
 	keys := []string{challengeKey(v.Email), cooldownKey(v.Email), "rp:otp:{" + emailHash(v.Email) + "}:hour"}
-	remaining, err := a.redis.Eval(r.Context(), issueScript, keys, id, a.digest(v.Email, id, code), v.Name).Int()
+	remaining, err := a.redis.Eval(r.Context(), issueScript, keys, id, a.digest(v.Email, id, code, surface), v.Name, surface).Int()
 	if err != nil {
 		fail(w, 503, "auth_unavailable", "Email verification is temporarily unavailable.")
 		return
@@ -186,7 +191,8 @@ func (s *Server) verifyCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "auth_unavailable", "Email verification is temporarily unavailable.")
 		return
 	}
-	result, err := a.redis.Eval(r.Context(), verifyScript, []string{challengeKey(v.Email)}, id, a.digest(v.Email, id, v.Code)).Slice()
+	surface, _ := s.surface(r)
+	result, err := a.redis.Eval(r.Context(), verifyScript, []string{challengeKey(v.Email)}, id, a.digest(v.Email, id, v.Code, surface), surface).Slice()
 	if err != nil || len(result) != 2 {
 		fail(w, 503, "auth_unavailable", "Email verification is temporarily unavailable.")
 		return
@@ -197,24 +203,26 @@ func (s *Server) verifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name, _ := result[1].(string)
-	if v.Email != s.Store.SuperAdminEmail() {
-		if err = s.Store.JoinWaitlist(r.Context(), v.Email, name); err != nil {
-			fail(w, 503, "auth_unavailable", "Your application could not be saved. Please request a new code and try again.")
-			return
-		}
-		write(w, 202, map[string]string{"status": "waitlisted"})
+	if surface == "admin" && v.Email != s.Store.SuperAdminEmail() {
+		fail(w, 403, "forbidden", "This account does not have access to this console.")
 		return
 	}
-	user, err := s.Store.EmailAdministrator(r.Context(), v.Email)
+	user, err := s.Store.EmailUser(r.Context(), v.Email, name)
 	if err != nil {
 		fail(w, 503, "auth_unavailable", "Sign-in could not be completed. Please request a new code and try again.")
 		return
 	}
-	token, err := s.Store.CreateSession(r.Context(), user.ID)
+	token, err := s.Store.CreateSurfaceSession(r.Context(), user.ID, surface)
 	if err != nil {
 		fail(w, 503, "auth_unavailable", "Sign-in could not be completed. Please request a new code and try again.")
 		return
 	}
-	s.cookie(w, token, 60*60*24*7)
-	write(w, 200, map[string]any{"status": "authenticated", "user": user})
+	s.cookie(w, r, token, 60*60*24*7)
+	if surface == "customer" {
+		user.Operator = false
+	}
+	response := s.surfaceInfo(surface)
+	response["status"] = "authenticated"
+	response["user"] = user
+	write(w, 200, response)
 }

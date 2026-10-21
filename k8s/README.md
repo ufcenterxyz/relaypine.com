@@ -7,7 +7,7 @@ and certificate issuer with your own values. Provision your own database and
 secrets. The release workflow is guarded to run only in
 `ufcenterxyz/relaypine.com`; forks must configure their own release target.
 
-The live private preview uses namespace `relaypine-dev` and `https://relaypine.com`.
+The hosted service uses namespace `relaypine-dev`, customer origin `https://relaypine.com`, and administration origin `https://admin.relaypine.com`.
 The namespace name does not imply disposable data. MySQL is a dedicated database
 on managed CDB; Redis uses a 10 GiB CBS PVC with AOF persistence and authentication.
 Deleting the PVC can delete the underlying disk because the `cbs` StorageClass has
@@ -28,11 +28,12 @@ Required secrets in `relaypine-dev`:
   The Redis password must be a generated URL-safe token without whitespace. App configuration
   belongs in `relaypine-config`, not the secret. Preserve `MASTER_KEY` across
   releases so stored upstream credentials remain decryptable.
-- `relaypine-tls`: created and renewed by cert-manager using the existing
+- `relaypine-tls` and `relaypine-admin-tls`: created and renewed by cert-manager using the existing
   `letsencrypt-prod-http01` ClusterIssuer.
 
 Only the gateway receives all application secrets. Redis receives its own
-password field; the web container receives no secrets. A secret or ConfigMap
+password field; the web container receives no secrets. Both web and gateway receive
+the public `APP_URL` and `ADMIN_APP_URL` origins. A secret or ConfigMap
 change requires restarting the gateway to load the new environment.
 
 The gateway requires a valid `SUPERADMIN_EMAIL` in the ConfigMap and fails closed
@@ -41,13 +42,18 @@ Changing this setting switches the allowed identity; it does not transfer the ol
 administrator's tenant or wallet to the new email.
 
 The gateway applies additive MySQL schema migrations during startup. It creates
-the super administrator account configured by `SUPERADMIN_EMAIL` and restricts all other accounts to the
-waitlist. No password or Stripe payment service is used.
+the super administrator account configured by `SUPERADMIN_EMAIL`. Other verified
+mailboxes receive isolated customer workspaces with zero initial balance. No password
+or Stripe payment service is used.
 
 ## Routing and transport
 
 Ingress sends `/api`, `/openai`, `/anthropic`, `/healthz`, and `/readyz` to the Go
-gateway on port 4811. Other paths reach Next.js on port 3000. Requests are limited
+gateway on port 4811. The separate admin ingress sends `/api` and health probes
+to Go; it does not expose the native relay routes. Other paths reach Next.js on port 3000.
+The gateway checks the actual Host against `APP_URL` and `ADMIN_APP_URL`; the ingress
+must preserve it. Mutation Origin must match that same host. Cookies and OTP/session
+scopes are separated per host; the public origin never receives operator data. Requests are limited
 to 2 MiB at ingress to match the relay; console JSON endpoints enforce 1 MiB in
 the application. Streaming buffering is disabled and proxy timeouts are 360
 seconds, above the gateway's five-minute request deadline.
@@ -73,7 +79,7 @@ claim depends on merely creating a NetworkPolicy object.
 kubectl rollout status deployment/relaypine-redis -n relaypine-dev --timeout=5m
 kubectl rollout status deployment/relaypine-gateway -n relaypine-dev --timeout=5m
 kubectl rollout status deployment/relaypine-web -n relaypine-dev --timeout=5m
-kubectl get certificate relaypine-tls -n relaypine-dev
+kubectl get certificate relaypine-tls relaypine-admin-tls -n relaypine-dev
 curl --fail --silent --show-error https://relaypine.com/readyz
 ```
 

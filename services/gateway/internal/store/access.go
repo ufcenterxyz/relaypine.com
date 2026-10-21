@@ -39,7 +39,7 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User,
 	defer conn.Close()
 	var locked int
 	if err = conn.QueryRowContext(ctx, "SELECT GET_LOCK('relaypine_private_bootstrap',30)").Scan(&locked); err != nil || locked != 1 {
-		return domain.User{}, errors.New("cannot acquire private-access bootstrap lock")
+		return domain.User{}, errors.New("cannot acquire administrator bootstrap lock")
 	}
 	defer conn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('relaypine_private_bootstrap')")
 	var count int
@@ -76,21 +76,18 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User,
 	if _, err = tx.ExecContext(ctx, "UPDATE users SET password_hash='!email-otp' WHERE id=?", user.ID); err != nil {
 		return domain.User{}, err
 	}
+	// Retire unverified legacy credentials and revoked administrators, but keep
+	// ordinary verified customers' identities, sessions, keys and balances intact.
+	if _, err = tx.ExecContext(ctx, "DELETE se FROM sessions se JOIN users u ON u.id=se.user_id WHERE u.id<>? AND (u.password_hash<>'!email-otp' OR u.operator=TRUE)", user.ID); err != nil {
+		return domain.User{}, err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE access_keys k JOIN users u ON u.tenant_id=k.tenant_id SET k.enabled=FALSE WHERE u.id<>? AND (u.password_hash<>'!email-otp' OR u.operator=TRUE)", user.ID); err != nil {
+		return domain.User{}, err
+	}
 	if _, err = tx.ExecContext(ctx, "UPDATE users SET operator=(id=?)", user.ID); err != nil {
 		return domain.User{}, err
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE users SET email=?,name=? WHERE id=?", s.superAdminEmail, strings.TrimSpace(name), user.ID); err != nil {
-		return domain.User{}, err
-	}
-	// Preserve previous accounts, balances and records, while retaining their place
-	// on the waitlist and ending all access through their old credentials.
-	if _, err = tx.ExecContext(ctx, "INSERT IGNORE INTO waitlist_entries(id,email,name,created_at) SELECT CONCAT('wl_',MD5(id)),LOWER(TRIM(email)),name,created_at FROM users WHERE id<>?", user.ID); err != nil {
-		return domain.User{}, err
-	}
-	if _, err = tx.ExecContext(ctx, "DELETE se FROM sessions se JOIN users u ON u.id=se.user_id WHERE u.id<>?", user.ID); err != nil {
-		return domain.User{}, err
-	}
-	if _, err = tx.ExecContext(ctx, "UPDATE access_keys SET enabled=FALSE WHERE tenant_id<>?", user.TenantID); err != nil {
 		return domain.User{}, err
 	}
 	if err = tx.Commit(); err != nil {

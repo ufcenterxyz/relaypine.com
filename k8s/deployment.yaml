@@ -52,6 +52,16 @@ spec:
               value: "3000"
             - name: GATEWAY_URL
               value: http://relaypine-gateway:4811
+            - name: APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: relaypine-config
+                  key: APP_URL
+            - name: ADMIN_APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: relaypine-config
+                  key: ADMIN_APP_URL
             - name: NEXT_TELEMETRY_DISABLED
               value: "1"
           resources:

@@ -10,13 +10,13 @@ Route native API requests across multiple upstream keys, control their usage and
 
 - **Native protocols:** OpenAI Chat Completions and Responses; Anthropic Messages and token counting; JSON and SSE streaming.
 - **Multiple upstreams:** official hosts by default, plus configurable compatible hosts and authentication modes.
-- **Key discovery and batch import:** verify credentials, discover models, and publish a selection in one operation without entering rates. Workspaces and rate limits are imported when the provider exposes them. Discovery does not run paid inference.
+- **Key discovery and batch import:** verify credentials, discover models, and import a selection with matched official reference prices. Workspaces and rate limits are imported when the provider exposes them. Discovery does not run paid inference.
 - **Routing:** lowest load, highest remaining local budget, or a balanced strategy, with RPM, TPM, concurrency, and shared quota groups.
 - **Per-key egress:** direct connections or an assigned SOCKS5 proxy. A failed proxy does not silently fall back to a direct connection.
 - **Usage accounting:** integer micro-USD balances, price snapshots, reservations, settlement, and separate upstream cost budgets.
-- **Management UI:** English and Chinese, light and dark themes, email verification codes, and a waitlist.
+- **Management UI:** English and Chinese, light and dark themes, email verification codes, isolated customer workspaces, and a separate administration domain.
 
-The current release supports **one administrator per deployment**. Other verified email addresses join the waitlist without gaining console or API access. The hosted service at [relaypine.com](https://relaypine.com) uses the same admission model. Self-service customer onboarding, team roles, and payment processing are not implemented.
+Customers sign in with an email code at [relaypine.com](https://relaypine.com). The administrator uses [admin.relaypine.com](https://admin.relaypine.com) with the same verification flow. Each verified customer receives an isolated workspace with zero initial balance. Only the configured administrator can manage upstreams, prices, and audited balance credits. Team roles and online payment processing are not implemented.
 
 ## Quick start
 
@@ -44,11 +44,12 @@ make gateway  # terminal 1
 make console  # terminal 2
 ```
 
-Open [localhost:4810](http://localhost:4810) and sign in with the email configured in `SUPERADMIN_EMAIL`. Login requires the six-digit code delivered to that mailbox; there is no password or development-code bypass. Without Mailgun configuration, the services can start but cannot send login codes.
+Open [localhost:4810](http://localhost:4810) for the customer console or [admin.localhost:4810](http://admin.localhost:4810) for administration. The latter requires the email configured in `SUPERADMIN_EMAIL`. Login requires the six-digit code delivered to that mailbox; there is no password or development-code bypass. Without Mailgun configuration, the services can start but cannot send login codes.
 
 | Service | Local address |
 | --- | --- |
-| Console | `http://localhost:4810` |
+| Customer console | `http://localhost:4810` |
+| Administration | `http://admin.localhost:4810` |
 | Gateway | `http://127.0.0.1:4811` |
 | MySQL | `127.0.0.1:4812` |
 | Redis | `127.0.0.1:4813` |
@@ -59,9 +60,9 @@ Open [localhost:4810](http://localhost:4810) and sign in with the email configur
 
 1. **Upstreams:** choose the official OpenAI or Anthropic endpoint, or add a compatible host.
 2. **Credentials:** paste the upstream API key and verify it. Save the detected workspace when needed. Proxy, capacity overrides, and budgets are under advanced settings.
-3. **Models & rates:** choose **Import from upstream**, select a saved key, then select the models to import. New models are enabled in **Usage only** mode without entering rates. Existing models are skipped without changing their configuration. Model discovery alone does not publish a model.
+3. **Models & rates:** choose **Import from upstream**, select a saved key and models, then review their reference prices. Exact official matches receive standard text prices for sales and upstream cost at 1:1. Unknown models and custom hosts need explicit pricing before activation. Existing model IDs are skipped without overwriting their configuration. Use **Update reference prices** to review and apply the latest prices to existing models.
 4. **Routing:** select the routing policy and any shared quota groups.
-5. Create an access key and call an imported model. Usage-only requests do not require a RelayPine balance. For models using **Metered** pricing, enter the rates and record an internal credit adjustment with a reason before making a billable request. New workspaces have no credit by default.
+5. Record an internal credit adjustment with a reason for the customer workspace, then create an access key in that workspace and call a priced model. Calls reserve and deduct the RelayPine balance using the captured model rates. New workspaces have no credit by default.
 
 Published model lists are filtered by protocol, enabled state, and access-key permissions. An empty `/v1/models` response usually means there is no matching published model. No example model prices or spendable balances are seeded.
 
@@ -84,16 +85,9 @@ Anthropic workspace headers come from the saved upstream credential. Only explic
 
 Budgets are **local accounting limits**, not live provider balances. Credential discovery imports limits only when the API exposes them with the supplied key's permissions. Otherwise, it uses conservative local defaults of 60 RPM, 100,000 TPM, and 10 concurrent requests; these are not provider guarantees. Unknown keys on one endpoint share a default quota group until configured otherwise.
 
-Each model has a billing mode:
+Enabled models must have metered pricing with positive input/output sales and cost rates. Reference pricing reads the providers’ current public price tables; the model-list APIs themselves do not expose these rates. The console shows the source and check time, previews changes, and applies selected updates with version checks. Official reference pricing is restricted to the matching official upstream; compatible hosts need explicit rates. A price is a reference, not an account-specific invoice or negotiated discount.
 
-| Mode | Behavior |
-| --- | --- |
-| Usage only | Records requests and token usage without RelayPine charges, money reservations, or ledger entries. Upstream cost is **not priced**, rather than reported as free. The provider still bills your account normally. |
-| Metered | Uses configured sales and upstream cost rates for balance reservations and settlement. Positive input/output rates are required to enable the model; disabled drafts may have zero rates. |
-
-Batch import defaults to **Usage only**. You can switch an individual model to **Metered** and configure its rates later. Existing models retain their pricing, and in-flight requests retain the mode and rates captured when they started.
-
-Usage-only models require an upstream credential without a local monetary budget (`budget_micros=0`), because an unknown cost cannot be checked against a dollar limit. Import does not remove existing budgets or change access-key permissions. Authentication, RPM, TPM, concurrency, output limits, and proxy rules still apply. Internal balance adjustments do not charge a payment method or add credit to an upstream provider. See [usage and budgets](docs/commercial-billing.md) for settlement behavior.
+Historical `usage_only` requests retain their original accounting snapshots. Migrating a model to metered pricing affects future requests only: it never rewrites old charges or gives a workspace credit. Import and price updates preserve access-key permissions and upstream budgets. Authentication, RPM, TPM, concurrency, output limits, and proxy rules still apply. Internal balance adjustments do not charge a payment method or add credit to an upstream provider. See [usage and budgets](docs/commercial-billing.md) for settlement behavior.
 
 ## Development
 

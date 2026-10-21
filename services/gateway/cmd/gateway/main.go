@@ -6,10 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -28,17 +26,15 @@ func env(k, d string) string {
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	appURL := env("APP_URL", "http://localhost:4810")
-	u, err := url.Parse(appURL)
-	if err != nil || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		slog.Error("APP_URL must be an origin")
-		os.Exit(1)
-	}
-	appURL = strings.TrimRight(appURL, "/")
 	private := os.Getenv("ALLOW_PRIVATE_UPSTREAMS") == "true"
 	production := os.Getenv("APP_ENV") == "production"
-	if production && (private || u.Scheme != "https") {
-		slog.Error("Production requires HTTPS and private upstreams disabled")
+	appURL, adminAppURL, err := api.ValidateAppURLs(env("APP_URL", "http://localhost:4810"), env("ADMIN_APP_URL", "http://admin.localhost:4810"), production)
+	if err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
+	if production && private {
+		slog.Error("Production requires private upstreams disabled")
 		os.Exit(1)
 	}
 	trustedProxies, err := api.ParseProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
@@ -94,7 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 	gateway := relay.New(db, redisClient, private)
-	app := &api.Server{EmailAuth: emailAuth, Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AllowPrivate: private, TrustedProxyCIDRs: trustedProxies, CloudflareProxyCIDRs: cloudflareProxies}
+	app := &api.Server{EmailAuth: emailAuth, Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AdminAppURL: adminAppURL, AllowPrivate: private, TrustedProxyCIDRs: trustedProxies, CloudflareProxyCIDRs: cloudflareProxies}
 	server := &http.Server{Addr: env("GATEWAY_ADDR", "127.0.0.1:4811"), Handler: app.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 << 10}
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
@@ -113,7 +109,7 @@ func main() {
 		}
 	}()
 	go func() {
-		slog.Info("RelayPine gateway ready", "address", server.Addr, "access", "private")
+		slog.Info("RelayPine gateway ready", "address", server.Addr, "access", "email-otp")
 		if e := server.ListenAndServe(); e != nil && !errors.Is(e, http.ErrServerClosed) {
 			slog.Error("HTTP listener failed")
 			stop()

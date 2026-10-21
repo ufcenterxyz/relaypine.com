@@ -53,6 +53,27 @@ func emailFixture(t *testing.T) (*apiFixture, *fakeCodeSender) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		rows, err := f.db.DB.QueryContext(context.Background(), "SELECT id,tenant_id,email FROM users WHERE email LIKE ?", f.prefix+"%")
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var u domain.User
+			if rows.Scan(&u.ID, &u.TenantID, &u.Email) == nil {
+				found := false
+				for _, existing := range f.users {
+					if existing.ID == u.ID {
+						found = true
+					}
+				}
+				if !found {
+					f.users = append(f.users, u)
+				}
+			}
+		}
+	})
 	return f, sender
 }
 func issue(t *testing.T, f *apiFixture, email string) {
@@ -70,72 +91,85 @@ func clearCooldown(t *testing.T, f *apiFixture, email string) {
 	}
 }
 
-func TestEmailOTPAdministratorAndVerifiedWaitlist(t *testing.T) {
+func TestEmailOTPVerifiedCustomerAndAdministratorSurfaces(t *testing.T) {
 	f, sender := emailFixture(t)
 	email := f.prefix + "mail@example.test"
-	var usersBefore, keysBefore int
-	f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM users").Scan(&usersBefore)
-	f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM access_keys").Scan(&keysBefore)
 	issue(t, f, "  "+strings.ToUpper(email)+"  ")
 	if sender.last(t).email != email {
 		t.Fatal("delivery address was not normalized")
 	}
-	var entries int
-	f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM waitlist_entries WHERE email=?", email).Scan(&entries)
-	if entries != 0 {
-		t.Fatal("unverified address joined waitlist")
+	var count int
+	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM users WHERE email=?", email).Scan(&count); err != nil || count != 0 {
+		t.Fatal("unverified mailbox was provisioned")
 	}
 	code := sender.last(t).code
 	stored, err := f.s.Redis.HGetAll(f.ctx, challengeKey(email)).Result()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored["digest"] == code || stored["code"] != "" || len(stored["digest"]) != 64 {
-		t.Fatal("challenge is not keyed-hash protected")
+	if stored["digest"] == code || stored["code"] != "" || len(stored["digest"]) != 64 || stored["surface"] != "customer" {
+		t.Fatal("challenge protection missing")
 	}
 	if ttl := f.s.Redis.TTL(f.ctx, challengeKey(email)).Val(); ttl > 600*time.Second || ttl < 590*time.Second {
 		t.Fatalf("unexpected TTL %v", ttl)
 	}
 	w := f.call(t, "POST", "/api/auth/verify", nil, f.s.AppURL, map[string]string{"email": email, "code": code})
-	expectStatus(t, w, 202)
-	if len(w.Result().Cookies()) != 0 || !strings.Contains(w.Body.String(), "waitlisted") {
-		t.Fatal("ordinary mailbox got session or incorrect status")
+	expectStatus(t, w, 200)
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Domain != "" || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatal("cookie security attributes missing")
 	}
+	auth := decodeResponse[struct {
+		User    domain.User
+		Surface string
+	}](t, w)
+	f.users = append(f.users, auth.User)
+	if auth.User.Operator || auth.Surface != "customer" {
+		t.Fatal("ordinary mailbox granted admin access")
+	}
+	snap := decodeResponse[domain.Snapshot](t, f.call(t, "GET", "/api/state", cookies[0], f.s.AppURL, nil))
+	if snap.User.ID != auth.User.ID || snap.Tenant.ID != auth.User.TenantID || snap.Wallet.BalanceMicros != 0 || len(snap.Keys) != 0 || len(snap.Customers) != 0 || len(snap.Credentials) != 0 || len(snap.Waitlist) != 0 {
+		t.Fatal("customer provisioning or scope invalid")
+	}
+	expectStatus(t, f.call(t, "GET", "/api/state", cookies[0], f.s.AdminAppURL, nil), 401)
 	if verify(t, f, email, code) != 401 {
 		t.Fatal("OTP replay accepted")
 	}
 	clearCooldown(t, f, email)
 	issue(t, f, email)
-	expectStatus(t, f.call(t, "POST", "/api/auth/verify", nil, f.s.AppURL, map[string]string{"email": email, "code": sender.last(t).code}), 202)
-	var usersAfter, keysAfter int
-	f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM users").Scan(&usersAfter)
-	f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM access_keys").Scan(&keysAfter)
-	f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM waitlist_entries WHERE email=?", email).Scan(&entries)
-	if usersBefore != usersAfter || keysBefore != keysAfter || entries != 1 {
-		t.Fatal("waitlist provisioned identity, keys or duplicates")
+	w = f.call(t, "POST", "/api/auth/verify", nil, f.s.AppURL, map[string]string{"email": email, "code": sender.last(t).code})
+	expectStatus(t, w, 200)
+	again := decodeResponse[struct{ User domain.User }](t, w)
+	if again.User.ID != auth.User.ID || again.User.TenantID != auth.User.TenantID {
+		t.Fatal("repeat sign-in replaced workspace")
 	}
 	issue(t, f, strings.ToUpper(f.db.SuperAdminEmail()))
 	w = f.call(t, "POST", "/api/auth/verify", nil, f.s.AppURL, map[string]string{"email": f.db.SuperAdminEmail(), "code": sender.last(t).code})
 	expectStatus(t, w, 200)
-	cookies := w.Result().Cookies()
-	if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
-		t.Fatal("session cookie is missing security attributes")
+	adminPublic := decodeResponse[struct {
+		User    domain.User
+		Surface string
+	}](t, w)
+	if adminPublic.User.Operator || adminPublic.Surface != "customer" {
+		t.Fatal("administrator public login exposes operator role")
 	}
-	state := f.call(t, "GET", "/api/state", cookies[0], "", nil)
-	expectStatus(t, state, 200)
-	snap := decodeResponse[domain.Snapshot](t, state)
-	found := false
-	for _, entry := range snap.Waitlist {
-		if entry.Email == email {
-			found = entry.Name == "Verified visitor"
-		}
-	}
-	if !found {
-		t.Fatal("verified waitlist missing from administrator view")
-	}
+	expectStatus(t, f.call(t, "GET", "/api/state", w.Result().Cookies()[0], f.s.AdminAppURL, nil), 401)
 	if verify(t, f, f.db.SuperAdminEmail(), sender.last(t).code) != 401 {
-		t.Fatal("administrator code replay succeeded")
+		t.Fatal("administrator OTP replay accepted")
 	}
+	clearCooldown(t, f, f.db.SuperAdminEmail())
+	expectStatus(t, f.call(t, "POST", "/api/auth/code", nil, f.s.AdminAppURL, map[string]string{"email": f.db.SuperAdminEmail()}), 202)
+	w = f.call(t, "POST", "/api/auth/verify", nil, f.s.AdminAppURL, map[string]string{"email": f.db.SuperAdminEmail(), "code": sender.last(t).code})
+	expectStatus(t, w, 200)
+	admin := decodeResponse[struct {
+		User    domain.User
+		Surface string
+	}](t, w)
+	if !admin.User.Operator || admin.Surface != "admin" {
+		t.Fatal("administrator surface role missing")
+	}
+	expectStatus(t, f.call(t, "GET", "/api/state", w.Result().Cookies()[0], f.s.AdminAppURL, nil), 200)
+	expectStatus(t, f.call(t, "GET", "/api/state", w.Result().Cookies()[0], f.s.AppURL, nil), 401)
 }
 func TestEmailOTPWrongExpiredAndSupersededCodes(t *testing.T) {
 	f, sender := emailFixture(t)
@@ -182,7 +216,7 @@ func TestEmailOTPWrongExpiredAndSupersededCodes(t *testing.T) {
 	if err != nil || result[0].(int64) != -1 {
 		t.Fatal("stale verifier raced through a resend")
 	}
-	if verify(t, f, email, sender.last(t).code) != 202 {
+	if verify(t, f, email, sender.last(t).code) != 200 {
 		t.Fatal("fresh challenge failed")
 	}
 }
@@ -226,7 +260,7 @@ func TestEmailOTPDeliveryAndRedisFailClosed(t *testing.T) {
 		return nil
 	}
 	issue(t, f, email)
-	if verify(t, f, email, sender.last(t).code) != 202 {
+	if verify(t, f, email, sender.last(t).code) != 200 {
 		t.Fatal("delivered challenge did not activate")
 	}
 	f.s.Redis.Close()
@@ -300,7 +334,7 @@ func TestEmailOTPFailedOlderDeliveryCannotDeleteResend(t *testing.T) {
 	if status := <-done; status != 503 {
 		t.Fatalf("old failed send status=%d", status)
 	}
-	if verify(t, f, email, newCode) != 202 {
+	if verify(t, f, email, newCode) != 200 {
 		t.Fatal("failed older sender deleted the new challenge")
 	}
 }

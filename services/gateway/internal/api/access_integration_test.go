@@ -42,7 +42,7 @@ func TestLegacyAuthenticationRoutesCannotBypassVerification(t *testing.T) {
 	f := newAPIFixture(t)
 	for _, path := range []string{"/api/waitlist", "/api/auth/register", "/api/auth/login"} {
 		for _, email := range []string{f.db.SuperAdminEmail(), f.prefix + "new@example.test"} {
-			w := f.call(t, "POST", path, nil, f.s.AppURL, map[string]string{"email": email, "password": "test-password-strong"})
+			w := f.call(t, "POST", path, nil, f.s.AdminAppURL, map[string]string{"email": email, "password": "test-password-strong"})
 			expectStatus(t, w, 410)
 			if len(w.Result().Cookies()) != 0 {
 				t.Fatal("legacy authentication created a session")
@@ -82,7 +82,7 @@ func TestLegacyAccountsAndCredentialsHaveNoPrivateAccess(t *testing.T) {
 			{"DELETE", "/api/keys/" + key.ID, nil},
 			{"POST", "/api/admin/credits", map[string]any{"tenant_id": user.TenantID, "amount_micros": 100, "reason": "forbidden adjustment", "idempotency_key": f.prefix}},
 		} {
-			expectStatus(t, f.call(t, tc.method, tc.path, cookie, f.s.AppURL, tc.body), 401)
+			expectStatus(t, f.call(t, tc.method, tc.path, cookie, f.s.AdminAppURL, tc.body), 401)
 		}
 	}
 }
@@ -141,7 +141,7 @@ func TestBootstrapPromotionResetsUnverifiedCredentialsAndPreservesHistory(t *tes
 	if err = f.db.DB.QueryRowContext(f.ctx, "SELECT balance_micros FROM wallets WHERE tenant_id=?", f.other.TenantID).Scan(&balance); err != nil {
 		t.Fatal(err)
 	}
-	if operators != 1 || waitlisted != 2 || balance != 12345 {
+	if operators != 1 || waitlisted != 0 || balance != 12345 {
 		t.Fatalf("migration operators=%d waitlist=%d historical balance=%d", operators, waitlisted, balance)
 	}
 	// Repeated startup is idempotent and does not sign out a verified operator.
@@ -159,7 +159,7 @@ func TestBootstrapPromotionResetsUnverifiedCredentialsAndPreservesHistory(t *tes
 
 func TestRemovedPaymentsRoutesReturnNotFound(t *testing.T) {
 	// No DB, Redis or payment object is needed to reject removed capabilities.
-	s := &Server{Relay: http.NotFoundHandler(), AppURL: "https://relaypine.test"}
+	s := &Server{Relay: http.NotFoundHandler(), AppURL: "https://relaypine.test", AdminAppURL: "https://admin.relaypine.test"}
 	f := &apiFixture{s: s, h: s.Handler()}
 	for _, path := range []string{"/api/billing/checkout", "/api/admin/refunds", "/api/payments/stripe/webhook"} {
 		for _, origin := range []string{"", s.AppURL} {

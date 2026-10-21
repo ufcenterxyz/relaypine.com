@@ -17,15 +17,18 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"relaypine.com/gateway/internal/domain"
+	"relaypine.com/gateway/internal/pricing"
 	"relaypine.com/gateway/internal/store"
 )
 
 type Server struct {
 	EmailAuth            *EmailAuth
+	PricingFetcher       func(context.Context, []string) pricing.Catalog
 	Store                *store.Store
 	Redis                *redis.Client
 	Relay                http.Handler
 	AppURL               string
+	AdminAppURL          string
 	AllowPrivate         bool
 	TrustedProxyCIDRs    []netip.Prefix
 	CloudflareProxyCIDRs []netip.Prefix
@@ -99,8 +102,9 @@ func (s *Server) report(w http.ResponseWriter, err error) {
 		fail(w, 400, "invalid_request", "The request could not be completed. Check the values and try again.")
 	}
 }
-func (s *Server) cookie(w http.ResponseWriter, token string, maxAge int) {
-	http.SetCookie(w, &http.Cookie{Name: "rp_session", Value: token, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(s.AppURL, "https://"), SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
+func (s *Server) cookie(w http.ResponseWriter, r *http.Request, token string, maxAge int) {
+	_, origin := s.surface(r)
+	http.SetCookie(w, &http.Cookie{Name: "rp_session", Value: token, Path: "/", HttpOnly: true, Secure: strings.HasPrefix(origin, "https://"), SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
 }
 func (s *Server) authLimit(ctx context.Context, r *http.Request, email string) bool {
 	return s.publicLimit(ctx, r, email, "auth")
@@ -119,12 +123,25 @@ func (s *Server) publicLimit(ctx context.Context, r *http.Request, email, scope 
 }
 func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	surface, origin := s.surface(r)
+	if surface == "" {
+		fail(w, 404, "not_found", "API route not found.")
+		return
+	}
 	if path == "/api/billing/checkout" || path == "/api/admin/refunds" || strings.HasPrefix(path, "/api/payments/") {
 		fail(w, 404, "not_found", "API route not found.")
 		return
 	}
-	if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("Origin") != s.AppURL {
+	if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("Origin") != origin {
 		fail(w, 403, "origin_rejected", "This request must come from the RelayPine console.")
+		return
+	}
+	if path == "/api/auth/config" && r.Method == "GET" {
+		write(w, 200, s.surfaceInfo(surface))
+		return
+	}
+	if strings.HasPrefix(path, "/api/admin/") && surface != "admin" {
+		fail(w, 404, "not_found", "API route not found.")
 		return
 	}
 	if path == "/api/auth/code" || path == "/api/auth/verify" {
@@ -140,7 +157,7 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if path == "/api/waitlist" || path == "/api/auth/register" || path == "/api/auth/login" {
-		fail(w, 410, "verification_required", "Use email verification to sign in or join the waitlist.")
+		fail(w, 410, "verification_required", "Use email verification to sign in.")
 		return
 	}
 	ck, e := r.Cookie("rp_session")
@@ -148,7 +165,7 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "unauthorized", "Sign in to continue.")
 		return
 	}
-	user, e := s.Store.SessionUser(r.Context(), ck.Value)
+	user, e := s.Store.SurfaceSessionUser(r.Context(), ck.Value, surface)
 	if e != nil {
 		s.report(w, e)
 		return
@@ -159,17 +176,24 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			s.report(w, e)
 			return
 		}
-		s.cookie(w, "", -1)
+		s.cookie(w, r, "", -1)
 		write(w, 200, map[string]bool{"ok": true})
 	case path == "/api/auth/me" && r.Method == "GET":
-		write(w, 200, map[string]any{"user": user})
+		response := s.surfaceInfo(surface)
+		response["user"] = user
+		write(w, 200, response)
 	case path == "/api/state" && r.Method == "GET":
 		snap, e := s.Store.Snapshot(r.Context(), user)
 		if e != nil {
 			s.report(w, e)
 			return
 		}
-		write(w, 200, snap)
+		write(w, 200, struct {
+			domain.Snapshot
+			Surface     string `json:"surface"`
+			AppURL      string `json:"app_url"`
+			AdminAppURL string `json:"admin_app_url"`
+		}{snap, surface, s.AppURL, s.AdminAppURL})
 	case path == "/api/keys" && r.Method == "POST":
 		var v struct {
 			Name   string   `json:"name"`
@@ -304,12 +328,17 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 			return
 		}
 		write(w, 200, value)
+	case "/api/admin/models/prices/preview":
+		s.previewModelPrices(w, r)
+	case "/api/admin/models/prices/apply":
+		s.applyModelPrices(w, r)
 	case "/api/admin/models/import":
 		s.importModels(w, r)
 	case "/api/admin/models":
 		var input struct {
 			domain.Model
-			CreateOnly bool `json:"create_only"`
+			CreateOnly    bool `json:"create_only"`
+			ManualPricing bool `json:"manual_pricing"`
 		}
 		if read(r, &input) != nil {
 			fail(w, 400, "invalid_model", "Enter a model ID, provider and output cap between 1 and 65,536.")
@@ -324,6 +353,8 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 		var e error
 		if input.CreateOnly {
 			value, e = s.Store.CreateModel(ctx, v)
+		} else if input.ManualPricing {
+			value, e = s.Store.SaveManualModel(ctx, v)
 		} else {
 			value, e = s.Store.SaveModel(ctx, v)
 		}

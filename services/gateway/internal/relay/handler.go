@@ -23,6 +23,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"relaypine.com/gateway/internal/domain"
+	"relaypine.com/gateway/internal/pricing"
 	"relaypine.com/gateway/internal/store"
 )
 
@@ -287,12 +288,12 @@ func (h *Handler) models(w http.ResponseWriter, p plan, models []domain.Model) {
 	}
 	items := []map[string]any{}
 	for _, m := range models {
-		if !m.Enabled || m.Provider != p.provider || !allowed(p.key.Models, m.ID) {
+		if !m.Enabled || !validAccounting(m) || m.Provider != p.provider || !allowed(p.key.Models, m.ID) {
 			continue
 		}
 		usable := false
 		for _, e := range endpoints {
-			if e.Enabled && e.Provider == p.provider && (allowed(e.Models, m.ID) || allowed(e.Models, m.UpstreamModel)) {
+			if e.Enabled && e.Provider == p.provider && (m.PricingReference == nil || pricing.OfficialEndpoint(e.Provider, e.BaseURL)) && (allowed(e.Models, m.ID) || allowed(e.Models, m.UpstreamModel)) {
 				usable = true
 				break
 			}
@@ -362,6 +363,9 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 		p.binding = &binding
 		p.input += binding.InputTokens
 	}
+	if ref := p.model.PricingReference; ref != nil && (ref.MaxInputTokens <= 0 || p.input > ref.MaxInputTokens) {
+		return errors.New("request exceeds the standard reference price context limit; shorten the input or configure a separately priced model")
+	}
 	if !p.count {
 		field := "max_tokens"
 		if strings.HasSuffix(p.path, "/responses") {
@@ -430,7 +434,7 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 		}
 		var endpoint domain.Endpoint
 		for _, e := range endpoints {
-			if e.ID == c.EndpointID && e.Enabled && e.Provider == p.provider && (allowed(e.Models, p.model.ID) || allowed(e.Models, p.model.UpstreamModel)) {
+			if e.ID == c.EndpointID && e.Enabled && e.Provider == p.provider && (p.model.PricingReference == nil || pricing.OfficialEndpoint(e.Provider, e.BaseURL)) && (allowed(e.Models, p.model.ID) || allowed(e.Models, p.model.UpstreamModel)) {
 				endpoint = e
 				break
 			}

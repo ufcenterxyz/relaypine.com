@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"relaypine.com/gateway/internal/domain"
 )
@@ -52,12 +53,114 @@ func (s *Store) EmailAdministrator(ctx context.Context, email string) (domain.Us
 	return user, err
 }
 
+// EmailUser provisions or restores only an identity whose mailbox has just been
+// verified. Existing balances and ownership survive; legacy credentials do not.
+func (s *Store) EmailUser(ctx context.Context, email, name string) (domain.User, error) {
+	email, name = NormalizeEmail(email), strings.TrimSpace(name)
+	if s.superAdminEmail == "" || !ValidEmail(email) || len(name) > 100 {
+		return domain.User{}, ErrUnauthorized
+	}
+	if email == s.superAdminEmail {
+		return s.EmailAdministrator(ctx, email)
+	}
+	if name == "" {
+		name = email
+		for len(name) > 100 {
+			_, size := utf8.DecodeLastRuneInString(name)
+			name = name[:len(name)-size]
+		}
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		user, err := s.emailUser(ctx, email, name)
+		if !errors.Is(err, ErrConflict) {
+			return user, err
+		}
+	}
+	return domain.User{}, ErrConflict
+}
+func (s *Store) emailUser(ctx context.Context, email, name string) (domain.User, error) {
+	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return domain.User{}, err
+	}
+	defer tx.Rollback()
+	var user domain.User
+	var status, marker string
+	err = tx.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator,u.password_hash,t.status FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE BINARY LOWER(TRIM(u.email))=? FOR UPDATE", email).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator, &marker, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		user = domain.User{ID: newID("usr_"), TenantID: newID("ten_"), Email: email, Name: name}
+		now := time.Now().UTC()
+		for _, q := range []struct {
+			sql  string
+			args []any
+		}{
+			{"INSERT INTO tenants(id,name,status,created_at) VALUES(?,?,'active',?)", []any{user.TenantID, name, now}},
+			{"INSERT INTO users(id,tenant_id,email,name,password_hash,operator,created_at) VALUES(?,?,?,?,'!email-otp',FALSE,?)", []any{user.ID, user.TenantID, email, name, now}},
+			{"INSERT INTO projects(id,tenant_id,name,created_at) VALUES(?,?,'Default project',?)", []any{newID("prj_"), user.TenantID, now}},
+			{"INSERT INTO wallets(tenant_id,balance_micros,held_micros,currency) VALUES(?,0,0,'usd')", []any{user.TenantID}},
+		} {
+			if _, err = tx.ExecContext(ctx, q.sql, q.args...); err != nil {
+				return domain.User{}, dbError(err)
+			}
+		}
+	} else if err != nil {
+		return domain.User{}, err
+	} else {
+		if status != "active" {
+			return domain.User{}, ErrUnauthorized
+		}
+		if marker != "!email-otp" || user.Operator {
+			if _, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id=?", user.ID); err != nil {
+				return domain.User{}, err
+			}
+			if _, err = tx.ExecContext(ctx, "UPDATE access_keys SET enabled=FALSE WHERE tenant_id=?", user.TenantID); err != nil {
+				return domain.User{}, err
+			}
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE users SET email=?,password_hash='!email-otp',operator=FALSE WHERE id=?", email, user.ID); err != nil {
+			return domain.User{}, err
+		}
+		user.Email, user.Operator = email, false
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM waitlist_entries WHERE email=?", email); err != nil {
+		return domain.User{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return domain.User{}, err
+	}
+	return user, nil
+}
+
+// Session audience is stored with the OTP authentication method. Even a copied
+// cookie cannot promote a customer-site session to administrative access.
+func sessionMethod(surface string) string {
+	if surface == "admin" {
+		return "email_otp_admin"
+	}
+	if surface == "customer" {
+		return "email_otp_customer"
+	}
+	return ""
+}
 func (s *Store) CreateSession(ctx context.Context, userID string) (string, error) {
+	return s.CreateSurfaceSession(ctx, userID, "admin")
+}
+func (s *Store) CreateSurfaceSession(ctx context.Context, userID, surface string) (string, error) {
+	method := sessionMethod(surface)
+	if method == "" {
+		return "", ErrUnauthorized
+	}
 	token, err := newToken("rps_")
 	if err != nil {
 		return "", err
 	}
-	res, err := s.DB.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at,auth_method) SELECT ?,u.id,?,'email_otp' FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC().Add(7*24*time.Hour), userID, s.superAdminEmail)
+	query := "INSERT INTO sessions(token_hash,user_id,expires_at,auth_method) SELECT ?,u.id,?,? FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND u.password_hash='!email-otp' AND t.status='active' AND (u.operator=FALSE OR BINARY u.email=?)"
+	args := []any{tokenHash(token), time.Now().UTC().Add(7 * 24 * time.Hour), method, userID, s.superAdminEmail}
+	if surface == "admin" {
+		query += " AND u.operator=TRUE AND BINARY u.email=?"
+		args = append(args, s.superAdminEmail)
+	}
+	res, err := s.DB.ExecContext(ctx, query, args...)
 	if err != nil {
 		return "", err
 	}
@@ -68,13 +171,26 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, error
 	return token, nil
 }
 func (s *Store) SessionUser(ctx context.Context, token string) (domain.User, error) {
+	return s.SurfaceSessionUser(ctx, token, "admin")
+}
+func (s *Store) SurfaceSessionUser(ctx context.Context, token, surface string) (domain.User, error) {
 	var u domain.User
-	if !strings.HasPrefix(token, "rps_") || len(token) > 128 {
+	method := sessionMethod(surface)
+	if !strings.HasPrefix(token, "rps_") || len(token) > 128 || method == "" {
 		return u, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.auth_method='email_otp' AND se.expires_at>? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC(), s.superAdminEmail).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
+	query := "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.auth_method=? AND se.expires_at>? AND u.password_hash='!email-otp' AND t.status='active' AND (u.operator=FALSE OR BINARY u.email=?)"
+	args := []any{tokenHash(token), method, time.Now().UTC(), s.superAdminEmail}
+	if surface == "admin" {
+		query += " AND u.operator=TRUE AND BINARY u.email=?"
+		args = append(args, s.superAdminEmail)
+	}
+	err := s.DB.QueryRowContext(ctx, query, args...).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, ErrUnauthorized
+	}
+	if surface == "customer" {
+		u.Operator = false
 	}
 	return u, err
 }
@@ -85,7 +201,7 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 
 func (s *Store) CreateKey(ctx context.Context, user domain.User, name string, models []string, rpm int) (domain.AccessKey, string, error) {
 	var key domain.AccessKey
-	if !s.IsSuperAdmin(user) {
+	if user.ID == "" || user.TenantID == "" || !ValidEmail(NormalizeEmail(user.Email)) {
 		return key, "", ErrUnauthorized
 	}
 	if !validName(name) || rpm < 1 || rpm > 1000000 || len(models) > 200 {
@@ -109,8 +225,11 @@ func (s *Store) CreateKey(ctx context.Context, user domain.User, name string, mo
 		return key, "", err
 	}
 	defer tx.Rollback()
-	err = tx.QueryRowContext(ctx, "SELECT p.id FROM projects p JOIN tenants t ON t.id=p.tenant_id JOIN users u ON u.tenant_id=t.id WHERE p.tenant_id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active' ORDER BY p.created_at,p.id LIMIT 1", user.TenantID, user.ID, s.superAdminEmail).Scan(&key.ProjectID)
+	err = tx.QueryRowContext(ctx, "SELECT p.id FROM projects p JOIN tenants t ON t.id=p.tenant_id JOIN users u ON u.tenant_id=t.id WHERE p.tenant_id=? AND u.id=? AND BINARY u.email=? AND u.password_hash='!email-otp' AND (u.operator=FALSE OR BINARY u.email=?) AND t.status='active' ORDER BY p.created_at,p.id LIMIT 1", user.TenantID, user.ID, NormalizeEmail(user.Email), s.superAdminEmail).Scan(&key.ProjectID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.AccessKey{}, "", ErrUnauthorized
+		}
 		return domain.AccessKey{}, "", dbError(err)
 	}
 	raw, _ := json.Marshal(models)
@@ -143,7 +262,7 @@ func (s *Store) AuthenticateKey(ctx context.Context, secret string) (domain.Acce
 	if !strings.HasPrefix(secret, "rp_live_") || len(secret) > 128 {
 		return key, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT k.id,k.tenant_id,k.project_id,k.name,k.prefix,k.enabled,k.rpm,k.models,k.created_at FROM access_keys k JOIN tenants t ON t.id=k.tenant_id WHERE k.token_hash=? AND k.enabled=TRUE AND t.status='active' AND EXISTS (SELECT 1 FROM users u WHERE u.tenant_id=t.id AND BINARY u.email=? AND u.operator=TRUE)", tokenHash(secret), s.superAdminEmail).Scan(&key.ID, &key.TenantID, &key.ProjectID, &key.Name, &key.Prefix, &key.Enabled, &key.RPM, &raw, &key.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT k.id,k.tenant_id,k.project_id,k.name,k.prefix,k.enabled,k.rpm,k.models,k.created_at FROM access_keys k JOIN tenants t ON t.id=k.tenant_id WHERE k.token_hash=? AND k.enabled=TRUE AND t.status='active' AND EXISTS (SELECT 1 FROM users u WHERE u.tenant_id=t.id AND u.password_hash='!email-otp' AND (u.operator=FALSE OR BINARY u.email=?))", tokenHash(secret), s.superAdminEmail).Scan(&key.ID, &key.TenantID, &key.ProjectID, &key.Name, &key.Prefix, &key.Enabled, &key.RPM, &raw, &key.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return key, ErrUnauthorized
 	}

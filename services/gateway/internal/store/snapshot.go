@@ -12,11 +12,11 @@ import (
 
 func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot, error) {
 	result := domain.Snapshot{User: user, Keys: []domain.AccessKey{}, Models: []domain.Model{}, Requests: []domain.Request{}, Ledger: []domain.LedgerEntry{}, Waitlist: []domain.WaitlistEntry{}}
-	if !s.IsSuperAdmin(user) {
+	if user.ID == "" || user.TenantID == "" || (user.Operator && !s.IsSuperAdmin(user)) {
 		return result, ErrUnauthorized
 	}
 	result.User.PasswordHash = ""
-	err := s.DB.QueryRowContext(ctx, "SELECT t.id,t.name,t.status,t.created_at FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE t.id=? AND u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", user.TenantID, user.ID, s.superAdminEmail).Scan(&result.Tenant.ID, &result.Tenant.Name, &result.Tenant.Status, &result.Tenant.CreatedAt)
+	err := s.DB.QueryRowContext(ctx, "SELECT t.id,t.name,t.status,t.created_at FROM tenants t JOIN users u ON u.tenant_id=t.id WHERE t.id=? AND u.id=? AND BINARY u.email=? AND u.password_hash='!email-otp' AND (u.operator=FALSE OR BINARY u.email=?) AND (?=FALSE OR u.operator=TRUE) AND t.status='active'", user.TenantID, user.ID, NormalizeEmail(user.Email), s.superAdminEmail, user.Operator).Scan(&result.Tenant.ID, &result.Tenant.Name, &result.Tenant.Status, &result.Tenant.CreatedAt)
 	if err != nil {
 		return result, dbError(err)
 	}
@@ -45,6 +45,8 @@ func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot
 			m.CostCachedRate = 0
 			m.CostCacheWriteRate = 0
 			m.UpstreamModel = ""
+			m.PricingReference = nil
+			m.PricingNote = ""
 			models = append(models, m)
 		}
 		result.Models = models
@@ -52,13 +54,13 @@ func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot
 	if result.Routing, err = s.Routing(ctx); err != nil {
 		return result, err
 	}
+	if !user.Operator {
+		result.Routing.Strategy = ""
+	}
 	if result.Requests, err = s.listRequests(ctx, user); err != nil {
 		return result, err
 	}
 	if result.Ledger, err = s.listLedger(ctx, user.TenantID); err != nil {
-		return result, err
-	}
-	if result.Waitlist, err = s.listWaitlist(ctx); err != nil {
 		return result, err
 	}
 	if user.Operator {
@@ -164,7 +166,7 @@ func (s *Store) listLedger(ctx context.Context, tenant string) ([]domain.LedgerE
 	return out, rows.Err()
 }
 func (s *Store) listTenants(ctx context.Context) ([]domain.Tenant, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT id,name,status,created_at FROM tenants ORDER BY created_at DESC LIMIT 500")
+	rows, err := s.DB.QueryContext(ctx, "SELECT t.id,t.name,t.status,t.created_at,COALESCE((SELECT u.email FROM users u WHERE u.tenant_id=t.id ORDER BY u.created_at,u.id LIMIT 1),'') FROM tenants t ORDER BY t.created_at DESC,t.id LIMIT 500")
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +174,7 @@ func (s *Store) listTenants(ctx context.Context) ([]domain.Tenant, error) {
 	out := []domain.Tenant{}
 	for rows.Next() {
 		var t domain.Tenant
-		if err = rows.Scan(&t.ID, &t.Name, &t.Status, &t.CreatedAt); err != nil {
+		if err = rows.Scan(&t.ID, &t.Name, &t.Status, &t.CreatedAt, &t.Email); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

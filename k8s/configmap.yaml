@@ -6,6 +6,7 @@ metadata:
 data:
   APP_ENV: production
   APP_URL: https://relaypine.com
+  ADMIN_APP_URL: https://admin.relaypine.com
   GATEWAY_ADDR: 0.0.0.0:4811
   ALLOW_PRIVATE_UPSTREAMS: "false"
   # nginx currently replaces incoming X-Forwarded-For with its socket peer.

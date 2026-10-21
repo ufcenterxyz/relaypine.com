@@ -1,5 +1,5 @@
 export const marketing = {
-  eyebrow: "PRIVATE PREVIEW · JOIN THE WAITLIST",
+  eyebrow: "ONE KEY · TWO NATIVE APIS",
   title: "One gateway.\nEvery next idea.",
   description:
     "Claude and OpenAI, through one considered connection. Native APIs. Clear usage. Room to build.",
@@ -33,8 +33,8 @@ export const marketing = {
   keysDescription:
     "Give each application its own key, model access, and rate limits. Keep your projects in control.",
   keysDetail: "Separate keys · Defined limits",
-  startTitle: "Be part of what comes next.",
+  startTitle: "Your next idea starts here.",
   startDescription:
-    "RelayPine is in private preview. Join the waitlist for access.",
+    "Sign in with your email to create a workspace and connect your applications.",
   footerTagline: "A considered connection to AI.",
 };

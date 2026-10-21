@@ -14,6 +14,7 @@ type User struct {
 	PasswordHash string `json:"-"`
 }
 type Tenant struct {
+	Email     string    `json:"email,omitempty"`
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Status    string    `json:"status"`
@@ -91,23 +92,38 @@ const (
 	BillingUsageOnly = "usage_only"
 )
 
+// PriceReference is server-verified standard text pricing from an official
+// provider. It also pins routing to that provider's canonical API origin.
+type PriceReference struct {
+	Provider       string    `json:"provider"`
+	Model          string    `json:"model"`
+	SourceURL      string    `json:"source_url"`
+	SourceName     string    `json:"source_name"`
+	CheckedAt      time.Time `json:"checked_at"`
+	Hash           string    `json:"hash"`
+	Scope          string    `json:"scope"`
+	MaxInputTokens int64     `json:"max_input_tokens"`
+}
+
 type Model struct {
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	Provider           string `json:"provider"`
-	UpstreamModel      string `json:"upstream_model"`
-	Enabled            bool   `json:"enabled"`
-	BillingMode        string `json:"billing_mode"`
-	InputRate          int64  `json:"input_rate"`
-	OutputRate         int64  `json:"output_rate"`
-	CachedRate         int64  `json:"cached_rate"`
-	CacheWriteRate     int64  `json:"cache_write_rate"`
-	CostInputRate      int64  `json:"cost_input_rate"`
-	CostOutputRate     int64  `json:"cost_output_rate"`
-	CostCachedRate     int64  `json:"cost_cached_rate"`
-	CostCacheWriteRate int64  `json:"cost_cache_write_rate"`
-	MaxOutputTokens    int    `json:"max_output_tokens"`
-	Version            int    `json:"version"`
+	PricingReference   *PriceReference `json:"pricing_reference,omitempty"`
+	PricingNote        string          `json:"pricing_note,omitempty"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	Provider           string          `json:"provider"`
+	UpstreamModel      string          `json:"upstream_model"`
+	Enabled            bool            `json:"enabled"`
+	BillingMode        string          `json:"billing_mode"`
+	InputRate          int64           `json:"input_rate"`
+	OutputRate         int64           `json:"output_rate"`
+	CachedRate         int64           `json:"cached_rate"`
+	CacheWriteRate     int64           `json:"cache_write_rate"`
+	CostInputRate      int64           `json:"cost_input_rate"`
+	CostOutputRate     int64           `json:"cost_output_rate"`
+	CostCachedRate     int64           `json:"cost_cached_rate"`
+	CostCacheWriteRate int64           `json:"cost_cache_write_rate"`
+	MaxOutputTokens    int             `json:"max_output_tokens"`
+	Version            int             `json:"version"`
 }
 
 // EffectiveBillingMode preserves the monetary policy of models and immutable

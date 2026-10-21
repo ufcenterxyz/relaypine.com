@@ -10,7 +10,6 @@ import {
   Usage,
   Billing,
   Customers,
-  Waitlist,
 } from "./customer-pages";
 import { Models, Upstreams, Proxies, Routing } from "./operator-pages";
 import { Empty } from "./shared";
@@ -21,7 +20,7 @@ export function ConsolePage({ section }: { section: string }) {
   const forbidden =
     ["upstreams", "proxies", "routing", "customers", "waitlist"].includes(
       section,
-    ) && !state.user.operator;
+    ) && !(state.surface === "admin" && state.user.operator);
   useEffect(() => {
     if (forbidden) router.replace("/app");
   }, [forbidden, router]);
@@ -56,8 +55,6 @@ export function ConsolePage({ section }: { section: string }) {
       return <Routing />;
     case "customers":
       return <Customers />;
-    case "waitlist":
-      return <Waitlist />;
     default:
       return (
         <Empty

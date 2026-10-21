@@ -48,6 +48,6 @@ export const waitlistZh: WaitlistCopy = {
   status: "等待开放访问",
   internalTitle: "用量记录，清楚可查。",
   internalBody:
-    "余额用于内部用量核算。请求预留、用量记账和管理员调整均可在账本中查看。",
-  internalLabel: "内部核算",
+    "RelayPine 余额用于支付模型调用费用。每笔请求预留、扣费和余额调整均可在账本中查看。",
+  internalLabel: "用量与余额",
 };
