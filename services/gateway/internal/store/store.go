@@ -99,6 +99,19 @@ func Open(ctx context.Context, dsn, masterKey string) (*Store, error) {
 			return nil, fmt.Errorf("initialize database schema: %w", err)
 		}
 	}
+	// Existing installations default every old session to legacy. Only newly
+	// verified mailbox sessions can pass the session lookup policy.
+	var authColumn int
+	if err = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='sessions' AND column_name='auth_method'").Scan(&authColumn); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if authColumn == 0 {
+		if _, err = conn.ExecContext(ctx, "ALTER TABLE sessions ADD COLUMN auth_method VARCHAR(32) NOT NULL DEFAULT 'legacy'"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	defaults := []domain.Endpoint{{ID: "openai-official", Name: "OpenAI official", Provider: "openai", BaseURL: "https://api.openai.com", AuthMode: "bearer", Enabled: true, Models: []string{}}, {ID: "anthropic-official", Name: "Anthropic official", Provider: "anthropic", BaseURL: "https://api.anthropic.com", AuthMode: "x-api-key", Enabled: true, Models: []string{}}}
 	for _, endpoint := range defaults {
 		raw, _ := json.Marshal(endpoint)

@@ -21,6 +21,7 @@ import (
 )
 
 type Server struct {
+	EmailAuth    *EmailAuth
 	Store        *store.Store
 	Redis        *redis.Client
 	Relay        http.Handler
@@ -123,65 +124,20 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "origin_rejected", "This request must come from the RelayPine console.")
 		return
 	}
-	if path == "/api/waitlist" || path == "/api/auth/register" {
+	if path == "/api/auth/code" || path == "/api/auth/verify" {
 		if r.Method != "POST" {
 			fail(w, 405, "method_not_allowed", "Use POST.")
 			return
 		}
-		var v struct {
-			Name  string `json:"name"`
-			Email string `json:"email"`
-			// Legacy clients may send a password. It is never stored or used.
-			Password string `json:"password"`
+		if path == "/api/auth/code" {
+			s.requestCode(w, r)
+		} else {
+			s.verifyCode(w, r)
 		}
-		if read(r, &v) != nil || !store.ValidEmail(store.NormalizeEmail(v.Email)) || len(strings.TrimSpace(v.Name)) > 100 {
-			fail(w, 400, "invalid_waitlist", "Enter a valid email and an optional name up to 100 bytes.")
-			return
-		}
-		if !s.publicLimit(r.Context(), r, v.Email, "waitlist") {
-			fail(w, 429, "rate_limited", "Too many requests. Try again later.")
-			return
-		}
-		if err := s.Store.JoinWaitlist(r.Context(), v.Email, v.Name); err != nil {
-			s.report(w, err)
-			return
-		}
-		write(w, 202, map[string]string{"status": "waitlisted"})
 		return
 	}
-	if path == "/api/auth/login" {
-		if r.Method != "POST" {
-			fail(w, 405, "method_not_allowed", "Use POST.")
-			return
-		}
-		var v struct {
-			Email    string `json:"email"`
-			Password string `json:"password"`
-		}
-		if read(r, &v) != nil || !store.ValidEmail(store.NormalizeEmail(v.Email)) || len(v.Password) < 10 || len(v.Password) > 72 {
-			fail(w, 400, "invalid_credentials", "Use a valid email and a password between 10 and 72 bytes.")
-			return
-		}
-		if !s.authLimit(r.Context(), r, v.Email) {
-			fail(w, 429, "rate_limited", "Too many sign-in attempts. Try again later.")
-			return
-		}
-		if store.NormalizeEmail(v.Email) != store.SuperAdminEmail {
-			fail(w, 403, "waitlist_required", "RelayPine is in private preview. Join the waitlist for access.")
-			return
-		}
-		user, e := s.Store.Authenticate(r.Context(), v.Email, v.Password)
-		if e != nil || !store.IsSuperAdmin(user) {
-			fail(w, 401, "authentication_failed", "Unable to sign in. Check your administrator credentials. Public access is by waitlist.")
-			return
-		}
-		token, e := s.Store.CreateSession(r.Context(), user.ID)
-		if e != nil {
-			s.report(w, e)
-			return
-		}
-		s.cookie(w, token, 60*60*24*7)
-		write(w, 200, map[string]any{"user": user})
+	if path == "/api/waitlist" || path == "/api/auth/register" || path == "/api/auth/login" {
+		fail(w, 410, "verification_required", "Use email verification to sign in or join the waitlist.")
 		return
 	}
 	ck, e := r.Cookie("rp_session")

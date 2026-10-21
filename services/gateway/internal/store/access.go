@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"relaypine.com/gateway/internal/domain"
 )
 
@@ -24,12 +23,11 @@ func ValidEmail(email string) bool {
 	return err == nil && address.Address == email && len(email) <= 254
 }
 
-// EnsureSuperAdmin enforces the private-access policy on every startup. A previous
-// public account with this address must prove possession of the operator-configured
-// password; its old password, sessions and keys cannot survive promotion.
-func (s *Store) EnsureSuperAdmin(ctx context.Context, name, password string) (domain.User, error) {
-	if !validName(name) || len(password) < 10 || len(password) > 72 {
-		return domain.User{}, errors.New("BOOTSTRAP_NAME and BOOTSTRAP_PASSWORD of 10–72 bytes are required")
+// EnsureSuperAdmin provisions the sole allowed identity and retires all password
+// credentials. Knowing the allowlisted email never proves mailbox ownership.
+func (s *Store) EnsureSuperAdmin(ctx context.Context, name string) (domain.User, error) {
+	if !validName(name) {
+		return domain.User{}, errors.New("valid administrator name required")
 	}
 	conn, err := s.DB.Conn(ctx)
 	if err != nil {
@@ -46,7 +44,7 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name, password string) (do
 		return domain.User{}, err
 	}
 	if count == 0 {
-		if _, err = s.register(ctx, SuperAdminEmail, name, password, true); err != nil {
+		if _, err = s.createAdministrator(ctx, name); err != nil {
 			return domain.User{}, err
 		}
 	}
@@ -60,23 +58,20 @@ func (s *Store) EnsureSuperAdmin(ctx context.Context, name, password string) (do
 	if err != nil {
 		return domain.User{}, err
 	}
-	promoting := !user.Operator
-	if promoting || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		if err != nil {
-			return domain.User{}, err
-		}
-		if _, err = tx.ExecContext(ctx, "UPDATE users SET password_hash=? WHERE id=?", hash, user.ID); err != nil {
-			return domain.User{}, err
-		}
+	// Retire old API keys as well as sessions when migrating a password account
+	// or promoting a previously unverified identity. Subsequent restarts preserve
+	// keys and sessions issued under the mailbox-verification policy.
+	migrating := !user.Operator || user.PasswordHash != "!email-otp"
+	if migrating {
 		if _, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id=?", user.ID); err != nil {
 			return domain.User{}, err
 		}
-	}
-	if promoting {
 		if _, err = tx.ExecContext(ctx, "UPDATE access_keys SET enabled=FALSE WHERE tenant_id=?", user.TenantID); err != nil {
 			return domain.User{}, err
 		}
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE users SET password_hash='!email-otp' WHERE id=?", user.ID); err != nil {
+		return domain.User{}, err
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE users SET operator=(id=?)", user.ID); err != nil {
 		return domain.User{}, err

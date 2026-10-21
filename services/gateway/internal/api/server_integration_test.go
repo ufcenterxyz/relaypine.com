@@ -81,7 +81,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 			db.DB.ExecContext(ctx, "DELETE FROM endpoints WHERE id=?", id)
 		}
 	})
-	admin, err := db.EnsureSuperAdmin(ctx, "API administrator", "test-password-strong")
+	admin, err := db.EnsureSuperAdmin(ctx, "API administrator")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestAPIOriginAndOperatorAuthorization(t *testing.T) {
 		{"customer admin read", "GET", "/api/admin/credits", "", f.customerCookie, nil, 401},
 		{"operator admin wrong method", "GET", "/api/admin/credits", "", f.operatorCookie, nil, 405},
 		{"customer refund", "POST", "/api/admin/refunds", origin, f.customerCookie, map[string]any{"order_id": "another-order"}, 404},
-		{"registration role injection", "POST", "/api/auth/register", origin, nil, map[string]any{"name": "Injected", "email": f.prefix + "inject@example.test", "password": "test-password-strong", "operator": true}, 400},
+		{"registration role injection", "POST", "/api/auth/register", origin, nil, map[string]any{"name": "Injected", "email": f.prefix + "inject@example.test", "password": "test-password-strong", "operator": true}, 410},
 		{"logout requires origin", "POST", "/api/auth/logout", "https://attacker.test", f.customerCookie, nil, 403},
 	}
 	for _, tc := range tests {

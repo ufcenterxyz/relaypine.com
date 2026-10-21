@@ -15,7 +15,6 @@ if not target.exists():
         'MYSQL_DSN': f'relaypine:{password}@tcp(127.0.0.1:4812)/relaypine?parseTime=true&loc=UTC',
         'MASTER_KEY': base64.b64encode(os.urandom(32)).decode(),
         'BOOTSTRAP_EMAIL': 'ufcenterxyz@gmail.com',
-        'BOOTSTRAP_PASSWORD': secrets.token_urlsafe(24),
     }
     lines = []
     for line in (root / '.env.example').read_text().splitlines():
@@ -26,7 +25,7 @@ if not target.exists():
         lines.append(line)
     target.write_text('\n'.join(lines) + '\n')
     target.chmod(0o600)
-    print('Created .env with local-only credentials. Read BOOTSTRAP_EMAIL / BOOTSTRAP_PASSWORD there to sign in.')
+    print('Created .env with local-only infrastructure credentials. Configure MAILGUN_* to enable email-code sign-in.')
 else:
     print('Existing .env preserved.')
 envlocal = root / 'apps/console/.env.local'

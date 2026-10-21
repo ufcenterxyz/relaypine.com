@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS wallets (
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS sessions (
  token_hash CHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, expires_at DATETIME(6) NOT NULL,
+ auth_method VARCHAR(32) NOT NULL DEFAULT 'legacy',
  FOREIGN KEY (user_id) REFERENCES users(id), INDEX(expires_at)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS access_keys (

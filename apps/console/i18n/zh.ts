@@ -33,7 +33,6 @@ export const zh: Copy = {
   status: "状态",
   name: "名称",
   email: "邮箱",
-  password: "密码",
   fullName: "姓名",
   refresh: "刷新",
   retry: "重试",

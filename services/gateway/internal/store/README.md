@@ -60,7 +60,9 @@ There is no checkout, refund, webhook, payment worker, or Stripe integration.
 
 ## Security and verification
 
-Passwords use bcrypt. Session and customer API tokens use 256 bits from the OS
+Historical password fields no longer authenticate. Email codes use a separate
+HMAC-SHA-256 key derived from MASTER_KEY; Redis stores only the keyed digest and
+challenge metadata. Session and customer API tokens use 256 bits from the OS
 random source and are stored only as SHA-256 hashes. Credential secrets and
 proxy URLs use AES-GCM with their configuration identity as associated data.
 Only the fixed administrator can obtain a snapshot. Secrets and token hashes
@@ -78,16 +80,19 @@ also exercises concurrent wallet reservations under the race detector.
 ## Private access and waitlist
 
 `store.SuperAdminEmail` is fixed to `ufcenterxyz@gmail.com`; an email match alone
-never authenticates a user. The gateway requires `BOOTSTRAP_PASSWORD` (10–72
-bytes) and runs `EnsureSuperAdmin` on startup. It creates the administrator when
-absent, enforces the configured password, demotes other operators, invalidates
-other accounts' sessions and keys, and backfills other existing users into the
-waitlist. Promoting an existing public account resets its password and revokes
-its old sessions and API keys before granting access. Repeating bootstrap with
-the same password preserves a verified administrator's sessions.
+never authenticates a user. `EnsureSuperAdmin` provisions this identity without a
+password, demotes other operators, retires other accounts' sessions and keys,
+and backfills existing users into the waitlist. Migrating an administrator from
+password authentication or promoting an unverified public account replaces its
+password hash with an unusable `!email-otp` marker and revokes its sessions and
+API keys. Repeated bootstrap preserves sessions and keys created after migration.
 
-Login, sessions, snapshots, key creation and relay key authentication require
-the exact administrator identity and its operator flag in durable state. Public
-`JoinWaitlist` writes only a normalized, unique email, optional name, and original
-submission time into `waitlist_entries`. It never provisions a tenant, user,
-wallet, session or key. Historical accounts, balances and usage remain intact.
+`SessionUser` requires `auth_method=email_otp`; old sessions default to `legacy`
+through an additive, serialized schema migration. The only public authentication
+path consumes a valid email challenge before `EmailAdministrator` and
+`CreateSession` are called. Login, snapshots, key creation and relay key
+authentication additionally require the exact administrator identity and its
+operator flag in durable state. Only a verified ordinary email challenge can
+call `JoinWaitlist` through the API. It writes a normalized, unique email,
+optional name and original submission time, never a tenant, user, wallet,
+session or key. Historical accounts, balances and usage remain intact.

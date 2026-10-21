@@ -90,7 +90,7 @@ func integrationFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	u, err := s.EnsureSuperAdmin(ctx, "Integration administrator", "test-password-strong")
+	u, err := s.EnsureSuperAdmin(ctx, "Integration administrator")
 	if err != nil {
 		t.Fatal(err)
 	}

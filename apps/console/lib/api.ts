@@ -3,6 +3,7 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public code: string,
+    public retryAfter?: number,
   ) {
     super(message);
   }
@@ -11,8 +12,12 @@ export async function api<T>(
   path: string,
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
+  signal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const response = await fetch(path, {
@@ -29,10 +34,14 @@ export async function api<T>(
         data.error?.message || `Request failed (${response.status})`,
         response.status,
         data.error?.code || "request_failed",
+        Number(
+          data.error?.retry_after || response.headers.get("Retry-After"),
+        ) || undefined,
       );
     return data as T;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
 }
 export function errorMessage(error: unknown) {

@@ -5,70 +5,51 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"net/mail"
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"relaypine.com/gateway/internal/domain"
 )
 
-func (s *Store) register(ctx context.Context, email, name, password string, operator bool) (domain.User, error) {
-	email = strings.ToLower(strings.TrimSpace(email))
-	name = strings.TrimSpace(name)
-	parsed, err := mail.ParseAddress(email)
-	if err != nil || parsed.Address != email || len(email) > 254 || !validName(name) || len(password) < 10 || len(password) > 72 {
-		return domain.User{}, errors.New("valid email, name, and password of 10–72 bytes required")
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return domain.User{}, err
-	}
-	user := domain.User{ID: newID("usr_"), TenantID: newID("ten_"), Email: email, Name: name, Operator: operator, PasswordHash: string(hash)}
+// createAdministrator provisions an identity, never an authentication credential.
+func (s *Store) createAdministrator(ctx context.Context, name string) (domain.User, error) {
+	user := domain.User{ID: newID("usr_"), TenantID: newID("ten_"), Email: SuperAdminEmail, Name: name, Operator: true}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.User{}, err
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
-	if _, err = tx.ExecContext(ctx, "INSERT INTO tenants(id,name,status,created_at) VALUES(?,?,'active',?)", user.TenantID, name, now); err != nil {
-		return domain.User{}, dbError(err)
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO users(id,tenant_id,email,name,password_hash,operator,created_at) VALUES(?,?,?,?,?,?,?)", user.ID, user.TenantID, email, name, string(hash), operator, now); err != nil {
-		return domain.User{}, dbError(err)
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO projects(id,tenant_id,name,created_at) VALUES(?,?,'Default project',?)", newID("prj_"), user.TenantID, now); err != nil {
-		return domain.User{}, err
-	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO wallets(tenant_id,balance_micros,held_micros,currency) VALUES(?,0,0,'usd')", user.TenantID); err != nil {
-		return domain.User{}, err
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{"INSERT INTO tenants(id,name,status,created_at) VALUES(?,?,'active',?)", []any{user.TenantID, name, now}},
+		{"INSERT INTO users(id,tenant_id,email,name,password_hash,operator,created_at) VALUES(?,?,?,?,?,TRUE,?)", []any{user.ID, user.TenantID, user.Email, name, "!email-otp", now}},
+		{"INSERT INTO projects(id,tenant_id,name,created_at) VALUES(?,?,'Default project',?)", []any{newID("prj_"), user.TenantID, now}},
+		{"INSERT INTO wallets(tenant_id,balance_micros,held_micros,currency) VALUES(?,0,0,'usd')", []any{user.TenantID}},
+	} {
+		if _, err = tx.ExecContext(ctx, q.sql, q.args...); err != nil {
+			return domain.User{}, dbError(err)
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return domain.User{}, err
 	}
-	user.PasswordHash = ""
 	return user, nil
 }
 
-func (s *Store) Authenticate(ctx context.Context, email, password string) (domain.User, error) {
+// EmailAdministrator is called only after mailbox ownership has been verified.
+func (s *Store) EmailAdministrator(ctx context.Context, email string) (domain.User, error) {
 	var user domain.User
 	if NormalizeEmail(email) != SuperAdminEmail {
-		_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$7EqJtq98hPqEX7fNZaFWoO5u5DFX7IxtKxbmiQNsHq1bk.qKkTBza"), []byte(password))
 		return user, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator,u.password_hash FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE BINARY u.email=? AND u.operator=TRUE AND t.status='active'", strings.ToLower(strings.TrimSpace(email))).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator, &user.PasswordHash)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) { // Equalize missing-account password work.
-			_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$7EqJtq98hPqEX7fNZaFWoO5u5DFX7IxtKxbmiQNsHq1bk.qKkTBza"), []byte(password))
-			return domain.User{}, ErrUnauthorized
-		}
-		return domain.User{}, err
-	}
-	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
+	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE BINARY u.email=? AND u.operator=TRUE AND u.password_hash='!email-otp' AND t.status='active'", SuperAdminEmail).Scan(&user.ID, &user.TenantID, &user.Email, &user.Name, &user.Operator)
+	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, ErrUnauthorized
 	}
-	user.PasswordHash = ""
-	return user, nil
+	return user, err
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID string) (string, error) {
@@ -76,7 +57,7 @@ func (s *Store) CreateSession(ctx context.Context, userID string) (string, error
 	if err != nil {
 		return "", err
 	}
-	res, err := s.DB.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at) SELECT ?,u.id,? FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC().Add(7*24*time.Hour), userID, SuperAdminEmail)
+	res, err := s.DB.ExecContext(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at,auth_method) SELECT ?,u.id,?,'email_otp' FROM users u JOIN tenants t ON t.id=u.tenant_id WHERE u.id=? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC().Add(7*24*time.Hour), userID, SuperAdminEmail)
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +72,7 @@ func (s *Store) SessionUser(ctx context.Context, token string) (domain.User, err
 	if !strings.HasPrefix(token, "rps_") || len(token) > 128 {
 		return u, ErrUnauthorized
 	}
-	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.expires_at>? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC(), SuperAdminEmail).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
+	err := s.DB.QueryRowContext(ctx, "SELECT u.id,u.tenant_id,u.email,u.name,u.operator FROM sessions se JOIN users u ON u.id=se.user_id JOIN tenants t ON t.id=u.tenant_id WHERE se.token_hash=? AND se.auth_method='email_otp' AND se.expires_at>? AND BINARY u.email=? AND u.operator=TRUE AND t.status='active'", tokenHash(token), time.Now().UTC(), SuperAdminEmail).Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.Operator)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.User{}, ErrUnauthorized
 	}

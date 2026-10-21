@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -60,12 +61,29 @@ func main() {
 		slog.Error("BOOTSTRAP_EMAIL must match the configured super administrator")
 		os.Exit(1)
 	}
-	if _, err = db.EnsureSuperAdmin(ctx, env("BOOTSTRAP_NAME", "RelayPine Administrator"), os.Getenv("BOOTSTRAP_PASSWORD")); err != nil {
-		slog.Error("Super administrator bootstrap failed; configure BOOTSTRAP_PASSWORD")
+	if _, err = db.EnsureSuperAdmin(ctx, env("BOOTSTRAP_NAME", "RelayPine Administrator")); err != nil {
+		slog.Error("Super administrator initialization failed")
+		os.Exit(1)
+	}
+	var sender api.CodeSender
+	if os.Getenv("MAILGUN_API_KEY") != "" || os.Getenv("MAILGUN_DOMAIN") != "" || os.Getenv("MAILGUN_FROM") != "" {
+		mailer, mailErr := api.NewMailgunSender(os.Getenv("MAILGUN_API_KEY"), os.Getenv("MAILGUN_DOMAIN"), os.Getenv("MAILGUN_FROM"), os.Getenv("MAILGUN_API_BASE"))
+		if mailErr != nil {
+			slog.Warn("Email delivery configuration is incomplete or invalid")
+		} else {
+			sender = mailer
+		}
+	} else {
+		slog.Warn("Email delivery is not configured; code requests will be unavailable")
+	}
+	masterKey, _ := base64.StdEncoding.DecodeString(os.Getenv("MASTER_KEY"))
+	emailAuth, err := api.NewEmailAuth(redisClient, sender, masterKey)
+	if err != nil {
+		slog.Error("Email authentication initialization failed")
 		os.Exit(1)
 	}
 	gateway := relay.New(db, redisClient, private)
-	app := &api.Server{Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AllowPrivate: private}
+	app := &api.Server{EmailAuth: emailAuth, Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AllowPrivate: private}
 	server := &http.Server{Addr: env("GATEWAY_ADDR", "127.0.0.1:4811"), Handler: app.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 << 10}
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)

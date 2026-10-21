@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/redis/go-redis/v9"
@@ -32,96 +31,21 @@ func (f *apiFixture) enablePublicRequests(t *testing.T) {
 	}
 	f.remote = "[fd00:" + f.prefix[5:9] + ":" + f.prefix[9:13] + "::1]:12345"
 	hash := func(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeToString(sum[:]) }
-	adminCounter := "rp:auth:email:" + hash(store.SuperAdminEmail)
-	f.s.Redis.Del(f.ctx, adminCounter)
-	t.Cleanup(func() { f.s.Redis.Del(context.Background(), adminCounter); f.s.Redis.Close() })
+	adminCounters := []string{"rp:otp-send:email:" + hash(store.SuperAdminEmail), "rp:otp-verify:email:" + hash(store.SuperAdminEmail), challengeKey(store.SuperAdminEmail), cooldownKey(store.SuperAdminEmail), "rp:otp:{" + emailHash(store.SuperAdminEmail) + "}:hour"}
+	f.s.Redis.Del(f.ctx, adminCounters...)
+	t.Cleanup(func() { f.s.Redis.Del(context.Background(), adminCounters...); f.s.Redis.Close() })
 }
 
-func TestPrivateWaitlistAndAdministratorLogin(t *testing.T) {
+func TestLegacyAuthenticationRoutesCannotBypassVerification(t *testing.T) {
 	f := newAPIFixture(t)
-	f.enablePublicRequests(t)
-	email := f.prefix + "new@example.test"
-	var beforeUsers, beforeKeys int
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM users").Scan(&beforeUsers); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM access_keys").Scan(&beforeKeys); err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range []string{"/api/waitlist", "/api/auth/register"} {
-		body := map[string]string{"name": "Waiting user", "email": "  " + strings.ToUpper(email) + "  "}
-		if strings.Contains(path, "register") {
-			body["password"] = "attacker-chosen-password"
+	for _, path := range []string{"/api/waitlist", "/api/auth/register", "/api/auth/login"} {
+		for _, email := range []string{store.SuperAdminEmail, f.prefix + "new@example.test"} {
+			w := f.call(t, "POST", path, nil, f.s.AppURL, map[string]string{"email": email, "password": "test-password-strong"})
+			expectStatus(t, w, 410)
+			if len(w.Result().Cookies()) != 0 {
+				t.Fatal("legacy authentication created a session")
+			}
 		}
-		w := f.call(t, "POST", path, nil, f.s.AppURL, body)
-		expectStatus(t, w, 202)
-		if len(w.Result().Cookies()) != 0 || strings.Contains(w.Body.String(), "user") || strings.Contains(w.Body.String(), "attacker") {
-			t.Fatal("waitlist created an authenticated response")
-		}
-	}
-	var count, afterUsers, afterKeys int
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM waitlist_entries WHERE email=?", email).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Fatalf("duplicate normalized waitlist entries: %d", count)
-	}
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM users").Scan(&afterUsers); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.db.DB.QueryRowContext(f.ctx, "SELECT COUNT(*) FROM access_keys").Scan(&afterKeys); err != nil {
-		t.Fatal(err)
-	}
-	if beforeUsers != afterUsers || beforeKeys != afterKeys {
-		t.Fatal("waitlist provisioned an account or key")
-	}
-	// Publicly claiming the administrator email must not reset its password or
-	// create a session, including through the legacy registration route.
-	for _, path := range []string{"/api/waitlist", "/api/auth/register"} {
-		w := f.call(t, "POST", path, nil, f.s.AppURL, map[string]string{"email": strings.ToUpper(store.SuperAdminEmail), "password": "attacker-chosen-password"})
-		expectStatus(t, w, 202)
-		if len(w.Result().Cookies()) != 0 {
-			t.Fatal("admin email alone authenticated")
-		}
-	}
-	for _, credentials := range []map[string]string{
-		{"email": store.SuperAdminEmail, "password": "attacker-chosen-password"},
-		{"email": email, "password": "attacker-chosen-password"},
-		{"email": f.customer.Email, "password": "test-password-strong"},
-		{"email": f.other.Email, "password": "test-password-strong"},
-		{"email": "úfcenterxyz@gmail.com", "password": "test-password-strong"},
-	} {
-		want := 403
-		if credentials["email"] == store.SuperAdminEmail {
-			want = 401
-		}
-		expectStatus(t, f.call(t, "POST", "/api/auth/login", nil, f.s.AppURL, credentials), want)
-	}
-	w := f.call(t, "POST", "/api/auth/login", nil, f.s.AppURL, map[string]string{"email": "  " + strings.ToUpper(store.SuperAdminEmail) + "  ", "password": "test-password-strong"})
-	expectStatus(t, w, 200)
-	cookies := w.Result().Cookies()
-	if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
-		t.Fatal("administrator cookie lacks security attributes")
-	}
-	state := f.call(t, "GET", "/api/state", cookies[0], "", nil)
-	expectStatus(t, state, 200)
-	if strings.Contains(state.Body.String(), "payments_enabled") || strings.Contains(state.Body.String(), "\"orders\"") {
-		t.Fatal("removed payment capabilities remain exposed")
-	}
-	snap := decodeResponse[domain.Snapshot](t, state)
-	found := false
-	for _, entry := range snap.Waitlist {
-		if entry.Email == email {
-			found = entry.Name == "Waiting user" && entry.ID != "" && !entry.CreatedAt.IsZero()
-		}
-	}
-	if !found {
-		t.Fatal("administrator cannot inspect persisted waitlist")
-	}
-	for _, path := range []string{"/api/waitlist", "/api/auth/register"} {
-		expectStatus(t, f.call(t, "POST", path, nil, "https://attacker.test", map[string]string{"email": email}), 403)
-		expectStatus(t, f.call(t, "POST", path, nil, f.s.AppURL, map[string]any{"email": email, "operator": true}), 400)
-		expectStatus(t, f.call(t, "GET", path, nil, "", nil), 405)
 	}
 }
 
@@ -178,18 +102,19 @@ func TestBootstrapPromotionResetsUnverifiedCredentialsAndPreservesHistory(t *tes
 		t.Fatal(err)
 	}
 	_, legacySecret := f.legacyKey(t, f.other)
-	admin, err := f.db.EnsureSuperAdmin(f.ctx, "Verified administrator", "replacement-password-strong")
+	admin, err := f.db.EnsureSuperAdmin(f.ctx, "Verified administrator")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if admin.ID != f.operator.ID || !store.IsSuperAdmin(admin) {
 		t.Fatal("bootstrap replaced identity or failed promotion")
 	}
-	if _, err = f.db.Authenticate(f.ctx, store.SuperAdminEmail, "old-unverified-password"); !errors.Is(err, store.ErrUnauthorized) {
-		t.Fatal("unverified password survived promotion")
-	}
-	if _, err = f.db.Authenticate(f.ctx, store.SuperAdminEmail, "replacement-password-strong"); err != nil {
+	if _, err = f.db.EmailAdministrator(f.ctx, store.SuperAdminEmail); err != nil {
 		t.Fatal(err)
+	}
+	var passwordHash string
+	if err = f.db.DB.QueryRowContext(f.ctx, "SELECT password_hash FROM users WHERE id=?", admin.ID).Scan(&passwordHash); err != nil || passwordHash != "!email-otp" {
+		t.Fatal("old password credential survived migration")
 	}
 	if _, err = f.db.SessionUser(f.ctx, f.operatorCookie.Value); !errors.Is(err, store.ErrUnauthorized) {
 		t.Fatal("old administrator session survived promotion")
@@ -222,7 +147,7 @@ func TestBootstrapPromotionResetsUnverifiedCredentialsAndPreservesHistory(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = f.db.EnsureSuperAdmin(f.ctx, "Verified administrator", "replacement-password-strong"); err != nil {
+	if _, err = f.db.EnsureSuperAdmin(f.ctx, "Verified administrator"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = f.db.SessionUser(f.ctx, token); err != nil {
@@ -239,19 +164,4 @@ func TestRemovedPaymentsRoutesReturnNotFound(t *testing.T) {
 			expectStatus(t, f.call(t, "POST", path, nil, origin, map[string]any{}), 404)
 		}
 	}
-}
-
-func TestWaitlistRateLimitFailsClosed(t *testing.T) {
-	f := newAPIFixture(t)
-	f.enablePublicRequests(t)
-	email := f.prefix + "rate@example.test"
-	for i := 0; i < 31; i++ {
-		want := 202
-		if i == 30 {
-			want = 429
-		}
-		expectStatus(t, f.call(t, "POST", "/api/waitlist", nil, f.s.AppURL, map[string]string{"email": email}), want)
-	}
-	f.s.Redis.Close()
-	expectStatus(t, f.call(t, "POST", "/api/waitlist", nil, f.s.AppURL, map[string]string{"email": email}), 429)
 }

@@ -32,7 +32,6 @@ export const en = {
   status: "Status",
   name: "Name",
   email: "Email",
-  password: "Password",
   fullName: "Full name",
   refresh: "Refresh",
   retry: "Try again",
