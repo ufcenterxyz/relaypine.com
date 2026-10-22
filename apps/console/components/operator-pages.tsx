@@ -209,7 +209,7 @@ export function Upstreams() {
         ))}
       </div>
       {needsModels && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-default-200 p-5">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[3px] border border-default-200 p-5">
           <div>
             <h2 className="text-sm font-medium">{t.modelsNextStepTitle}</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-default-500">
@@ -772,7 +772,7 @@ export function Models() {
               {model.id}
             </p>
             {(model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate) && (
-              <Chip size="sm" variant="flat" className="mt-2">
+              <Chip radius="sm" size="sm" variant="flat" className="mt-2">
                 {p.legacy}
               </Chip>
             )}

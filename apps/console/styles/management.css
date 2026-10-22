@@ -29,9 +29,9 @@
   border-radius: 2px;
   background: var(--rp-muted);
 }
-.rp-management-metric[data-tone="active"] i { background: #66814f; }
+.rp-management-metric[data-tone="active"] i { background: var(--rp-positive); }
 .rp-management-metric[data-tone="reference"] i { background: var(--rp-accent); }
-.rp-management-metric[data-tone="attention"] i { background: #b88032; }
+.rp-management-metric[data-tone="attention"] i { background: #b47820; }
 .rp-management-metric > strong {
   display: block;
   margin-top: 12px;
@@ -50,8 +50,8 @@
 }
 .rp-management-catalog {
   background: var(--rp-surface);
-  border: 1px solid var(--rp-line);
-  border-radius: 8px;
+  border-block: 1px solid var(--rp-line);
+  border-radius: 0;
   overflow: hidden;
 }
 .rp-management-catalog-heading {
@@ -86,9 +86,10 @@
 .rp-management-tabs button:focus-visible { outline: 2px solid var(--rp-accent); outline-offset: 3px; }
 .rp-management-tabs button span {
   min-width: 21px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: var(--rp-paper);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rp-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -130,14 +131,14 @@
   place-items: center;
   width: 24px;
   height: 24px;
-  border: 1px solid var(--rp-line);
-  border-radius: 5px;
+  border: 0;
+  border-radius: 0;
   font-size: 11px;
   font-style: normal;
   font-weight: 600;
-  background: var(--rp-paper);
+  background: transparent;
 }
-.rp-management-provider i[data-provider="anthropic"] { font-family: Georgia, serif; font-size: 15px; background: color-mix(in srgb, var(--rp-accent) 8%, var(--rp-surface)); }
+.rp-management-provider i[data-provider="anthropic"] { font-family: Georgia, serif; font-size: 15px; background: transparent; }
 .rp-management-rate { font-family: var(--font-geist-mono), monospace; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rp-management-catalog-footer { display: flex; align-items: center; gap: 8px; padding: 14px 20px; color: var(--rp-muted); }
 .rp-management-catalog-footer svg { flex-shrink: 0; }
@@ -147,38 +148,38 @@
 .rp-management-section-heading h2 span { font-size: 11px; color: var(--rp-muted); font-weight: 400; }
 .rp-management-section-spaced { margin-top: 35px; }
 
-/* Dialogs use one quiet frame; selection and pricing have their own hierarchy. */
+/* Tables and dialogs share flat sections and a single selection control. */
 .rp-management-modal {
   color: var(--rp-ink);
   background: var(--rp-surface);
   border: 1px solid var(--rp-line);
-  border-radius: 10px;
-  box-shadow: 0 28px 80px rgb(0 0 0 / .16);
+  border-radius: 2px;
+  box-shadow: 0 12px 40px rgb(8 16 32 / .12);
 }
 .rp-management-modal-header { padding: 27px 28px 22px; }
 .rp-management-modal-header h2 { font-size: 23px; line-height: 1.2; letter-spacing: -.7px; font-weight: 540; }
 .rp-management-modal-header > p { font-size: 13px; line-height: 1.7; max-width: 540px; }
 .rp-management-modal-eyebrow { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: var(--rp-muted); font-size: 11px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase; }
-.rp-management-modal-icon { display: grid; place-items: center; width: 32px; height: 32px; margin-bottom: 7px; border: 1px solid var(--rp-line); border-radius: 6px; color: var(--rp-accent); }
+.rp-management-modal-icon { display: grid; place-items: center; width: 24px; height: 24px; margin-bottom: 7px; border: 0; border-radius: 0; color: var(--rp-accent); }
 .rp-management-modal-body { padding: 0 28px 26px; }
 .rp-management-modal-footer { padding: 18px 28px; border-top: 1px solid var(--rp-line); background: var(--rp-paper); gap: 8px; }
 .rp-management-modal-footer > button { font-size: 12px; }
 .rp-management-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 28px 24px; padding-bottom: 17px; border-bottom: 1px solid var(--rp-line); list-style: none; }
 .rp-management-steps li { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--rp-muted); font-weight: 450; }
-.rp-management-steps li > span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--rp-line); border-radius: 5px; font-family: var(--font-geist-mono), monospace; font-size: 11px; }
+.rp-management-steps li > span { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 0; font-family: var(--font-geist-mono), monospace; font-size: 11px; }
 .rp-management-steps li[data-active="true"] { color: var(--rp-ink); }
-.rp-management-steps li[data-active="true"] > span { border-color: var(--rp-accent); color: var(--rp-accent); background: color-mix(in srgb, var(--rp-accent) 5%, var(--rp-surface)); }
-.rp-management-steps li[data-complete="true"] > span { background: var(--rp-paper); color: var(--rp-ink); }
+.rp-management-steps li[data-active="true"] > span { color: var(--rp-accent); background: transparent; font-weight: 600; }
+.rp-management-steps li[data-complete="true"] > span { background: transparent; color: var(--rp-ink); }
 .rp-management-import-list { margin-top: 7px; }
 .rp-management-selection { display: flex; flex-direction: column; gap: 9px; }
 .rp-management-selection-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; padding-inline: 3px; }
 .rp-management-selection-tools [data-slot="label"] { font-size: 12px; }
 .rp-management-selection-tools > button { font-size: 11px; }
-.rp-management-model-options { max-height: 290px; flex-wrap: nowrap; gap: 0; overflow-x: hidden; overflow-y: auto; border: 1px solid var(--rp-line); border-radius: 7px; }
-.rp-management-model-option { margin: 0; width: 100%; max-width: 100%; flex-shrink: 0; align-items: flex-start; padding: 15px 17px; border-radius: 0; border-bottom: 1px solid var(--rp-line); }
+.rp-management-model-options { max-height: 290px; flex-wrap: nowrap; gap: 0; overflow-x: hidden; overflow-y: auto; border-block: 1px solid var(--rp-line); border-radius: 0; }
+.rp-management-model-option { margin: 0; width: 100%; max-width: 100%; flex-shrink: 0; align-items: flex-start; padding: 15px 0; border-radius: 0; border-bottom: 1px solid var(--rp-line); }
 .rp-management-model-option:last-child { border-bottom: 0; }
-.rp-management-model-option[data-selected="true"] { background: color-mix(in srgb, var(--rp-accent) 5%, var(--rp-surface)); }
-.rp-management-model-option[data-disabled="true"] { opacity: .55; background: var(--rp-paper); }
+.rp-management-model-option[data-selected="true"] { background: transparent; }
+.rp-management-model-option[data-disabled="true"] { opacity: .55; background: transparent; }
 .rp-management-model-option [data-slot="label"] > span:first-child { font-size: 13px; }
 .rp-management-model-option [data-slot="label"] > span:last-child { font-family: var(--font-geist-mono), monospace; font-size: 11px; }
 .rp-management-selection-status { display: flex; justify-content: space-between; gap: 10px; padding: 7px 1px 1px; font-size: 11px; color: var(--rp-muted); }
@@ -187,8 +188,8 @@
 .rp-management-full-field, .rp-management-field-section { grid-column: 1 / -1; }
 .rp-management-field-section { margin-top: 10px; padding-top: 20px; border-top: 1px solid var(--rp-line); color: var(--rp-muted); font-size: 11px; font-weight: 550; text-transform: uppercase; letter-spacing: .7px; }
 .rp-management-rate-field > div { height: 100%; }
-.rp-management-full-field:has([role="switch"]) { padding: 13px 15px; background: var(--rp-paper); border: 1px solid var(--rp-line); border-radius: 6px; }
-.rp-management-modal [data-slot="input-wrapper"], .rp-management-modal [data-slot="trigger"] { box-shadow: none; border-width: 1px; }
+.rp-management-full-field:has([role="switch"]) { padding: 13px 0; background: transparent; border-block: 1px solid var(--rp-line); border-radius: 0; }
+.rp-management-modal [data-slot="input-wrapper"], .rp-management-modal [data-slot="trigger"][aria-haspopup="listbox"] { box-shadow: none; border-width: 1px; }
 
 .rp-management-price-preview { display: flex; flex-direction: column; gap: 15px; }
 .rp-management-preview-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 7px 15px; font-size: 11px; line-height: 1.5; color: var(--rp-muted); }
@@ -196,14 +197,14 @@
 .rp-management-preview-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 9px; border-bottom: 1px solid var(--rp-line); }
 .rp-management-preview-tools > button { margin-left: -9px; min-height: 34px; height: 34px; font-size: 11px; }
 .rp-management-preview-tools > strong { font-size: 11px; font-weight: 500; }
-.rp-management-price-items { border: 1px solid var(--rp-line); border-radius: 7px; overflow: hidden; }
-.rp-management-price-item { padding: 17px 19px 13px; }
+.rp-management-price-items { border-bottom: 1px solid var(--rp-line); border-radius: 0; overflow: hidden; }
+.rp-management-price-item { padding: 20px 0 16px; }
 .rp-management-price-item + .rp-management-price-item { border-top: 1px solid var(--rp-line); }
-.rp-management-price-item[data-selected="true"] { background: color-mix(in srgb, var(--rp-accent) 2.5%, var(--rp-surface)); }
+.rp-management-price-item[data-selected="true"] { background: transparent; }
 .rp-management-price-item-heading { display: flex; align-items: flex-start; gap: 8px; }
 .rp-management-price-item-heading h3 { font-size: 14px; }
 .rp-management-price-item-heading p { font-size: 11px; }
-.rp-management-price-badge { min-height: 20px; height: 20px; border-radius: 4px; }
+.rp-management-price-badge { min-height: 20px; height: 20px; border-radius: 2px; }
 .rp-management-price-badge > span { font-size: 11px; }
 .rp-management-price-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-block: 17px 13px; }
 .rp-management-price-cell { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
@@ -214,18 +215,18 @@
 .rp-management-price-source > span { font-size: 11px; color: var(--rp-muted); }
 .rp-management-price-source a { min-height: 27px; gap: 4px; font-size: 11px; color: var(--rp-muted); }
 .rp-management-price-source a:hover { color: var(--rp-accent); }
-.rp-management-pricing-note { display: flex; align-items: flex-start; gap: 10px; padding: 15px; border: 1px solid var(--rp-line); border-radius: 6px; background: var(--rp-paper); color: var(--rp-muted); }
+.rp-management-pricing-note { display: flex; align-items: flex-start; gap: 10px; padding: 15px 0; border: 0; border-top: 1px solid var(--rp-line); border-radius: 0; background: transparent; color: var(--rp-muted); }
 .rp-management-pricing-note > svg { flex-shrink: 0; margin-top: 2px; }
 .rp-management-pricing-note strong { display: block; margin-bottom: 5px; color: var(--rp-ink); font-size: 12px; font-weight: 500; }
 .rp-management-pricing-note p { font-size: 12px; line-height: 1.7; }
 .rp-management-pricing-note p + p { margin-top: 5px; }
 .rp-management-notice { padding: 13px 15px; border-left: 2px solid var(--rp-accent); background: var(--rp-paper); font-size: 12px; line-height: 1.7; }
 
-.rp-management-verified { padding: 18px; border: 1px solid var(--rp-line); border-radius: 7px; }
+.rp-management-verified { padding: 18px 0 0; border: 0; border-top: 1px solid var(--rp-line); border-radius: 0; }
 .rp-management-discovery-count > strong { display: inline-block; margin-right: 8px; font-size: 30px; font-weight: 450; letter-spacing: -1px; }
 .rp-management-discovery-count > span { font-size: 12px; color: var(--rp-muted); }
-.rp-management-discovered-list { max-height: 145px; overflow-y: auto; border: 1px solid var(--rp-line); border-radius: 5px; background: var(--rp-paper); }
-.rp-management-discovered-list li { padding: 10px 12px; }
+.rp-management-discovered-list { max-height: 145px; overflow-y: auto; border-block: 1px solid var(--rp-line); border-radius: 0; background: transparent; }
+.rp-management-discovered-list li { padding: 10px 0; }
 .rp-management-discovered-list li + li { border-top: 1px solid var(--rp-line); }
 .rp-management-discovered-limits { padding-top: 15px; border-top: 1px solid var(--rp-line); }
 .rp-management-limit-values { display: flex; gap: 35px; margin-top: 10px; }
@@ -258,10 +259,10 @@
   .rp-management-steps { margin: 0 20px 20px; gap: 8px; }
   .rp-management-steps li { font-size: 11px; gap: 5px; }
   .rp-management-steps li > span { width: 21px; height: 21px; flex-shrink: 0; font-size: 8px; }
-  .rp-management-price-item { padding: 14px; }
+  .rp-management-price-item { padding: 18px 0 14px; }
   .rp-management-price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 20px; }
   .rp-management-selection-status { flex-wrap: wrap; }
-  .rp-management-model-option { padding: 14px; }
+  .rp-management-model-option { padding: 14px 0; }
   .rp-management-modal-footer > button { flex-grow: 1; }
   .rp-management-metrics { margin-bottom: 24px; }
 }

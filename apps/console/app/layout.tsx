@@ -5,7 +5,7 @@ import { GeistMono } from "geist/font/mono";
 import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: {
-    default: "RelayPine | One gateway for your AI",
+    default: "RelayPine | API gateway for OpenAI and Claude",
     template: "%s | RelayPine",
   },
   description:
@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 };
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f6f2" },
-    { media: "(prefers-color-scheme: dark)", color: "#191c18" },
+    { media: "(prefers-color-scheme: light)", color: "#f5f7fa" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e131c" },
   ],
 };
 export default function RootLayout({

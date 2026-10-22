@@ -15,7 +15,7 @@ import { api, ApiError } from "@/lib/api";
 import { en as t } from "@/i18n/en";
 import { authEn as w } from "@/i18n/auth-en";
 import { BrandMark, ErrorBox } from "./shared";
-import { ArrowRight, Mail, LockKeyhole } from "lucide-react";
+import { ArrowRight, Mail } from "lucide-react";
 
 type Step = "email" | "code";
 type CodeSent = {
@@ -228,7 +228,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
       scrollBehavior="inside"
       classNames={{
         base: "rp-modal rp-auth-modal max-h-[85dvh]",
-        backdrop: "bg-[#191c18]/45 backdrop-blur-sm",
+        backdrop: "bg-[#080d16]/55",
       }}
     >
       <ModalContent>
@@ -241,7 +241,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
           <ModalHeader className="rp-auth-header">
             <div className="rp-auth-identity">
               {checking ? <span className="rp-brand-mark rp-auth-mark"><Mail size={20} /></span> : <BrandMark className="rp-auth-mark" />}
-              <span>{checking ? w.stepCode : w.stepEmail}</span>
+              <span>RelayPine</span>
             </div>
             <h2>{checking ? w.verifyTitle : w.title}</h2>
             <p>{checking ? w.verifyDescription : w.description}</p>
@@ -251,7 +251,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                 {error && <ErrorBox message={error} />}
                 {checking ? (
                   <>
-                    <div className="flex items-center justify-between gap-2 rounded-xl border border-default-200 py-2 pl-3 pr-1">
+                    <div className="rp-auth-recipient">
                       <div className="min-w-0">
                         <p className="mb-0.5 text-[11px] text-default-500">
                           {w.codeSentTo}
@@ -304,7 +304,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                           base: "w-full items-center",
                           segmentWrapper: "w-full justify-between gap-1.5",
                           segment:
-                            "h-12 w-11 rounded-lg border border-default-200 bg-background text-xl font-medium shadow-none sm:h-14 sm:w-12",
+                            "h-12 w-11 border border-default-200 bg-background text-xl font-medium shadow-none data-[active=true]:scale-100 sm:h-14 sm:w-12",
                           helperWrapper: "w-full px-0",
                           errorMessage: "text-sm leading-5",
                         }}
@@ -394,7 +394,6 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                 >
                   {checking ? w.verify : w.sendCode}
                 </Button>
-            <p className="rp-auth-footer-note"><LockKeyhole size={12} />{w.securityNote}</p>
           </ModalFooter>
         </form>
       </ModalContent>

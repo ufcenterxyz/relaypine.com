@@ -103,7 +103,7 @@ export function ModelPriceUpdate({ onClose, onUpdated }: {
         <ModalBody className="rp-management-modal-body gap-4 overflow-y-auto">
           {error && <div ref={errorBlock}><ErrorBox message={error} /></div>}
           {receipt !== null && <p role="status" className="text-sm">{p.success.replace("{count}", count(receipt))}</p>}
-          {loading ? <div aria-label={t.loading} className="space-y-3">{[0, 1, 2].map((n) => <Skeleton key={n} className="h-28 rounded-xl" />)}</div> : preview?.items.length ? (
+          {loading ? <div aria-label={t.loading} className="space-y-3">{[0, 1, 2].map((n) => <Skeleton key={n} className="h-28 rounded-[3px]" />)}</div> : preview?.items.length ? (
             <>
               {preview.items.some((item) => item.status === "manual") && <p className="rp-management-notice">{p.manualNote}</p>}
               <ModelPricePreview preview={preview} selected={selected} onSelection={setSelected} disabled={applying || receipt !== null} />

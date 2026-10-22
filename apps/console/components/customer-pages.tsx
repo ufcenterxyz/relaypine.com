@@ -102,7 +102,7 @@ export function RequestTable({
                 )?.name || row.tenant_id,
               ]
             : []),
-          <Chip
+          <Chip radius="sm"
             key="status"
             size="sm"
             variant="flat"
@@ -712,7 +712,7 @@ export function Keys() {
               <p className="text-sm leading-6 text-default-500">
                 {t.secretBody}
               </p>
-              <div className="mt-3 flex items-center gap-3 rounded-lg border border-default-200 p-3">
+              <div className="mt-3 flex items-center gap-3 rounded-[3px] border border-default-200 p-3">
                 <code
                   aria-label={t.keySecretLabel}
                   className="min-w-0 flex-1 break-all text-xs"
@@ -923,7 +923,7 @@ export function Waitlist() {
             {entry.name}
           </span>,
           entry.email,
-          <Chip key="status" size="sm" variant="flat">
+          <Chip radius="sm" key="status" size="sm" variant="flat">
             {w.status}
           </Chip>,
           date(entry.created_at),

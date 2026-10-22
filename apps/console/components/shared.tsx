@@ -122,7 +122,7 @@ export function Status({
   label?: string;
 }) {
   return (
-    <Chip className={`rp-status ${enabled ? "is-enabled" : ""}`} variant="flat" size="sm" startContent={<span className="rp-status-indicator" aria-hidden="true" />}>
+    <Chip radius="sm" className={`rp-status ${enabled ? "is-enabled" : ""}`} variant="flat" size="sm" startContent={<span className="rp-status-indicator" aria-hidden="true" />}>
       {label || (enabled ? t.enabled : t.disabled)}
     </Chip>
   );
@@ -157,7 +157,7 @@ export function ErrorBox({
   return (
     <div
       role="alert"
-      className="rounded-xl border border-danger-200 bg-danger-50 p-4 text-sm text-danger-700 dark:text-danger-300"
+      className="rounded-[3px] border border-danger-200 bg-danger-50 p-4 text-sm text-danger-700 dark:text-danger-300"
     >
       <p>{message}</p>
       {retry && (
@@ -271,7 +271,7 @@ export function Confirm({
       scrollBehavior="inside"
       classNames={{
         base: "rp-modal max-h-[85dvh]",
-        backdrop: "bg-[#191c18]/45 backdrop-blur-sm",
+        backdrop: "bg-[#080d16]/55",
       }}
     >
       <ModalContent>

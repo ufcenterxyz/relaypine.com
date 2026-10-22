@@ -45,7 +45,7 @@ export function Integration({ onClose }: { onClose: () => void }) {
       scrollBehavior="inside"
       classNames={{
         base: "rp-modal max-h-[85dvh]",
-        backdrop: "bg-black/30 backdrop-blur-sm",
+        backdrop: "bg-black/40",
       }}
     >
       <ModalContent>
@@ -88,21 +88,18 @@ export function Marketing() {
 
   const capabilities = [
     {
-      number: "01",
       icon: Route,
       title: m.routingTitle,
       description: m.routingDescription,
       detail: m.routingDetail,
     },
     {
-      number: "02",
       icon: ReceiptText,
       title: m.walletTitle,
       description: m.walletDescription,
       detail: m.walletDetail,
     },
     {
-      number: "03",
       icon: KeyRound,
       title: m.keysTitle,
       description: m.keysDescription,
@@ -150,9 +147,6 @@ export function Marketing() {
               <span className="rp-signal-square" />
               {m.eyebrow}
             </p>
-            <span className="rp-hero-coordinate" aria-hidden="true">
-              RP / 001
-            </span>
           </div>
           <div className="rp-hero-intro">
             <h1 id="hero-title">
@@ -282,10 +276,9 @@ export function Marketing() {
             </div>
             <div className="rp-capability-grid">
               {capabilities.map(
-                ({ number, icon: Icon, title, description, detail }) => (
-                  <article key={number}>
+                ({ icon: Icon, title, description, detail }) => (
+                  <article key={title}>
                     <div className="rp-capability-top">
-                      <span>{number}</span>
                       <Icon size={24} strokeWidth={1.4} />
                     </div>
                     <h3>{title}</h3>

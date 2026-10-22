@@ -46,7 +46,7 @@ export function ModelPricePreview({ preview, selected, onSelection, disabled = f
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="break-all text-sm font-medium">{item.name || item.id}</h3>
-                    <Chip size="sm" variant="flat" color={available ? "default" : "warning"} className="rp-management-price-badge">
+                    <Chip radius="sm" size="sm" variant="flat" color={available ? "default" : "warning"} className="rp-management-price-badge">
                       {item.status === "manual" ? p.manual : available ? p.matched : unchanged ? p.unchanged : importMode ? p.disabled : p.disableAction}
                     </Chip>
                   </div>

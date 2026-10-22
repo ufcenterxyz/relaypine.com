@@ -1,6 +1,6 @@
 import type { routingDemo } from "./routing-demo-en";
 export const routingDemoZh: Record<keyof typeof routingDemo, string> = {
-  title: "路由工作台",
+  title: "Key 选择",
   label: "交互式路由模拟",
   simulation: "模拟演示",
   provider: "服务商",
@@ -26,7 +26,7 @@ export const routingDemoZh: Record<keyof typeof routingDemo, string> = {
   proxyB: "SOCKS5 B",
   replay: "重新运行",
   limit: "让 Key 02 满载",
-  limitHelp: "观察流量如何改道。",
+  limitHelp: "达到 RPM 上限的 Key 不参与路由。",
   receiving: "已接收请求",
   checking: "已检查容量",
   selecting: "选择最低负载",

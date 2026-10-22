@@ -118,7 +118,7 @@ export function ModelImportSelection({
                   {model.name || model.id}
                 </span>
                 {model.unavailable && (
-                  <Chip size="sm" variant="flat">
+                  <Chip radius="sm" size="sm" variant="flat">
                     {unavailableLabels[model.unavailable]}
                   </Chip>
                 )}

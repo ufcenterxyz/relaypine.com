@@ -1,14 +1,14 @@
 .rp-route-demo {
-  --route-surface: #202521;
-  --route-raised: #282e28;
-  --route-line: #3e463d;
-  --route-muted: #a7b1a2;
-  --route-accent: #c7e3ad;
-  --route-ink: #f0f2e9;
+  --route-surface: #101722;
+  --route-raised: #172131;
+  --route-line: #2c394c;
+  --route-muted: #9ba8bd;
+  --route-accent: #8daeff;
+  --route-ink: #e8edf5;
   background: var(--route-surface);
   color: var(--route-ink);
-  border: 1px solid #333d31;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 3px;
   overflow: hidden;
   text-align: left;
   width: 100%;
@@ -29,8 +29,7 @@
 .rp-route-indicator {
   width: 7px;
   height: 7px;
-  border: 1px solid var(--route-accent);
-  background: #c7e3ad20;
+  background: var(--route-accent);
 }
 .rp-marketing .rp-route-heading h2 {
   font-size: 15px;
@@ -41,12 +40,10 @@
 }
 .rp-route-simulation {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.025em;
   color: var(--route-muted);
-  border: 1px solid var(--route-line);
-  padding: 4px 8px;
-  border-radius: 3px;
+  padding: 0;
 }
 .rp-route-controls {
   padding: 13px 28px;
@@ -66,16 +63,15 @@
 }
 .rp-route-segmented {
   display: flex;
-  border: 1px solid var(--route-line);
-  border-radius: 4px;
-  padding: 2px;
-  gap: 2px;
+  gap: 14px;
+  align-items: stretch;
 }
 .rp-route-segmented > button {
   color: var(--route-muted);
-  font-size: 10px;
-  padding: 7px 12px;
-  border-radius: 2px;
+  font-size: 11px;
+  padding: 9px 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   min-height: 31px;
   transition:
     color 160ms,
@@ -85,13 +81,14 @@
   color: #fff;
 }
 .rp-route-segmented > button[aria-pressed="true"] {
-  background: #e9efdf;
-  color: #282e25;
+  background: transparent;
+  border-bottom-color: var(--route-accent);
+  color: var(--route-ink);
 }
 .rp-route-demo button:focus-visible,
 .rp-route-saturation input:focus-visible + .rp-route-toggle {
   outline: 2px solid var(--route-accent);
-  outline-offset: 4px;
+  outline-offset: 2px;
 }
 .rp-route-replay {
   display: flex;
@@ -100,7 +97,7 @@
   font-size: 10px;
   margin-left: auto;
   min-height: 35px;
-  color: #d2d8ca;
+  color: #b6c2d5;
   padding-inline: 4px;
 }
 .rp-route-replay:hover {
@@ -113,8 +110,7 @@
 .rp-route-canvas {
   padding: 30px 34px 27px;
   min-width: 0;
-  background-image: radial-gradient(#7c8b7329 0.7px, transparent 0.7px);
-  background-size: 16px 16px;
+
 }
 .rp-route-topology {
   display: grid;
@@ -132,7 +128,7 @@
 }
 .rp-route-micro {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 10px;
   color: var(--route-muted);
   line-height: 1.5;
   letter-spacing: 0.045em;
@@ -152,7 +148,7 @@
   display: block;
   font-family: var(--font-geist-mono), monospace;
   color: var(--route-muted);
-  font-size: 8px;
+  font-size: 10px;
   margin-top: 7px;
 }
 .rp-route-entry {
@@ -175,7 +171,7 @@
   position: absolute;
   right: 36px;
   top: -6px;
-  color: #889580;
+  color: #8695ad;
 }
 .rp-route-entry.is-active > span {
   animation: route-inlet 600ms ease-in-out both;
@@ -184,8 +180,8 @@
   position: relative;
   z-index: 1;
   justify-self: center;
-  background: var(--route-surface);
-  border: 1px solid #66745c;
+  background: var(--route-raised);
+  border: 0;
   display: flex;
   width: 100px;
   height: 78px;
@@ -193,15 +189,15 @@
   justify-content: center;
   flex-direction: column;
   gap: 8px;
-  border-radius: 5px;
-  color: #dbe6d0;
+  border-radius: 2px;
+  color: #d1ddf0;
   transition:
     color 200ms,
     border-color 200ms;
 }
 .rp-route-gateway.is-active {
   color: var(--route-accent);
-  border-color: var(--route-accent);
+  background: #1c2c47;
 }
 .rp-route-gateway > span {
   font-size: 11px;
@@ -211,8 +207,8 @@
   justify-self: end;
   display: grid;
   gap: 9px;
-  font-size: 9px;
-  color: #8b9784;
+  font-size: 11px;
+  color: #8190a7;
   padding-left: 10px;
 }
 .rp-route-checks > span {
@@ -258,7 +254,7 @@
   fill: var(--route-accent);
 }
 .rp-route-trace {
-  stroke: #e4facb;
+  stroke: #b1c8ff;
   stroke-width: 2px;
   stroke-linecap: round;
   stroke-dasharray: 0.2 1;
@@ -272,9 +268,9 @@
   margin-top: 8px;
 }
 .rp-route-key {
-  background: var(--route-surface);
-  border: 1px solid var(--route-line);
-  border-radius: 5px;
+  background: var(--route-raised);
+  border: 0;
+  border-radius: 2px;
   overflow: hidden;
   padding: 14px 16px 0;
   transition:
@@ -282,8 +278,7 @@
     background 220ms;
 }
 .rp-route-key.is-selected {
-  border-color: #bfd7a8;
-  background: #2c3829;
+  background: #1c2c47;
 }
 .rp-route-key-heading {
   display: flex;
@@ -302,11 +297,11 @@
 .rp-route-key-state > span {
   width: 4px;
   height: 4px;
-  background: #7f8c76;
+  background: #8492a8;
   border-radius: 50%;
 }
 .is-limited .rp-route-key-state > span {
-  background: #bb936b;
+  background: #b6c2d5;
 }
 .rp-route-load {
   display: flex;
@@ -330,33 +325,27 @@
   margin-left: 4px;
 }
 .rp-route-load > span {
-  font-size: 8px;
+  font-size: 10px;
   color: var(--route-muted);
   padding-bottom: 2px;
   white-space: nowrap;
 }
 .rp-route-meter {
   height: 3px;
-  background: #444e3e;
+  background: #2e3a4d;
   margin-top: 13px;
 }
 .rp-route-meter > span {
   display: block;
   height: 100%;
-  background: #829274;
+  background: #647895;
   transition: width 250ms;
 }
 .is-selected .rp-route-meter > span {
   background: var(--route-accent);
 }
 .is-limited .rp-route-meter > span {
-  background: repeating-linear-gradient(
-    115deg,
-    #9a876e,
-    #9a876e 3px,
-    transparent 3px,
-    transparent 6px
-  );
+  background: #aab7cc;
 }
 .rp-route-budget {
   display: flex;
@@ -366,7 +355,7 @@
   margin-top: 14px;
 }
 .rp-route-budget > span {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--route-muted);
 }
 .rp-route-budget > strong {
@@ -375,7 +364,7 @@
   font-weight: 400;
 }
 .rp-route-key-status {
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 0.015em;
   border-top: 1px solid var(--route-line);
   color: var(--route-muted);
@@ -388,7 +377,7 @@
 .rp-route-decision {
   border-left: 1px solid var(--route-line);
   padding: 27px 25px 23px;
-  background: #242a23;
+  background: #131c29;
 }
 .rp-route-events {
   display: grid;
@@ -399,29 +388,20 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 9px;
-  color: #94a08d;
+  font-size: 11px;
+  color: #8798b1;
 }
 .rp-route-event-mark {
   width: 14px;
   height: 14px;
-  border: 1px solid #526049;
-  border-radius: 50%;
+  border: 0;
+  border-radius: 0;
   display: grid;
   place-items: center;
   color: var(--route-accent);
 }
 .rp-route-events > .is-done {
-  color: #d2dbc9;
-}
-.is-done .rp-route-event-mark {
-  border-color: #8ea27b;
-}
-.rp-route-event-number {
-  margin-left: auto;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
-  color: #9ba78f;
+  color: #c6d3e8;
 }
 .rp-route-result {
   border-top: 1px solid var(--route-line);
@@ -463,7 +443,7 @@
   display: block;
   margin-top: 4px;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--route-muted);
 }
 .rp-route-demo-actions {
@@ -492,7 +472,7 @@
   display: inline-block;
   width: 28px;
   height: 16px;
-  border: 1px solid #65705d;
+  border: 1px solid #607089;
   border-radius: 10px;
   transition: background 180ms;
 }
@@ -504,7 +484,7 @@
   left: 2px;
   top: 2px;
   border-radius: 50%;
-  background: #b5bfa9;
+  background: #b6c2d5;
   transition:
     transform 180ms,
     background 180ms;
@@ -515,17 +495,17 @@
 }
 .rp-route-saturation > input:checked + .rp-route-toggle::after {
   transform: translateX(12px);
-  background: #2b3926;
+  background: #172131;
 }
 .rp-route-limit-help {
-  font-size: 9px;
+  font-size: 11px;
   color: var(--route-muted);
 }
 .rp-route-demo-note {
   border-top: 1px solid var(--route-line);
   color: var(--route-muted);
   padding: 12px 28px;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.6;
 }
 @keyframes route-inlet {
@@ -667,9 +647,12 @@
   .rp-route-control-group > span {
     font-size: 8px;
   }
+  .rp-route-segmented {
+    gap: 10px;
+  }
   .rp-route-segmented > button {
-    font-size: 8px;
-    padding: 5px 8px;
+    font-size: 10px;
+    padding: 6px 0;
     min-height: 32px;
   }
   .rp-route-replay {
@@ -805,9 +788,6 @@
     width: 12px;
     height: 12px;
     flex-shrink: 0;
-  }
-  .rp-route-event-number {
-    display: none;
   }
   .rp-route-result > strong {
     font-size: 22px;

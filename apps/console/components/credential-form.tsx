@@ -458,7 +458,7 @@ export function CredentialForm({
               </div>
             )}
             {!endpoints.length ? (
-              <div className="rounded-lg border border-default-200 p-4">
+              <div className="rounded-[3px] border border-default-200 p-4">
                 <p className="text-sm leading-6 text-default-500">
                   {t.noHostsBody}
                 </p>
@@ -511,7 +511,7 @@ export function CredentialForm({
                   errorMessage={errors.secret}
                 />
                 {anthropic && workspaceRequired && (
-                  <div className="space-y-3 rounded-lg border border-warning-200 bg-warning-50 p-4">
+                  <div className="space-y-3 rounded-[3px] border border-warning-200 bg-warning-50 p-4">
                     <p className="text-sm leading-6">
                       {t.credentialWorkspaceRequired}
                     </p>
@@ -524,7 +524,7 @@ export function CredentialForm({
                     className="rp-management-verified space-y-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Chip
+                      <Chip radius="sm"
                         color="success"
                         variant="flat"
                         size="sm"

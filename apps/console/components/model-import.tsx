@@ -421,7 +421,7 @@ export function ModelImport({
               </div>
             )}
             {!eligible.length ? (
-              <div className="space-y-3 rounded-lg border border-default-200 p-4">
+              <div className="space-y-3 rounded-[3px] border border-default-200 p-4">
                 <p className="text-sm leading-6 text-default-500">
                   {t.modelImportNoCredentials}
                 </p>
@@ -454,12 +454,12 @@ export function ModelImport({
                   ))}
                 </Select>
                 {receipt && (
-                  <div role="status" className="rounded-lg border border-success-200 bg-success-50 p-4 text-sm leading-6">
+                  <div role="status" className="rounded-[3px] border border-success-200 bg-success-50 p-4 text-sm leading-6">
                     {importSummary(receipt)}
                   </div>
                 )}
                 {scopeChanged && !receipt && (
-                  <div className="space-y-3 rounded-lg border border-warning-200 bg-warning-50 p-4">
+                  <div className="space-y-3 rounded-[3px] border border-warning-200 bg-warning-50 p-4">
                     <p className="text-sm font-medium">
                       {t.modelImportScopeTitle}
                     </p>

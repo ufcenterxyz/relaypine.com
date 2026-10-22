@@ -187,7 +187,6 @@ function RoutingScene({
                 {stage > index ? <Check size={11} /> : <span />}
               </span>
               <span>{label}</span>
-              <span className="rp-route-event-number">0{index + 1}</span>
             </li>
           ))}
         </ol>

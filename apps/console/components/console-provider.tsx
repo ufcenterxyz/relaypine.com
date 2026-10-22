@@ -90,12 +90,12 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
               <Skeleton className="mb-8 h-4 w-72 max-w-full rounded-md" />
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {[1, 2, 3, 4].map((item) => (
-                  <Skeleton key={item} className="h-32 rounded-lg" />
+                  <Skeleton key={item} className="h-32 rounded-[3px]" />
                 ))}
               </div>
               <div className="mt-6 grid gap-5 sm:grid-cols-3">
-                <Skeleton className="h-80 rounded-lg sm:col-span-2" />
-                <Skeleton className="h-80 rounded-lg" />
+                <Skeleton className="h-80 rounded-[3px] sm:col-span-2" />
+                <Skeleton className="h-80 rounded-[3px]" />
               </div>
             </div>
           )}
