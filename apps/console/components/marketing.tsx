@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import {
   Button,
@@ -8,34 +9,32 @@ import {
   ModalBody,
   Tabs,
   Tab,
-  Tooltip,
-  Link,
 } from "@heroui/react";
-import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
   ArrowUpRight,
+  ArrowUp,
+  Github,
+  Route,
+  KeyRound,
+  ReceiptText,
   Braces,
   Check,
-  KeyRound,
-  Layers3,
-  Route,
-  Activity,
-  Github,
 } from "lucide-react";
 import { en as t } from "@/i18n/en";
 import { marketing as m } from "@/i18n/marketing-en";
+import { authEn as w } from "@/i18n/auth-en";
+import { GITHUB_REPOSITORY_URL } from "@/config/links";
 import { RoutingDemo } from "./routing-demo";
 import { AuthModal } from "./auth-modal";
-import { authEn as w } from "@/i18n/auth-en";
 import { Brand, ThemeToggle, CodeBlock } from "./shared";
-import { GITHUB_REPOSITORY_URL } from "@/config/links";
 
 export function sdkCode(provider: string) {
   return provider === "openai"
     ? `import OpenAI from "openai";\n\nconst client = new OpenAI({\n  apiKey: process.env.RELAYPINE_API_KEY,\n  baseURL: "https://relaypine.com/openai/v1",\n});\n\nconst response = await client.responses.create({\n  model: "MODEL_ID",\n  input: "Hello from RelayPine",\n});`
-    : `import Anthropic from "@anthropic-ai/sdk";\n\nconst client = new Anthropic({\n  apiKey: process.env.RELAYPINE_API_KEY,\n  baseURL: "https://relaypine.com/anthropic",\n});\n\nconst response = await client.messages.create({\n  model: "MODEL_ID",\n  max_tokens: 1024,\n  messages: [{role: "user", content: "Hello"}],\n});`;
+    : `import Anthropic from "@anthropic-ai/sdk";\n\nconst client = new Anthropic({\n  apiKey: process.env.RELAYPINE_API_KEY,\n  baseURL: "https://relaypine.com/anthropic",\n});\n\nconst response = await client.messages.create({\n  model: "MODEL_ID",\n  max_tokens: 1024,\n  messages: [{ role: "user", content: "Hello" }],\n});`;
 }
+
 export function Integration({ onClose }: { onClose: () => void }) {
   const [provider, setProvider] = useState("openai");
   return (
@@ -46,7 +45,7 @@ export function Integration({ onClose }: { onClose: () => void }) {
       scrollBehavior="inside"
       classNames={{
         base: "rp-modal max-h-[85dvh]",
-        backdrop: "bg-[#0c2117]/25 backdrop-blur-sm",
+        backdrop: "bg-black/30 backdrop-blur-sm",
       }}
     >
       <ModalContent>
@@ -61,7 +60,7 @@ export function Integration({ onClose }: { onClose: () => void }) {
             role="group"
             aria-label={t.provider}
             selectedKey={provider}
-            onSelectionChange={(k) => setProvider(String(k))}
+            onSelectionChange={(key) => setProvider(String(key))}
             variant="underlined"
             color="primary"
           >
@@ -74,11 +73,11 @@ export function Integration({ onClose }: { onClose: () => void }) {
     </Modal>
   );
 }
+
 export function Marketing() {
   const [auth, setAuth] = useState(false);
   const [docs, setDocs] = useState(false);
   const [provider, setProvider] = useState("openai");
-  const reducedMotion = useReducedMotion();
   useEffect(() => {
     const mode = new URLSearchParams(window.location.search).get("auth");
     if (mode === "login" || mode === "waitlist") {
@@ -86,149 +85,175 @@ export function Marketing() {
       return () => clearTimeout(timer);
     }
   }, []);
-  const entrance = {
-    initial: { opacity: 1, y: reducedMotion ? 0 : 14 },
-    animate: { opacity: 1, y: 0 },
-    transition: {
-      duration: reducedMotion ? 0 : 0.65,
-      ease: "easeOut" as const,
+
+  const capabilities = [
+    {
+      number: "01",
+      icon: Route,
+      title: m.routingTitle,
+      description: m.routingDescription,
+      detail: m.routingDetail,
     },
-  };
+    {
+      number: "02",
+      icon: ReceiptText,
+      title: m.walletTitle,
+      description: m.walletDescription,
+      detail: m.walletDetail,
+    },
+    {
+      number: "03",
+      icon: KeyRound,
+      title: m.keysTitle,
+      description: m.keysDescription,
+      detail: m.keysDetail,
+    },
+  ];
+
   return (
-    <div className="rp-marketing">
+    <div className="rp-marketing" id="top">
+      <a className="rp-skip-link" href="#main">
+        Skip to content
+      </a>
       <header className="rp-site-header">
         <div className="rp-wrap rp-header-inner">
           <Brand />
-          <nav aria-label={t.menu} className="flex items-center gap-1 sm:gap-3">
-            <Button
-              variant="light"
-              className="hidden sm:inline-flex"
-              onPress={() => setDocs(true)}
+          <nav aria-label="Main navigation" className="rp-marketing-nav">
+            <a href="#gateway">{m.productNav}</a>
+            <a href="#quickstart">{m.integrationNav}</a>
+            <a
+              href={GITHUB_REPOSITORY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t.githubSourceNewTab}
             >
-              {t.integration}
-            </Button>
-            <Tooltip content={t.githubSource}>
-              <Button
-                as="a"
-                role="link"
-                href={GITHUB_REPOSITORY_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                isIconOnly
-                variant="light"
-                className="rp-header-github"
-                aria-label={t.githubSourceNewTab}
-              >
-                <Github size={17} strokeWidth={1.7} />
-              </Button>
-            </Tooltip>
+              <Github size={15} aria-hidden="true" />
+              <span>{m.sourceNav}</span>
+            </a>
+          </nav>
+          <div className="rp-header-actions">
             <ThemeToggle />
-            <Button variant="light" onPress={() => setAuth(true)}>
-              {w.signIn}
-            </Button>
             <Button
               onPress={() => setAuth(true)}
-              color="primary"
-              className="hidden sm:inline-flex"
+              className="rp-header-signin"
               endContent={<ArrowUpRight size={15} />}
             >
-              {w.getStarted}
+              {w.signIn}
             </Button>
-          </nav>
+          </div>
         </div>
       </header>
-      <main>
-        <section className="rp-hero">
-          <div className="rp-wrap rp-hero-grid">
-            <motion.div {...entrance} className="rp-hero-copy">
-              <p className="rp-eyebrow">
-                <span className="rp-status-dot" />
-                {m.eyebrow}
-              </p>
-              <h1>
-                {m.title.split("\n").map((line, i) => (
-                  <span key={line} className={i ? "rp-hero-second" : undefined}>
-                    {line}
-                  </span>
-                ))}
-              </h1>
+      <main id="main">
+        <section className="rp-hero rp-wrap" aria-labelledby="hero-title">
+          <div className="rp-hero-overline">
+            <p className="rp-eyebrow">
+              <span className="rp-signal-square" />
+              {m.eyebrow}
+            </p>
+            <span className="rp-hero-coordinate" aria-hidden="true">
+              RP / 001
+            </span>
+          </div>
+          <div className="rp-hero-intro">
+            <h1 id="hero-title">
+              {m.title.split("\n").map((line, index) => (
+                <span
+                  key={line}
+                  className={index ? "rp-hero-second" : undefined}
+                >
+                  {line}
+                </span>
+              ))}
+            </h1>
+            <div className="rp-hero-aside">
               <p className="rp-hero-description">{m.description}</p>
               <div className="rp-hero-actions">
                 <Button
-                  size="lg"
                   color="primary"
+                  size="lg"
                   onPress={() => setAuth(true)}
-                  endContent={<ArrowUpRight size={17} />}
+                  endContent={<ArrowUpRight size={18} />}
                 >
                   {w.getStarted}
                 </Button>
-                <Button
-                  size="lg"
-                  variant="light"
-                  onPress={() => setDocs(true)}
-                  endContent={<ArrowRight size={16} />}
-                >
-                  {t.integration}
-                </Button>
+                <a href="#quickstart">
+                  {m.integrationNav}
+                  <ArrowRight size={16} />
+                </a>
               </div>
               <p className="rp-hero-note">
-                <Braces size={14} />
+                <Github size={13} aria-hidden="true" />
                 {m.heroNote}
               </p>
-            </motion.div>
-            <div className="rp-hero-visual">
-              <RoutingDemo />
             </div>
           </div>
-          <div className="rp-wrap rp-providers">
+          <div className="rp-providers">
             <p className="rp-eyebrow">{m.supported}</p>
             <div className="rp-provider">
               <span className="rp-provider-name">{t.openai}</span>
               <span className="rp-provider-detail">{m.openaiDetail}</span>
             </div>
             <div className="rp-provider">
-              <span className="rp-provider-name rp-provider-anthropic">
-                {t.anthropic}
-              </span>
+              <span className="rp-provider-name">{t.anthropic}</span>
               <span className="rp-provider-detail">{m.anthropicDetail}</span>
             </div>
           </div>
         </section>
-        <section className="rp-wrap rp-native-section">
+
+        <section
+          className="rp-wrap rp-workbench-section"
+          id="gateway"
+          aria-label={m.productNav}
+        >
+          <div className="rp-section-index">
+            <span>{m.workbenchLabel}</span>
+            <span>{m.workbenchHint}</span>
+          </div>
+          <RoutingDemo />
+        </section>
+
+        <section
+          className="rp-wrap rp-native-section"
+          id="quickstart"
+          aria-labelledby="native-title"
+        >
           <div className="rp-section-copy">
             <p className="rp-eyebrow">{m.nativeLabel}</p>
-            <h2>{m.nativeTitle}</h2>
+            <h2 id="native-title">{m.nativeTitle}</h2>
             <p className="rp-body-copy">{m.nativeDescription}</p>
-            <ul className="rp-native-points">
-              <li>
-                <Check size={16} />
-                {m.nativeProtocol}
-              </li>
-              <li>
-                <Check size={16} />
-                {m.streamProtocol}
-              </li>
-            </ul>
-            <Button
-              onPress={() => setDocs(true)}
-              variant="light"
-              className="rp-text-link"
-              endContent={<ArrowUpRight size={16} />}
-            >
-              {m.modelLink}
-            </Button>
+            <ol className="rp-connection-steps">
+              {[
+                [m.stepOne, m.stepOneDetail],
+                [m.stepTwo, m.stepTwoDetail],
+                [m.stepThree, m.stepThreeDetail],
+              ].map(([title, description], index) => (
+                <li key={title}>
+                  <span className="rp-step-number">0{index + 1}</span>
+                  <div>
+                    <h3>{title}</h3>
+                    <p>{description}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
           </div>
           <div className="rp-sdk-panel">
+            <div className="rp-sdk-heading">
+              <Braces size={18} />
+              <span>{m.integrationNav}</span>
+              <span className="rp-sdk-language">TypeScript</span>
+            </div>
             <Tabs
               role="group"
               aria-label={t.provider}
               selectedKey={provider}
-              onSelectionChange={(k) => setProvider(String(k))}
+              onSelectionChange={(key) => setProvider(String(key))}
               variant="underlined"
               color="primary"
               classNames={{
-                tabList: "gap-7 p-0 mb-5",
-                tab: "px-0",
+                base: "rp-sdk-tabs",
+                tabList: "gap-6 p-0",
+                tab: "h-12 px-0",
                 cursor: "w-full",
               }}
             >
@@ -236,70 +261,70 @@ export function Marketing() {
               <Tab key="anthropic" title={t.anthropic} />
             </Tabs>
             <CodeBlock label={m.codeFile} code={sdkCode(provider)} tone="ink" />
-            <p className="rp-code-hint">{t.integrationBody}</p>
+            <p className="rp-code-hint">
+              <Check size={14} aria-hidden="true" />
+              {t.integrationBody}
+            </p>
           </div>
         </section>
-        <section className="rp-capabilities">
+
+        <section
+          className="rp-capabilities"
+          aria-labelledby="capabilities-title"
+        >
           <div className="rp-wrap">
             <div className="rp-capabilities-heading">
               <div>
                 <p className="rp-eyebrow">{m.capabilitiesLabel}</p>
-                <h2>{m.capabilitiesTitle}</h2>
+                <h2 id="capabilities-title">{m.capabilitiesTitle}</h2>
               </div>
               <p className="rp-body-copy">{m.capabilitiesDescription}</p>
             </div>
             <div className="rp-capability-grid">
-              <article className="rp-routing-feature">
-                <Route size={23} strokeWidth={1.4} />
-                <h3>{m.routingTitle}</h3>
-                <p>{m.routingDescription}</p>
-                <div
-                  className="rp-routing-path"
-                  role="group"
-                  aria-label={m.routingCaption}
-                >
-                  <div>
-                    <Braces size={20} />
-                    <span>{m.routingFrom}</span>
-                  </div>
-                  <span className="rp-path-line">
-                    <ArrowRight size={15} />
-                  </span>
-                  <div className="rp-path-core">
-                    <Layers3 size={24} strokeWidth={1.4} />
-                    <span>{t.brand}</span>
-                  </div>
-                  <span className="rp-path-line">
-                    <ArrowRight size={15} />
-                  </span>
-                  <div>
-                    <Route size={20} />
-                    <span>{m.routingTo}</span>
-                  </div>
-                </div>
-                <p className="rp-feature-detail">{m.routingCaption}</p>
-              </article>
-              <div className="rp-side-features">
-                <article>
-                  <Activity size={21} strokeWidth={1.4} />
-                  <div>
-                    <h3>{m.walletTitle}</h3>
-                    <p>{m.walletDescription}</p>
-                    <p className="rp-feature-detail">{m.walletDetail}</p>
-                  </div>
-                </article>
-                <article>
-                  <KeyRound size={21} strokeWidth={1.4} />
-                  <div>
-                    <h3>{m.keysTitle}</h3>
-                    <p>{m.keysDescription}</p>
-                    <p className="rp-feature-detail">{m.keysDetail}</p>
-                  </div>
-                </article>
-              </div>
+              {capabilities.map(
+                ({ number, icon: Icon, title, description, detail }) => (
+                  <article key={number}>
+                    <div className="rp-capability-top">
+                      <span>{number}</span>
+                      <Icon size={24} strokeWidth={1.4} />
+                    </div>
+                    <h3>{title}</h3>
+                    <p>{description}</p>
+                    <span className="rp-feature-detail">{detail}</span>
+                  </article>
+                ),
+              )}
             </div>
           </div>
         </section>
+
+        <section className="rp-source-section" aria-labelledby="source-title">
+          <div className="rp-wrap rp-source-grid">
+            <div>
+              <p className="rp-eyebrow">
+                <Github size={15} aria-hidden="true" />
+                {m.sourceLabel}
+              </p>
+              <h2 id="source-title">{m.sourceTitle}</h2>
+            </div>
+            <div className="rp-source-aside">
+              <p>{m.sourceDescription}</p>
+              <a
+                href={GITHUB_REPOSITORY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t.githubSourceNewTab}
+              >
+                {m.sourceCta}
+                <ArrowUpRight size={19} />
+              </a>
+              <span className="rp-source-license">
+                MIT LICENSE <span aria-hidden="true">/</span> GITHUB
+              </span>
+            </div>
+          </div>
+        </section>
+
         <section className="rp-wrap rp-final-cta">
           <div>
             <h2>{m.startTitle}</h2>
@@ -319,32 +344,33 @@ export function Marketing() {
         <div className="rp-wrap">
           <div className="rp-footer-main">
             <Brand />
-            <div className="rp-footer-links">
-              <p>{m.footerTagline}</p>
-              <Link
-                href={GITHUB_REPOSITORY_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                color="foreground"
-                underline="hover"
-                className="rp-footer-source"
-                aria-label={t.githubSourceNewTab}
-              >
-                <Github size={15} strokeWidth={1.7} aria-hidden="true" />
-                {t.githubSource}
-                <ArrowUpRight size={13} aria-hidden="true" />
-              </Link>
-            </div>
+            <p>{m.footerTagline}</p>
+            <a href="#top">
+              {m.backTop}
+              <ArrowUp size={15} />
+            </a>
           </div>
           <div className="rp-footer-bottom">
             <p>{t.copyright}</p>
-            <p>{t.providerNote}</p>
+            <div>
+              <button type="button" onClick={() => setDocs(true)}>
+                {t.integration}
+              </button>
+              <a
+                href={GITHUB_REPOSITORY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={t.githubSourceNewTab}
+              >
+                GitHub
+                <ArrowUpRight size={12} />
+              </a>
+              <span>{t.providerNote}</span>
+            </div>
           </div>
         </div>
       </footer>
-      {auth && (
-        <AuthModal onClose={() => setAuth(false)} />
-      )}
+      {auth && <AuthModal onClose={() => setAuth(false)} />}
       {docs && <Integration onClose={() => setDocs(false)} />}
     </div>
   );

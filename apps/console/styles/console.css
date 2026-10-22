@@ -1,39 +1,62 @@
 .rp-console-shell,
 .rp-console-mobile-menu {
-  --rp-console-line: hsl(var(--heroui-default-200) / 0.75);
-  --rp-console-muted: hsl(var(--heroui-default-500));
-  --rp-console-faint: hsl(var(--heroui-default-500));
-  --rp-console-surface: #f8f9f9;
+  --rp-console-line: var(--rp-line);
+  --rp-console-muted: var(--rp-muted);
+  --rp-console-faint: var(--rp-muted);
+  --rp-console-surface: var(--rp-surface);
 }
 .rp-console-shell {
   display: flex;
   height: 100dvh;
   overflow: hidden;
-  background: hsl(var(--heroui-background));
-}
-.dark .rp-console-shell,
-.dark .rp-console-mobile-menu {
-  --rp-console-surface: #111918;
+  background: var(--rp-paper);
+  color: var(--rp-ink);
 }
 .rp-console-sidebar {
-  width: 238px;
+  width: 224px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--rp-console-surface);
-  border-right: 1px solid var(--rp-console-line);
+  background: #202521;
+  color: #f1f2ed;
+  border-right: 1px solid #353b35;
 }
 .rp-console-brand {
-  height: 74px;
+  min-height: 94px;
   display: flex;
-  align-items: center;
-  padding: 0 26px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 7px;
+  padding: 20px 23px 16px;
+}
+.rp-console-brand .rp-brand,
+.rp-console-drawer-header .rp-brand {
+  color: #f5f5ee;
+  font-size: 20px;
+}
+.rp-console-brand .rp-brand-mark,
+.rp-console-drawer-header .rp-brand-mark {
+  background: #d7e7c8;
+  color: #202521;
+  box-shadow: none;
+}
+.rp-console-edition {
+  margin-left: 41px;
+  color: #adb6a9;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 }
 .rp-console-sidebar-inner {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px 16px;
+  padding: 10px 12px 18px;
+  scrollbar-width: thin;
+  scrollbar-color: #586153 transparent;
 }
 .rp-console-navigation {
   display: flex;
@@ -44,118 +67,124 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  margin: 0 4px 29px;
+  margin: 0 3px 27px;
   padding: 13px 10px;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 9px;
-  background: hsl(var(--heroui-background));
-  box-shadow: 0 1px 2px #10221a03;
+  border: 1px solid #41483f;
+  border-radius: 6px;
+  background: #292f29;
 }
 .rp-console-workspace-monogram {
-  display: grid;
-  place-items: center;
   flex: 0 0 30px;
   height: 30px;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 7px;
-  background: var(--rp-console-surface);
-  font-size: 12px;
-  font-weight: 600;
+  display: grid;
+  place-items: center;
+  border: 1px solid #58604f;
+  border-radius: 4px;
+  background: #343d2e;
+  color: #d5e7bf;
+  font-size: 13px;
+  font-weight: 550;
 }
 .rp-console-workspace p {
-  font-size: 12px;
-  font-weight: 550;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: #f3f4ee;
 }
 .rp-console-workspace span {
   display: block;
+  color: #afb7a9;
   margin-top: 3px;
-  color: var(--rp-console-muted);
-  font-size: 11px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rp-console-nav-label {
   padding: 0 13px;
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 550;
-  letter-spacing: 0.035em;
-  color: var(--rp-console-faint);
+  margin: 0 0 9px;
+  color: #acb6a8;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 .rp-console-nav-item {
   width: 100%;
   justify-content: flex-start;
-  height: 41px;
-  min-height: 41px;
-  padding: 0 13px;
-  margin-bottom: 3px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 12px;
+  margin-bottom: 4px;
   border: 1px solid transparent;
-  border-radius: 7px;
-  font-size: 12px;
-  font-weight: 450;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 400;
   gap: 11px;
-  color: hsl(var(--heroui-default-600));
+  color: #c4cbbf;
 }
 .rp-console-nav-item svg {
   flex-shrink: 0;
 }
+.rp-console-nav-item:hover {
+  color: #fff;
+  background: #30372f;
+}
 .rp-console-nav-item.is-active {
-  background: hsl(var(--heroui-background));
-  border-color: var(--rp-console-line);
-  color: hsl(var(--heroui-foreground));
-  box-shadow: 0 1px 3px #101b1505;
-  font-weight: 550;
+  background: #3d4934;
+  color: #edf6e4;
+  font-weight: 500;
+  border-color: #516044;
 }
 .rp-console-nav-indicator {
-  width: 4px;
-  height: 4px;
-  background: hsl(var(--heroui-primary));
-  border-radius: 50%;
   margin-left: auto;
+  color: #c7e3ad;
 }
 .rp-console-operations-label {
   margin-top: 30px;
 }
 .rp-console-account {
   margin-top: auto;
-  padding: 30px 5px 0;
+  padding: 32px 3px 0;
 }
 .rp-console-source {
   min-height: 44px;
-  margin-bottom: 9px;
-  color: var(--rp-console-muted);
+  margin-bottom: 10px;
+  color: #aeb8a9;
 }
 .rp-console-user-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 7px 9px;
-  border-top: 1px solid var(--rp-console-line);
+  padding: 18px 8px 12px;
+  border-top: 1px solid #41483d;
 }
 .rp-console-avatar {
   display: grid;
   place-items: center;
   flex: 0 0 30px;
   height: 30px;
-  background: hsl(var(--heroui-default-100));
-  border: 1px solid var(--rp-console-line);
+  background: #353b31;
+  border: 1px solid #59614f;
   border-radius: 50%;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  color: #d8e3ce;
 }
 .rp-console-user-row p {
-  font-size: 11px;
-  font-weight: 550;
+  color: #e1e6dc;
+  font-size: 12px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .rp-console-user-row div > span {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 3px;
-  color: var(--rp-console-muted);
+  color: #b1baa9;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -165,10 +194,14 @@
   height: 38px;
   min-height: 38px;
   justify-content: flex-start;
-  color: var(--rp-console-muted);
-  font-size: 11px;
-  gap: 12px;
+  color: #b6bfae;
+  font-size: 12px;
+  gap: 11px;
   padding-left: 10px;
+}
+.rp-console-signout:hover {
+  background: #30372f;
+  color: #fff;
 }
 .rp-console-main {
   flex: 1;
@@ -177,36 +210,41 @@
   flex-direction: column;
 }
 .rp-console-topbar {
-  height: 65px;
-  min-height: 65px;
+  height: 64px;
+  min-height: 64px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 36px;
-  border-bottom: 1px solid var(--rp-console-line);
+  border-bottom: 1px solid var(--rp-line);
+  background: var(--rp-surface);
 }
 .rp-console-breadcrumb {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 11px;
+  gap: 13px;
+  font-size: 12px;
 }
 .rp-console-project {
-  color: var(--rp-console-muted);
+  color: var(--rp-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 220px;
 }
 .rp-console-current-page {
   font-weight: 500;
   white-space: nowrap;
 }
 .rp-console-breadcrumb-divider {
-  color: var(--rp-console-faint);
+  color: var(--rp-muted);
+  flex-shrink: 0;
 }
 .rp-console-topbar-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
 }
 .rp-console-topbar-actions button,
 .rp-console-topbar-actions a {
@@ -216,9 +254,9 @@
 }
 .rp-console-topbar-separator {
   width: 1px;
-  height: 15px;
-  background: var(--rp-console-line);
-  margin: 0 9px;
+  height: 16px;
+  background: var(--rp-line);
+  margin: 0 10px;
 }
 .rp-console-mobile-brand {
   display: none;
@@ -226,7 +264,7 @@
 .rp-console-content {
   flex: 1;
   overflow: auto;
-  padding: 37px 40px 42px;
+  padding: 36px 36px 44px;
 }
 .rp-console-content-inner {
   max-width: 1440px;
@@ -237,34 +275,43 @@
   flex-shrink: 0;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 36px;
-  border-top: 1px solid var(--rp-console-line);
-  font-size: 11px;
-  color: var(--rp-console-faint);
+  padding: 11px 36px;
+  border-top: 1px solid var(--rp-line);
+  font-size: 12px;
+  color: var(--rp-muted);
+  background: var(--rp-surface);
 }
 .rp-console-footer > span {
   display: flex;
   align-items: center;
   gap: 7px;
 }
-.rp-console-footer-brand {
-  color: var(--rp-console-muted);
-}
 .rp-console-footer-brand > span {
-  color: var(--rp-console-faint);
   margin: 0 4px;
+  opacity: 0.55;
+}
+.rp-console-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
 }
 .rp-console-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid var(--rp-console-line);
-  border-radius: 10px;
-  margin-bottom: 30px;
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
   overflow: hidden;
+  margin-bottom: 24px;
+  background: var(--rp-surface);
 }
 .rp-console-metric {
-  padding: 22px 23px 20px;
-  border-right: 1px solid var(--rp-console-line);
+  min-width: 0;
+  padding: 22px 24px;
+  border-right: 1px solid var(--rp-line);
+  transition: background 0.16s;
+}
+.rp-console-metric:hover {
+  background: var(--rp-paper);
 }
 .rp-console-metric:last-child {
   border-right: 0;
@@ -274,65 +321,325 @@
   align-items: center;
   justify-content: space-between;
   gap: 9px;
-  font-size: 11px;
-  color: var(--rp-console-muted);
+  font-size: 12px;
+  color: var(--rp-muted);
 }
 .rp-console-metric-label svg {
-  color: var(--rp-console-faint);
+  opacity: 0.8;
 }
 .rp-console-metric-value {
-  margin: 13px 0 11px;
-  font-size: clamp(24px, 2vw, 30px);
-  line-height: 1.2;
-  font-weight: 500;
-  letter-spacing: -0.055em;
+  margin: 17px 0 15px;
+  font-size: clamp(23px, 2.35vw, 34px);
+  line-height: 1.1;
+  font-weight: 450;
+  letter-spacing: -0.05em;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .rp-console-metric-help {
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--rp-console-faint);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--rp-muted);
+}
+.rp-console-metric-help svg {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+.rp-console-metric:hover .rp-console-metric-help svg {
+  opacity: 1;
 }
 .rp-console-eyebrow {
-  font-size: 11px;
-  font-weight: 550;
-  letter-spacing: 0.1em;
-  color: var(--rp-console-muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.075em;
+  color: var(--rp-muted);
   text-transform: uppercase;
+}
+.rp-console-observation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.rp-console-activity-panel {
+  min-width: 0;
+  padding: 25px 26px 0;
+  background: #202521;
+  color: #f3f5ef;
+  border: 1px solid #394037;
+  border-radius: 8px;
+}
+.rp-console-activity-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rp-console-activity-panel .rp-console-eyebrow {
+  color: #b6c0ad;
+}
+.rp-console-activity-heading h2 {
+  font-size: 19px;
+  font-weight: 450;
+  letter-spacing: -0.035em;
+  margin-top: 9px;
+}
+.rp-console-data-label {
+  font-family: var(--font-geist-mono), monospace;
+  white-space: nowrap;
+  color: #b6c0ad;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  padding-top: 2px;
+}
+.rp-console-activity-totals {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 21px;
+}
+.rp-console-activity-totals strong {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 28px;
+  font-weight: 400;
+  letter-spacing: -0.06em;
+}
+.rp-console-activity-totals > span {
+  font-size: 12px;
+  color: #bdc6b6;
+}
+.rp-console-activity-chart {
+  position: relative;
+  height: 110px;
+  margin-top: 17px;
+}
+.rp-console-chart-grid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.rp-console-chart-grid > span {
+  border-top: 1px dashed #444d3f;
+  width: 100%;
+}
+.rp-console-chart-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 5px;
+  padding: 0 1px;
+}
+.rp-console-chart-column {
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 0;
+  max-width: 26px;
+  height: 100%;
+  position: relative;
+}
+.rp-console-chart-column > span {
+  width: 100%;
+  background: #c7e3ad;
+  border-radius: 2px 2px 0 0;
+  opacity: 0.9;
+  min-height: 3px;
+}
+.rp-console-chart-column:hover > span {
+  opacity: 1;
+  background: #e2f6cf;
+}
+.rp-console-chart-column.has-error > span {
+  background: #eb8c6e;
+}
+.rp-console-chart-column.is-unknown > span {
+  background: transparent;
+  border: 1px solid #a1ad96;
+  border-radius: 2px;
+}
+.rp-console-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  color: #b5bfae;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  margin-top: 9px;
+}
+.rp-console-chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 150px;
+  padding: 15px 0;
+  color: #aebfa3;
+}
+.rp-console-chart-empty p {
+  color: #edf3e6;
+  font-size: 14px;
+  margin-top: 11px;
+}
+.rp-console-chart-empty > span {
+  color: #b6c1ad;
+  font-size: 12px;
+  margin-top: 5px;
+}
+.rp-console-activity-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+  border-top: 1px solid #424a3d;
+  margin-top: 19px;
+  padding: 15px 0;
+  font-size: 12px;
+  color: #c3cdbb;
+}
+.rp-console-activity-footer > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.rp-console-activity-footer i {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: #c7e3ad;
+}
+.rp-console-activity-footer i.is-error {
+  background: #eb8c6e;
+}
+.rp-console-activity-footer i.is-unknown {
+  background: transparent;
+  border: 1px solid #a1ad96;
+}
+.rp-console-activity-footer a {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  color: #edf6e4;
+}
+.rp-console-developer-panel {
+  min-width: 0;
+  padding: 25px 26px;
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
+  background: var(--rp-surface);
+}
+.rp-console-panel-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--rp-muted);
+}
+.rp-console-developer-panel h2,
+.rp-console-routing-explainer > h2 {
+  font-size: 22px;
+  font-weight: 450;
+  line-height: 1.35;
+  letter-spacing: -0.035em;
+  margin: 13px 0 10px;
+}
+.rp-console-panel-description {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--rp-muted);
+}
+.rp-console-endpoint-list {
+  margin: 20px 0 0;
+}
+.rp-console-endpoint {
+  border-top: 1px solid var(--rp-line);
+  padding: 5px 0 12px;
+}
+.rp-console-endpoint > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rp-console-endpoint span {
+  font-size: 12px;
+  font-weight: 500;
+}
+.rp-console-endpoint button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+}
+.rp-console-endpoint code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--rp-muted);
+}
+.rp-console-model-count {
+  border-top: 1px solid var(--rp-line);
+  padding-top: 17px;
+  margin-top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--rp-muted);
+  font-size: 12px;
+}
+.rp-console-model-count strong {
+  margin-left: auto;
+  color: var(--rp-ink);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 15px;
+  font-weight: 400;
+}
+.rp-console-model-count:hover {
+  color: var(--rp-accent);
 }
 .rp-console-setup {
   display: grid;
-  grid-template-columns: 1fr 1.15fr;
-  margin: 0 0 36px;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 10px;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  margin: 0 0 30px;
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
+  background: var(--rp-surface);
   overflow: hidden;
 }
 .rp-console-setup-intro {
-  padding: 27px 28px;
-  background: var(--rp-console-surface);
-  border-right: 1px solid var(--rp-console-line);
+  padding: 25px 27px;
+  border-right: 1px solid var(--rp-line);
 }
 .rp-console-setup-intro h2 {
-  font-size: 23px;
-  max-width: 290px;
-  font-weight: 500;
+  font-size: 22px;
+  max-width: 300px;
+  font-weight: 450;
   letter-spacing: -0.04em;
   line-height: 1.3;
-  margin-top: 12px;
+  margin-top: 11px;
 }
 .rp-console-setup-description {
-  max-width: 340px;
-  font-size: 11px;
-  line-height: 1.8;
-  color: var(--rp-console-muted);
-  margin-top: 12px;
+  max-width: 350px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--rp-muted);
+  margin-top: 10px;
 }
 .rp-console-setup-progress {
-  margin-top: 22px;
+  margin-top: 21px;
   display: flex;
   align-items: center;
-  gap: 11px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .rp-console-setup-progress-track {
   display: flex;
@@ -341,19 +648,17 @@
 .rp-console-setup-progress-track span {
   width: 23px;
   height: 3px;
-  background: hsl(var(--heroui-default-200));
-  border-radius: 2px;
+  background: var(--rp-line);
 }
 .rp-console-setup-progress-track span.is-complete {
-  background: hsl(var(--heroui-primary));
+  background: var(--rp-accent);
 }
 .rp-console-setup-progress > span {
-  font-size: 11px;
-  color: var(--rp-console-muted);
-  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--rp-muted);
 }
 .rp-console-setup-steps {
-  padding: 12px 24px;
+  padding: 8px 24px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -361,281 +666,259 @@
 .rp-console-setup-step {
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-height: 70px;
+  gap: 13px;
+  min-height: 67px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--rp-console-line);
+  border-bottom: 1px solid var(--rp-line);
 }
 .rp-console-setup-step:last-child {
   border-bottom: 0;
 }
 .rp-console-setup-step > svg {
   margin-left: auto;
-  color: var(--rp-console-faint);
+  color: var(--rp-muted);
   transition: transform 0.15s;
   flex-shrink: 0;
 }
 .rp-console-setup-step:hover > svg {
   transform: translateX(3px);
-  color: hsl(var(--heroui-foreground));
+  color: var(--rp-accent);
 }
 .rp-console-step-index {
   flex: 0 0 28px;
   height: 28px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 50%;
-  font-size: 11px;
-  color: var(--rp-console-muted);
-  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--rp-line);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--rp-muted);
+  font-family: var(--font-geist-mono), monospace;
 }
 .is-complete > .rp-console-step-index {
-  color: hsl(var(--heroui-success));
-  background: hsl(var(--heroui-success) / 0.07);
-  border-color: hsl(var(--heroui-success) / 0.14);
+  color: var(--rp-positive);
+  background: var(--rp-positive-soft);
+  border-color: transparent;
 }
 .rp-console-setup-step p {
-  font-size: 11px;
-  font-weight: 550;
+  font-size: 13px;
+  font-weight: 500;
 }
 .rp-console-setup-step div > span {
   display: block;
-  color: var(--rp-console-muted);
-  font-size: 11px;
-  line-height: 1.6;
+  color: var(--rp-muted);
+  font-size: 12px;
+  line-height: 1.5;
   margin-top: 4px;
-}
-.rp-console-overview-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 290px;
-  gap: 25px;
-  align-items: start;
 }
 .rp-console-section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 14px;
-  margin-bottom: 18px;
+  margin-bottom: 17px;
 }
 .rp-console-section-heading h2,
 .rp-console-table-title {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.rp-console-section-heading p:not(.rp-console-eyebrow) {
   font-size: 13px;
-  font-weight: 550;
-  letter-spacing: -0.015em;
-}
-.rp-console-section-heading p {
-  font-size: 11px;
   margin-top: 5px;
-  color: var(--rp-console-muted);
+  color: var(--rp-muted);
 }
-.rp-console-section-heading button,
-.rp-console-section-heading a {
-  font-size: 11px;
+.rp-console-section-heading .rp-console-eyebrow + h2 {
+  margin-top: 7px;
 }
-.rp-console-developer-panel {
-  padding: 22px;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 10px;
-  background: var(--rp-console-surface);
-}
-.rp-console-resource-icon {
-  display: flex;
-  align-items: center;
-  width: 34px;
-  height: 34px;
+.rp-console-table-title {
   margin-bottom: 17px;
-  color: hsl(var(--heroui-default-600));
 }
-.rp-console-developer-panel h2,
-.rp-console-routing-explainer > h2 {
-  font-size: 18px;
-  font-weight: 500;
-  line-height: 1.35;
-  letter-spacing: -0.035em;
-  margin: 10px 0;
-}
-.rp-console-panel-description {
-  font-size: 11px;
-  line-height: 1.8;
-  color: var(--rp-console-muted);
-}
-.rp-console-endpoint-list {
-  margin: 18px 0;
-}
-.rp-console-endpoint {
-  border-top: 1px solid var(--rp-console-line);
-  padding: 9px 0;
-}
-.rp-console-endpoint > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.rp-console-endpoint span {
-  font-size: 11px;
-  font-weight: 500;
-}
-.rp-console-endpoint button {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-}
-.rp-console-endpoint code {
-  display: block;
-  word-break: break-all;
-  font-size: 11px;
-  line-height: 1.8;
-  color: var(--rp-console-muted);
-}
-.rp-console-developer-panel > button {
-  font-size: 11px;
-  height: 37px;
-}
-.rp-console-model-count {
-  border-top: 1px solid var(--rp-console-line);
-  padding-top: 17px;
-  margin-top: 22px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--rp-console-muted);
-  font-size: 11px;
-}
-.rp-console-model-count strong {
-  margin-left: auto;
-  font-size: 11px;
-  color: hsl(var(--heroui-foreground));
-  font-weight: 500;
+.rp-console-table-title-spaced,
+.rp-console-section-heading-spaced {
+  margin-top: 32px;
 }
 .rp-console-search {
   margin-bottom: 20px;
 }
+.rp-console-resource-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 27px;
+  padding: 0 24px;
+  background: var(--rp-surface);
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
+}
+.rp-console-resource-summary > div {
+  padding: 20px 0;
+}
+.rp-console-resource-summary > div > span {
+  display: block;
+  color: var(--rp-muted);
+  font-size: 12px;
+}
+.rp-console-resource-summary strong {
+  display: block;
+  font-weight: 450;
+  font-size: 29px;
+  letter-spacing: -0.05em;
+  margin-top: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.rp-console-resource-summary small {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  color: var(--rp-muted);
+  margin-left: 6px;
+}
+.rp-console-key-guide {
+  margin-top: 30px;
+  border-top: 1px solid var(--rp-line);
+  padding-top: 26px;
+}
+.rp-console-usage-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.rp-console-usage-toolbar .rp-console-search {
+  margin: 0;
+  flex: 1;
+  min-width: 200px;
+  max-width: 370px;
+}
+.rp-console-segmented {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--rp-line);
+  border-radius: 6px;
+  background: var(--rp-surface);
+}
+.rp-console-segmented > button {
+  color: var(--rp-muted);
+  min-width: 0;
+  height: 33px;
+  padding: 0 13px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.rp-console-segmented > button[aria-pressed="true"] {
+  color: var(--rp-ink);
+  background: var(--rp-paper);
+  box-shadow: 0 0 0 1px var(--rp-line);
+}
+.rp-console-table-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--rp-muted);
+  margin-top: 14px;
+}
 .rp-console-billing-summary {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 10px;
-  overflow: hidden;
-  margin-bottom: 34px;
+  gap: 24px;
+  margin-bottom: 32px;
 }
 .rp-console-wallet {
-  padding: 28px 30px;
-  border-right: 1px solid var(--rp-console-line);
-  background: var(--rp-console-surface);
+  padding: 27px 30px;
+  border: 1px solid #3c4537;
+  border-radius: 8px;
+  background: #202521;
+  color: #f3f6ed;
 }
 .rp-console-wallet-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
+.rp-console-wallet .rp-console-eyebrow {
+  color: #bbc7b2;
+}
 .rp-console-currency {
-  font-size: 11px;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 4px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  border: 1px solid #57634f;
+  border-radius: 3px;
   padding: 3px 7px;
-  color: var(--rp-console-muted);
+  color: #c7d2bc;
 }
 .rp-console-wallet-label {
-  font-size: 11px;
-  color: var(--rp-console-muted);
-  margin-top: 25px;
+  font-size: 12px;
+  color: #c5cfbc;
+  margin-top: 30px;
 }
 .rp-console-wallet-value {
-  font-size: 45px;
-  line-height: 1.2;
-  font-weight: 450;
-  letter-spacing: -0.06em;
+  font-size: 50px;
+  line-height: 1.1;
+  font-weight: 400;
+  letter-spacing: -0.065em;
   font-variant-numeric: tabular-nums;
-  margin: 9px 0 24px;
+  margin: 9px 0 29px;
+  overflow-wrap: anywhere;
 }
 .rp-console-wallet-reserved {
-  padding-top: 17px;
-  border-top: 1px solid var(--rp-console-line);
+  padding-top: 18px;
+  border-top: 1px solid #46503f;
 }
 .rp-console-wallet-reserved > div {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 11px;
+  font-size: 12px;
 }
 .rp-console-wallet-reserved span {
-  color: var(--rp-console-muted);
+  color: #bcc8b2;
 }
 .rp-console-wallet-reserved strong {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-geist-mono), monospace;
+  font-weight: 400;
 }
 .rp-console-wallet-reserved p {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
-  margin-top: 7px;
-  color: var(--rp-console-faint);
+  margin-top: 9px;
+  color: #b7c3ac;
 }
 .rp-console-accounting-note {
-  padding: 28px 30px;
+  padding: 27px 30px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   flex-direction: column;
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
+  background: var(--rp-surface);
 }
 .rp-console-accounting-icon {
-  color: var(--rp-console-muted);
-  margin-bottom: 18px;
+  color: var(--rp-accent);
+  margin-bottom: 20px;
 }
 .rp-console-accounting-note h2 {
-  font-size: 17px;
-  font-weight: 500;
-  letter-spacing: -0.025em;
-  margin: 9px 0;
+  font-size: 23px;
+  font-weight: 450;
+  letter-spacing: -0.035em;
+  margin: 9px 0 13px;
 }
 .rp-console-accounting-note > p:not(.rp-console-eyebrow) {
   max-width: 400px;
-  color: var(--rp-console-muted);
-  font-size: 11px;
-  line-height: 1.8;
+  color: var(--rp-muted);
+  font-size: 13px;
+  line-height: 1.75;
 }
-.rp-console-accounting-note > button {
-  margin-top: 18px;
-  font-size: 11px;
-}
-.rp-console-table-title {
-  margin-bottom: 18px;
-}
-.rp-console-table-title-spaced,
-.rp-console-section-heading-spaced {
-  margin-top: 32px;
-}
-.rp-console-resource-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin: 0 0 32px;
-  border-top: 1px solid var(--rp-console-line);
-  border-bottom: 1px solid var(--rp-console-line);
-}
-.rp-console-resource-summary > div {
-  padding: 18px 0;
-}
-.rp-console-resource-summary > div > span {
-  display: block;
-  color: var(--rp-console-muted);
-  font-size: 11px;
-}
-.rp-console-resource-summary strong {
-  display: block;
-  font-weight: 450;
-  font-size: 26px;
-  letter-spacing: -0.04em;
-  margin-top: 7px;
-  font-variant-numeric: tabular-nums;
-}
-.rp-console-resource-summary small {
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: normal;
-  color: var(--rp-console-faint);
-  margin-left: 4px;
+.rp-console-accounting-note > button,
+.rp-console-accounting-note > a {
+  margin-top: 22px;
 }
 .rp-console-inline-note {
   display: flex;
@@ -644,20 +927,20 @@
   margin-top: 25px;
   padding-top: 24px;
   max-width: 750px;
-  color: var(--rp-console-muted);
+  color: var(--rp-muted);
 }
 .rp-console-inline-note > svg {
   margin-top: 1px;
   flex-shrink: 0;
 }
 .rp-console-inline-note h2 {
-  font-size: 12px;
-  color: hsl(var(--heroui-foreground));
+  font-size: 14px;
+  color: var(--rp-ink);
   font-weight: 500;
 }
 .rp-console-inline-note p {
-  font-size: 11px;
-  line-height: 1.8;
+  font-size: 13px;
+  line-height: 1.75;
   margin-top: 6px;
 }
 .rp-console-filter-row {
@@ -673,8 +956,9 @@
   align-items: start;
 }
 .rp-console-routing-main {
-  border: 1px solid var(--rp-console-line);
-  border-radius: 10px;
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
+  background: var(--rp-surface);
 }
 .rp-console-routing-section {
   padding: 26px;
@@ -688,17 +972,17 @@
 .rp-console-setting-icon {
   flex-shrink: 0;
   padding-top: 1px;
-  color: var(--rp-console-muted);
+  color: var(--rp-muted);
 }
 .rp-console-setting-header h2 {
-  font-size: 13px;
-  font-weight: 550;
+  font-size: 15px;
+  font-weight: 500;
 }
 .rp-console-setting-header p {
-  font-size: 11px;
-  line-height: 1.8;
+  font-size: 13px;
+  line-height: 1.75;
   margin-top: 6px;
-  color: var(--rp-console-muted);
+  color: var(--rp-muted);
 }
 .rp-console-strategy-options {
   gap: 9px;
@@ -707,23 +991,23 @@
   max-width: none;
   margin: 0;
   padding: 14px 15px;
-  border: 1px solid var(--rp-console-line);
-  border-radius: 7px;
+  border: 1px solid var(--rp-line);
+  border-radius: 6px;
   transition:
     border-color 0.15s,
     background 0.15s;
 }
 .rp-console-strategy-option[data-selected="true"] {
-  border-color: hsl(var(--heroui-primary) / 0.45);
-  background: hsl(var(--heroui-primary) / 0.03);
+  border-color: var(--rp-accent);
+  background: hsl(var(--heroui-primary) / 0.04);
 }
 .rp-console-limits-section {
-  border-top: 1px solid var(--rp-console-line);
+  border-top: 1px solid var(--rp-line);
 }
 .rp-console-routing-explainer {
-  border: 1px solid var(--rp-console-line);
-  border-radius: 10px;
-  background: var(--rp-console-surface);
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
+  background: var(--rp-surface);
   padding: 26px;
 }
 .rp-console-routing-flow {
@@ -739,39 +1023,39 @@
   height: 32px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--rp-console-line);
-  background: hsl(var(--heroui-background));
-  border-radius: 7px;
+  border: 1px solid var(--rp-line);
+  background: var(--rp-paper);
+  border-radius: 5px;
   flex-shrink: 0;
 }
 .rp-console-routing-flow-step h3 {
-  font-size: 11px;
-  font-weight: 550;
+  font-size: 13px;
+  font-weight: 500;
 }
 .rp-console-routing-flow-step p {
-  font-size: 11px;
-  line-height: 1.7;
-  color: var(--rp-console-muted);
-  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--rp-muted);
+  margin-top: 4px;
 }
 .rp-console-routing-flow-arrow {
   margin: 11px 0 11px 8px;
-  color: var(--rp-console-faint);
+  color: var(--rp-muted);
 }
 .rp-console-routing-note {
   display: flex;
   gap: 9px;
   padding-top: 18px;
-  border-top: 1px solid var(--rp-console-line);
-  color: var(--rp-console-muted);
+  border-top: 1px solid var(--rp-line);
+  color: var(--rp-muted);
 }
 .rp-console-routing-note svg {
   flex-shrink: 0;
   margin-top: 3px;
 }
 .rp-console-routing-note p {
-  font-size: 11px;
-  line-height: 1.8;
+  font-size: 12px;
+  line-height: 1.75;
 }
 .rp-console-routing-submit {
   grid-column: 1/-1;
@@ -779,9 +1063,36 @@
 .rp-console-routing-submit > div {
   margin-bottom: 15px;
 }
+.rp-console-setup-step:focus-visible,
+.rp-console-metric:focus-visible,
+.rp-console-model-count:focus-visible {
+  outline: 2px solid var(--rp-accent);
+  outline-offset: 3px;
+}
+.rp-console-drawer-wrapper {
+  justify-content: flex-start;
+  align-items: stretch;
+}
+.rp-console-drawer {
+  margin: 0 !important;
+  width: min(320px, 90vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0 !important;
+  background: #202521 !important;
+  color: #f3f5ef !important;
+}
+.rp-console-drawer > button {
+  color: #e1e9d8;
+}
+.rp-console-drawer-header {
+  padding: 24px 22px;
+  border-bottom: 1px solid #41483f;
+}
 .rp-console-mobile-menu {
-  padding: 5px 18px 18px;
-  min-height: 65dvh;
+  padding: 20px 13px;
+  min-height: 0;
+  flex: 1;
 }
 .rp-console-mobile-menu .rp-console-navigation {
   flex: 1;
@@ -789,54 +1100,84 @@
 .rp-console-mobile-menu .rp-console-nav-item {
   min-height: 44px;
 }
-.rp-console-setup-step:focus-visible {
-  outline: 2px solid hsl(var(--heroui-primary));
-  outline-offset: 4px;
-  border-radius: 4px;
+.rp-console-loading {
+  min-height: 100dvh;
+  display: flex;
+  background: var(--rp-paper);
+}
+.rp-console-loading-rail {
+  width: 224px;
+  flex-shrink: 0;
+  padding: 32px 23px;
+  background: #202521;
+  color: #f3f5ef;
+}
+.rp-console-loading-rail .rp-brand-mark {
+  background: #d7e7c8;
+  color: #202521;
+}
+.rp-console-loading-nav {
+  display: grid;
+  gap: 22px;
+  margin-top: 75px;
+}
+.rp-console-loading-nav > span {
+  display: block;
+  height: 13px;
+  width: 75%;
+  border-radius: 3px;
+  background: #3c4437;
+}
+.rp-console-loading-nav > span:nth-child(even) {
+  width: 60%;
+}
+.rp-console-loading-content {
+  flex: 1;
+  min-width: 0;
+  padding: 104px 36px 40px;
 }
 @media (min-width: 1700px) {
   .rp-console-content {
-    padding-top: 45px;
+    padding-top: 44px;
   }
 }
-@media (max-width: 1199px) {
+@media (max-width: 1279px) {
   .rp-console-sidebar {
-    width: 218px;
+    width: 212px;
   }
   .rp-console-content {
-    padding: 30px 27px;
+    padding: 30px 26px 38px;
   }
   .rp-console-topbar {
-    padding: 0 27px;
-  }
-  .rp-console-overview-grid {
-    grid-template-columns: minmax(0, 1fr) 260px;
-    gap: 18px;
+    padding: 0 26px;
   }
   .rp-console-metric {
-    padding: 19px 16px;
+    padding: 20px 18px;
   }
-  .rp-console-metric-label {
-    font-size: 11px;
+  .rp-console-activity-heading {
+    flex-direction: column;
+    gap: 9px;
   }
-  .rp-console-metric-label svg {
+  .rp-console-observation-grid {
+    grid-template-columns: minmax(0, 1.3fr) minmax(270px, 1fr);
+    gap: 18px;
+  }
+  .rp-console-activity-panel,
+  .rp-console-developer-panel {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+  .rp-console-data-label {
     display: none;
-  }
-  .rp-console-setup-intro {
-    padding: 25px 22px;
-  }
-  .rp-console-setup-steps {
-    padding: 10px 18px;
-  }
-  .rp-console-routing-form {
-    grid-template-columns: minmax(0, 1fr) 270px;
-  }
-  .rp-console-routing-section,
-  .rp-console-routing-explainer {
-    padding: 21px;
   }
 }
 @media (max-width: 1023px) {
+  .rp-console-loading-rail {
+    display: none;
+  }
+  .rp-console-loading-content {
+    padding: 84px 26px 30px;
+  }
   .rp-console-sidebar {
     display: none;
   }
@@ -855,41 +1196,41 @@
     display: none;
   }
   .rp-console-content {
-    padding: 29px 27px 35px;
+    padding: 29px 26px 35px;
   }
   .rp-console-footer {
-    padding: 12px 27px;
+    padding: 12px 26px;
+  }
+  .rp-console-metric-value {
+    font-size: 29px;
   }
 }
 @media (max-width: 767px) {
-  .rp-console-overview-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 28px;
+  .rp-console-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+  .rp-console-metric:nth-child(2) {
+    border-right: 0;
+  }
+  .rp-console-metric:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--rp-line);
+  }
+  .rp-console-observation-grid {
+    grid-template-columns: 1fr;
+  }
+  .rp-console-activity-heading {
+    flex-direction: row;
+  }
+  .rp-console-data-label {
+    display: block;
   }
   .rp-console-developer-panel {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    column-gap: 24px;
-  }
-  .rp-console-resource-icon {
-    display: none;
-  }
-  .rp-console-developer-panel > .rp-console-eyebrow,
-  .rp-console-developer-panel > h2,
-  .rp-console-developer-panel > p,
-  .rp-console-developer-panel > button {
-    grid-column: 1;
+    padding: 24px;
   }
   .rp-console-endpoint-list {
-    grid-column: 2;
-    grid-row: 1/5;
-    margin: 0;
-  }
-  .rp-console-developer-panel > button {
-    margin-top: 17px;
-  }
-  .rp-console-model-count {
-    grid-column: 1/-1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
   }
   .rp-console-routing-form {
     grid-template-columns: minmax(0, 1fr);
@@ -900,26 +1241,28 @@
   .rp-console-billing-summary {
     grid-template-columns: 1fr;
   }
-  .rp-console-wallet {
-    border-right: 0;
-    border-bottom: 1px solid var(--rp-console-line);
-  }
   .rp-console-setup {
     grid-template-columns: 1fr;
   }
   .rp-console-setup-intro {
     border-right: 0;
-    border-bottom: 1px solid var(--rp-console-line);
+    border-bottom: 1px solid var(--rp-line);
   }
   .rp-console-setup-intro h2 {
     max-width: none;
+  }
+  .rp-console-setup-description {
+    max-width: none;
+  }
+  .rp-console-usage-toolbar {
+    gap: 13px;
   }
 }
 @media (max-width: 520px) {
   .rp-console-topbar {
     height: 62px;
     min-height: 62px;
-    padding: 0 11px;
+    padding: 0 10px;
   }
   .rp-console-topbar-actions {
     gap: 0;
@@ -934,93 +1277,106 @@
   .rp-console-topbar-actions > a {
     display: none;
   }
+  .rp-console-mobile-brand .rp-brand {
+    font-size: 18px;
+  }
   .rp-console-content {
-    padding: 25px 18px 30px;
+    padding: 25px 17px 30px;
   }
   .rp-console-footer {
-    padding: 11px 18px;
-    font-size: 11px;
+    padding: 11px 17px;
+    font-size: 12px;
   }
   .rp-console-footer-brand {
     display: none !important;
   }
-  .rp-console-metrics {
-    grid-template-columns: 1fr 1fr;
-    margin-bottom: 23px;
+  .rp-console-header-actions {
+    width: 100%;
+  }
+  .rp-console-header-actions > button,
+  .rp-console-header-actions > a {
+    flex: 1;
+    padding: 0 13px;
   }
   .rp-console-metric {
-    padding: 17px;
-  }
-  .rp-console-metric:nth-child(2) {
-    border-right: 0;
-  }
-  .rp-console-metric:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--rp-console-line);
+    padding: 17px 15px;
   }
   .rp-console-metric-value {
     font-size: 26px;
-    margin: 12px 0 8px;
+    margin: 16px 0 12px;
+  }
+  .rp-console-metric-label svg,
+  .rp-console-metric-help svg {
+    display: none;
   }
   .rp-console-metric-help {
-    font-size: 11px;
+    font-size: 12px;
   }
-  .rp-console-setup {
-    margin-bottom: 28px;
+  .rp-console-activity-panel {
+    padding: 22px 20px 0;
   }
-  .rp-console-setup-intro {
-    padding: 23px;
+  .rp-console-activity-heading h2 {
+    font-size: 18px;
   }
-  .rp-console-setup-intro h2 {
-    font-size: 23px;
-    max-width: 260px;
+  .rp-console-data-label {
+    display: none;
   }
-  .rp-console-setup-step {
-    min-height: 78px;
-    gap: 11px;
+  .rp-console-activity-totals strong {
+    font-size: 25px;
   }
-  .rp-console-setup-step div > span {
-    font-size: 11px;
+  .rp-console-activity-totals > span {
+    font-size: 12px;
   }
-  .rp-console-setup-steps {
-    padding: 7px 19px;
+  .rp-console-activity-footer {
+    gap: 12px;
+    font-size: 12px;
   }
-  .rp-console-section-heading h2 {
-    font-size: 13px;
-  }
-  .rp-console-section-heading p {
-    max-width: 195px;
-    line-height: 1.7;
+  .rp-console-chart-bars {
+    gap: 3px;
   }
   .rp-console-developer-panel {
-    display: block;
-    padding: 23px;
+    padding: 22px 20px;
   }
   .rp-console-endpoint-list {
-    margin: 16px 0 18px;
-  }
-  .rp-console-developer-panel > button {
-    margin-top: 0;
-  }
-  .rp-console-endpoint code {
-    font-size: 11px;
+    display: block;
+    margin-top: 16px;
   }
   .rp-console-endpoint button {
     height: 44px;
     width: 44px;
     min-width: 44px;
   }
+  .rp-console-setup-intro {
+    padding: 23px 22px;
+  }
+  .rp-console-setup-steps {
+    padding: 6px 20px;
+  }
+  .rp-console-setup-step {
+    min-height: 78px;
+    gap: 11px;
+  }
+  .rp-console-section-heading {
+    gap: 10px;
+  }
   .rp-console-wallet,
   .rp-console-accounting-note {
     padding: 24px;
   }
   .rp-console-wallet-value {
-    font-size: 42px;
+    font-size: 44px;
+  }
+  .rp-console-resource-summary {
+    padding: 0 16px;
+  }
+  .rp-console-resource-summary strong {
+    font-size: 26px;
   }
   .rp-console-resource-summary small {
     display: none;
   }
   .rp-console-resource-summary > div > span {
-    font-size: 11px;
+    font-size: 12px;
   }
   .rp-console-routing-section,
   .rp-console-routing-explainer {
@@ -1031,5 +1387,24 @@
   }
   .rp-console-routing-submit > button {
     width: 100%;
+  }
+  .rp-console-usage-toolbar .rp-console-search {
+    max-width: none;
+    flex-basis: 100%;
+  }
+  .rp-console-segmented {
+    width: 100%;
+  }
+  .rp-console-segmented > button {
+    flex: 1;
+    padding: 0 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-console-metric,
+  .rp-console-metric-help svg,
+  .rp-console-setup-step > svg,
+  .rp-console-strategy-option {
+    transition: none;
   }
 }

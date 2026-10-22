@@ -1,7 +1,10 @@
 export const authEn = {
   signIn: "Sign in",
   getStarted: "Get started",
-  title: "Welcome to RelayPine.",
+  stepEmail: "01 / EMAIL",
+  stepCode: "02 / VERIFICATION",
+  securityNote: "Email verification. No password needed.",
+  title: "Your workspace awaits.",
   description: "Enter your email. We’ll send a one-time code to sign you in.",
   loginNote: "New here? Your workspace is created when you verify your email.",
   forbidden: "This account does not have access to this console.",

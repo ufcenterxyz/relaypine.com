@@ -14,12 +14,14 @@ import {
 import {
   ArrowDown,
   ArrowUpRight,
+  ArrowDownToLine,
   Check,
   Edit3,
   GitBranch,
   Network,
   Power,
   Plus,
+  RefreshCw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
@@ -186,9 +188,10 @@ export function Upstreams() {
         title={t.upstreams}
         description={t.upstreamsDescription}
         action={
-          <Button color="primary" onPress={() => hostForm()}>
-            {t.addHost}
-          </Button>
+          <div className="rp-management-actions">
+            <Button variant="bordered" startContent={<Plus size={15} />} onPress={() => hostForm()}>{t.addHost}</Button>
+            <Button color="primary" startContent={<Plus size={15} />} onPress={() => credentialForm()}>{t.addCredential}</Button>
+          </div>
         }
       />
       <div className="rp-console-resource-summary">
@@ -218,13 +221,13 @@ export function Upstreams() {
           </Button>
         </div>
       )}
-      <h2 className="rp-console-table-title">{t.hosts}</h2>
+      <div className="rp-management-section-heading"><h2>{t.hosts}<span>{count(state.endpoints?.length ?? 0)}</span></h2></div>
       <DataTable
         caption={t.hosts}
         columns={[t.name, t.provider, t.baseURL, t.status, t.actions]}
         rows={(state.endpoints ?? []).map((endpoint) => [
           endpoint.name,
-          endpoint.provider,
+          <span key="provider" className="rp-management-provider"><i aria-hidden="true" data-provider={endpoint.provider}>{endpoint.provider === "anthropic" ? "A" : "O"}</i>{endpoint.provider === "anthropic" ? t.anthropic : t.openai}</span>,
           <code key="url" className="text-xs">
             {endpoint.base_url}
           </code>,
@@ -254,8 +257,8 @@ export function Upstreams() {
           />
         }
       />
-      <div className="rp-console-section-heading rp-console-section-heading-spaced">
-        <h2 className="font-medium">{t.credentials}</h2>
+      <div className="rp-management-section-heading rp-management-section-spaced">
+        <h2>{t.credentials}<span>{count(state.credentials?.length ?? 0)}</span></h2>
         <IconButton label={t.addCredential} onPress={() => credentialForm()}>
           <Plus size={18} />
         </IconButton>
@@ -524,6 +527,7 @@ const rateLabels = [
 ];
 export function Models() {
   const { state, refresh } = useConsole();
+  const operator = state.surface === "admin" && state.user.operator;
   const [importing, setImporting] = useState(false);
   const [updatingPrices, setUpdatingPrices] = useState(false);
   const [form, setForm] = useState<FormConfig | null>(null);
@@ -531,6 +535,7 @@ export function Models() {
   const [busy, setBusy] = useState("");
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState("all");
+  const [status, setStatus] = useState("all");
   async function save(body: Model | Record<string, unknown>) {
     if (
       body.enabled &&
@@ -673,39 +678,72 @@ export function Models() {
   const models = state.models.filter(
     (model) =>
       (provider === "all" || model.provider === provider) &&
+      (status === "all" || (status === "enabled" ? model.enabled : !model.enabled)) &&
       `${model.id} ${model.name}`.toLowerCase().includes(search.toLowerCase()),
   );
+  const enabledCount = state.models.filter((model) => model.enabled).length;
+  const referenceCount = state.models.filter((model) => !!model.pricing_reference).length;
+  const missingPriceCount = state.models.filter((model) => model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate).length;
+  const hasFilters = !!search || provider !== "all" || status !== "all";
   return (
-    <>
+    <div className="rp-management-models">
       <PageHeader
         title={t.models}
         description={t.modelsDescription}
         action={
-          state.user.operator ? (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="bordered" isDisabled={!state.models.length} onPress={() => setUpdatingPrices(true)}>{p.update}</Button>
-              <Button variant="bordered" onPress={() => setImporting(true)}>
-                {t.modelImportTitle}
-              </Button>
-              <Button color="primary" onPress={() => open()}>
+          operator ? (
+            <div className="rp-management-actions">
+              <Button variant="light" startContent={<Plus size={15} />} onPress={() => open()}>
                 {t.addModel}
+              </Button>
+              <Button variant="bordered" startContent={<RefreshCw size={15} />} isDisabled={!state.models.length} onPress={() => setUpdatingPrices(true)}>{p.update}</Button>
+              <Button color="primary" startContent={<ArrowDownToLine size={16} />} onPress={() => setImporting(true)}>
+                {t.modelImportTitle}
               </Button>
             </div>
           ) : undefined
         }
       />
-      <div className="rp-console-filter-row">
+      {operator && <div className="rp-management-metrics" role="group" aria-label={p.catalog}>
+        {[
+          { label: p.enabledModels, value: enabledCount, total: state.models.length, tone: "active" },
+          { label: p.referenceModels, value: referenceCount, total: null, tone: "reference" },
+          { label: missingPriceCount ? p.needsPricing : p.customModels, value: missingPriceCount || state.models.filter((model) => !model.pricing_reference && model.input_rate > 0 && model.output_rate > 0 && model.billing_mode !== "usage_only").length, total: null, tone: missingPriceCount ? "attention" : "custom" },
+        ].map((metric) => (
+          <div key={metric.label} className="rp-management-metric" data-tone={metric.tone}>
+            <span className="rp-management-metric-label"><i aria-hidden="true" />{metric.label}</span>
+            <strong>{count(metric.value)}{metric.total !== null && <span> / {count(metric.total)}</span>}</strong>
+          </div>
+        ))}
+      </div>}
+      <section className="rp-management-catalog" aria-label={p.catalog}>
+      <div className="rp-management-catalog-heading">
+        <div className="rp-management-tabs" role="group" aria-label={p.filterStatus}>
+          {[
+            { id: "all", label: p.allModels, count: state.models.length },
+            { id: "enabled", label: t.enabled, count: enabledCount },
+            { id: "disabled", label: p.inactiveModels, count: state.models.length - enabledCount },
+          ].map((filter) => <button key={filter.id} type="button" aria-pressed={status === filter.id} onClick={() => setStatus(filter.id)}>{filter.label}<span>{count(filter.count)}</span></button>)}
+        </div>
+        <span className="rp-management-unit">{p.pricingBasis}</span>
+      </div>
+      <div className="rp-management-filters">
         <Input
           aria-label={t.search}
           placeholder={t.search}
           value={search}
           onValueChange={setSearch}
           startContent={<Search size={16} />}
-          className="max-w-sm"
+          className="rp-management-search"
+          variant="bordered"
+          isClearable
+          onClear={() => setSearch("")}
         />
         <Select
-          aria-label={t.provider}
-          className="max-w-40"
+          aria-label={p.filterProvider}
+          className="rp-management-provider-filter"
+          variant="bordered"
+          disallowEmptySelection
           selectedKeys={[provider]}
           onChange={(e) => setProvider(e.target.value)}
         >
@@ -713,6 +751,7 @@ export function Models() {
           <SelectItem key="openai">{t.openai}</SelectItem>
           <SelectItem key="anthropic">{t.anthropic}</SelectItem>
         </Select>
+        <span className="rp-management-result-count" role="status">{p.results.replace("{visible}", count(models.length)).replace("{total}", count(state.models.length))}</span>
       </div>
       <DataTable
         caption={t.models}
@@ -724,10 +763,10 @@ export function Models() {
           t.cached,
           t.cacheWrite,
           t.status,
-          ...(state.user.operator ? [t.actions] : []),
+          ...(operator ? [t.actions] : []),
         ]}
         rows={models.map((model) => [
-          <div key="model">
+          <div key="model" className="rp-management-model-name">
             <p className="font-medium">{model.name}</p>
             <p className="mt-1 font-mono text-xs text-default-500">
               {model.id}
@@ -737,25 +776,25 @@ export function Models() {
                 {p.legacy}
               </Chip>
             )}
-            {model.pricing_reference && safeReferenceURL(model.pricing_reference.source_url) && (
-              <Link href={safeReferenceURL(model.pricing_reference.source_url)!} target="_blank" rel="noopener noreferrer" className="mt-2 block min-h-11 text-xs text-default-500 underline underline-offset-4" title={p.updatedAt.replace("{time}", new Date(model.pricing_reference.checked_at).toLocaleString())}>
-                {model.pricing_reference.source_name}
+            {operator && model.pricing_reference && safeReferenceURL(model.pricing_reference.source_url) && (
+              <Link href={safeReferenceURL(model.pricing_reference.source_url)!} target="_blank" rel="noopener noreferrer" className="rp-management-source-link" title={p.updatedAt.replace("{time}", new Date(model.pricing_reference.checked_at).toLocaleString())}>
+                {p.referenceShort}<ArrowUpRight size={11} />
               </Link>
             )}
           </div>,
-          model.provider,
+          <span key="provider" className="rp-management-provider"><i aria-hidden="true" data-provider={model.provider}>{model.provider === "anthropic" ? "A" : "O"}</i>{model.provider === "anthropic" ? t.anthropic : t.openai}</span>,
           ...[
             model.input_rate,
             model.output_rate,
             model.cached_rate,
             model.cache_write_rate,
           ].map((rate, i) => (
-            <span key={i} className="font-mono text-xs">
+            <span key={i} className="rp-management-rate">
               {model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate ? t.notPriced : money(rate, true)}
             </span>
           )),
           <Status key="enabled" enabled={model.enabled} />,
-          ...(state.user.operator
+          ...(operator
             ? [
                 <div key="actions" className="flex">
                   <IconButton label={t.edit} onPress={() => open(model)}>
@@ -787,16 +826,16 @@ export function Models() {
         ])}
         empty={
           <Empty
-            title={search ? t.noResults : t.noModels}
+            title={hasFilters ? p.catalogEmpty : t.noModels}
             body={
-              search
+              hasFilters
                 ? t.resetSearch
-                : state.user.operator
+                : operator
                   ? t.modelsEmptySetup
                   : t.noModelsBody
             }
             action={
-              state.user.operator ? (
+              hasFilters ? <Button variant="bordered" onPress={() => { setSearch(""); setProvider("all"); setStatus("all"); }}>{p.resetFilters}</Button> : operator ? (
                 <Button color="primary" onPress={() => setImporting(true)}>
                   {t.modelImportTitle}
                 </Button>
@@ -805,9 +844,8 @@ export function Models() {
           />
         }
       />
-      <p className="mt-3 text-xs leading-5 text-default-500">
-        {t.perMillion}. {p.balanceHelp}
-      </p>
+      <div className="rp-management-catalog-footer"><ShieldCheck size={14} /><p>{p.balanceHelp}</p></div>
+      </section>
       {updatingPrices && <ModelPriceUpdate onClose={() => setUpdatingPrices(false)} onUpdated={() => refresh({ throwOnError: true })} />}
       {importing && (
         <ModelImport
@@ -829,7 +867,7 @@ export function Models() {
           onConfirm={() => save({ ...disable, enabled: false })}
         />
       )}
-    </>
+    </div>
   );
 }
 export function Routing() {

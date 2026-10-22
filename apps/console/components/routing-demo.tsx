@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Switch, Tab, Tabs } from "@heroui/react";
 import {
   ArrowRight,
   Check,
   Code2,
-  KeyRound,
+  CornerDownRight,
   RotateCcw,
-  ShieldCheck,
-  TreePine,
+  Route,
 } from "lucide-react";
 import { useInView, useReducedMotion } from "framer-motion";
 import { routingDemo as d } from "@/i18n/routing-demo-en";
@@ -17,8 +15,7 @@ import { routingDemo as d } from "@/i18n/routing-demo-en";
 type Provider = "openai" | "claude";
 type Strategy = "load" | "budget";
 
-// These fixed examples isolate RPM and local budget. Other admission limits
-// are assumed available; this is not connected to production telemetry.
+// Fixed teaching data. The demo never calls an upstream or reads account data.
 const candidates = [
   { id: "01", rpm: 72, budget: 240, proxy: d.proxyA },
   { id: "02", rpm: 24, budget: 90, proxy: d.proxyB },
@@ -35,20 +32,21 @@ function RoutingScene({
   limited: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
-  const visible = useInView(root, { once: true, amount: 0.35 });
+  const visible = useInView(root, { once: true, amount: 0.25 });
   const reducedMotion = useReducedMotion();
   const [phase, setPhase] = useState(0);
+  const stage = reducedMotion ? 4 : phase;
   const pool = candidates.map((key) => ({
     ...key,
     rpm: limited && key.id === "02" ? 100 : key.rpm,
   }));
-  const eligible = pool.filter((key) => key.rpm < 100 && key.budget > 0);
-  const winner = [...eligible].sort((a, b) =>
-    strategy === "load" ? a.rpm - b.rpm : b.budget - a.budget,
-  )[0];
-  const stage = reducedMotion ? 4 : phase;
-  const complete = stage === 4;
+  const winner = pool
+    .filter((key) => key.rpm < 100 && key.budget > 0)
+    .sort((a, b) =>
+      strategy === "load" ? a.rpm - b.rpm : b.budget - a.budget,
+    )[0];
   const chosen = stage >= 3;
+  const complete = stage >= 4;
   const host = provider === "openai" ? "api.openai.com" : "api.anthropic.com";
   const result =
     limited && strategy === "load"
@@ -56,20 +54,10 @@ function RoutingScene({
       : strategy === "budget"
         ? d.budgetResult
         : d.loadResult;
-  const status =
-    stage < 1
-      ? d.receiving
-      : stage < 2
-        ? d.checking
-        : stage < 3
-          ? strategy === "load"
-            ? d.selecting
-            : d.selectingBudget
-          : result;
 
   useEffect(() => {
     if (!visible || reducedMotion) return;
-    const timers = [350, 1000, 1700, 2400].map((delay, index) =>
+    const timers = [250, 650, 1150, 1700].map((delay, index) =>
       setTimeout(() => setPhase(index + 1), delay),
     );
     return () => timers.forEach(clearTimeout);
@@ -77,121 +65,151 @@ function RoutingScene({
 
   return (
     <div ref={root} className="rp-route-scene" data-phase={stage}>
-      <div className="rp-route-topology" aria-hidden="true">
-        <div className="rp-route-inlet">
-          <Code2 size={17} strokeWidth={1.5} />
-          <span>
-            {d.application}
-            <small>{provider === "openai" ? "/responses" : "/messages"}</small>
-          </span>
-        </div>
-        <div className={`rp-route-entry ${stage >= 1 ? "is-active" : ""}`}>
-          <span />
-        </div>
-        <div className={`rp-route-gateway ${stage >= 1 ? "is-active" : ""}`}>
-          <TreePine size={28} strokeWidth={1.3} />
-          <span>{d.gateway}</span>
-        </div>
-        <div className="rp-route-checks">
-          <span className={stage >= 2 ? "is-checked" : ""}>
-            <Check size={12} />
-            {d.checkCapacity}
-          </span>
-          <span className={stage >= 2 ? "is-checked" : ""}>
-            <Check size={12} />
-            {d.checkBudget}
-          </span>
-        </div>
-      </div>
-      <div className="rp-route-branches" aria-hidden="true">
-        <svg viewBox="0 0 600 75" preserveAspectRatio="none">
-          {pool.map((key, index) => {
-            const x = 100 + 200 * index;
-            const path = `M300 0 V12 Q300 30 ${x === 300 ? 300 : x < 300 ? 280 : 320} 30 H${x === 300 ? 300 : x < 300 ? 120 : 480} Q${x} 30 ${x} 50 V75`;
-            return (
-              <g
-                key={key.id}
-                className={chosen && winner.id === key.id ? "is-chosen" : ""}
-              >
-                <path
-                  className="rp-route-track"
-                  d={path}
-                  vectorEffect="non-scaling-stroke"
-                />
-                {chosen && winner.id === key.id && (
-                  <path
-                    className="rp-route-trace"
-                    d={path}
-                    pathLength="1"
-                    vectorEffect="non-scaling-stroke"
-                  />
-                )}
-                <circle cx={x} cy="73" r="2.5" className="rp-route-terminal" />
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      <div className="rp-route-key-pool">
-        {pool.map((key) => {
-          const selected = chosen && key.id === winner.id;
-          const full = key.rpm >= 100;
-          return (
-            <div
-              key={key.id}
-              className={`rp-route-key ${selected ? "is-selected" : ""} ${full ? "is-limited" : ""}`}
-            >
-              <div className="rp-route-key-heading">
-                <KeyRound size={13} strokeWidth={1.6} />
-                <span>
-                  {d.key} {key.id}
-                </span>
-                {selected && (
-                  <Check size={13} className="rp-route-selected-check" />
-                )}
-              </div>
-              <div className="rp-route-load">
-                <strong>
-                  {key.rpm}
-                  <small>/100</small>
-                </strong>
-                <span>{d.rpm}</span>
-              </div>
-              <div className="rp-route-meter" aria-hidden="true">
-                <span style={{ width: `${key.rpm}%` }} />
-              </div>
-              <div className="rp-route-budget">
-                <span>{d.remaining}</span>
-                <strong>${key.budget}</strong>
-              </div>
-              <div className="rp-route-key-status">
-                {selected ? d.selected : full ? d.full : d.eligible}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className={`rp-route-outcome ${complete ? "is-complete" : ""}`}>
-        <div className="rp-route-outcome-icon">
-          <ShieldCheck size={19} strokeWidth={1.5} />
-        </div>
-        <div className="rp-route-outcome-copy">
-          <p role="status" aria-live="polite">
-            {status}
-          </p>
-          <div className="rp-route-egress">
-            {chosen ? (
-              <>
-                <span>{winner.proxy}</span>
-                <ArrowRight size={11} />
-                <code>{host}</code>
-              </>
-            ) : (
-              <span>{d.reasonFull}</span>
-            )}
+      <div className="rp-route-canvas">
+        <div className="rp-route-topology" aria-hidden="true">
+          <div className="rp-route-inlet">
+            <span className="rp-route-micro">{d.request}</span>
+            <span className="rp-route-application">
+              <Code2 size={17} />
+              {d.application}
+            </span>
+            <code>
+              {provider === "openai"
+                ? "POST /v1/responses"
+                : "POST /v1/messages"}
+            </code>
+          </div>
+          <div className={`rp-route-entry ${stage >= 1 ? "is-active" : ""}`}>
+            <span />
+            <ArrowRight size={13} />
+          </div>
+          <div className={`rp-route-gateway ${stage >= 1 ? "is-active" : ""}`}>
+            <Route size={25} strokeWidth={1.5} />
+            <span>{d.gateway}</span>
+          </div>
+          <div className="rp-route-checks">
+            <span className={stage >= 2 ? "is-checked" : ""}>
+              <Check size={12} />
+              {d.checkCapacity}
+            </span>
+            <span className={stage >= 2 ? "is-checked" : ""}>
+              <Check size={12} />
+              {d.checkBudget}
+            </span>
           </div>
         </div>
+        <div className="rp-route-branches" aria-hidden="true">
+          <svg viewBox="0 0 600 58" preserveAspectRatio="none">
+            {pool.map((key, index) => {
+              const x = 100 + index * 200;
+              const path =
+                index === 1
+                  ? "M300 0 V58"
+                  : `M300 0 V10 Q300 22 ${x < 300 ? 288 : 312} 22 H${x < 300 ? 112 : 488} Q${x} 22 ${x} 34 V58`;
+              return (
+                <g
+                  key={key.id}
+                  className={chosen && winner.id === key.id ? "is-chosen" : ""}
+                >
+                  <path
+                    className="rp-route-track"
+                    d={path}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  {chosen && winner.id === key.id && (
+                    <path
+                      className="rp-route-trace"
+                      d={path}
+                      pathLength="1"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  )}
+                  <circle cx={x} cy="56" r="3" className="rp-route-terminal" />
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+        <div className="rp-route-key-pool">
+          {pool.map((key) => {
+            const selected = chosen && key.id === winner.id;
+            const full = key.rpm >= 100;
+            return (
+              <div
+                key={key.id}
+                className={`rp-route-key ${selected ? "is-selected" : ""} ${full ? "is-limited" : ""}`}
+              >
+                <div className="rp-route-key-heading">
+                  <span>
+                    {d.key} {key.id}
+                  </span>
+                  <span className="rp-route-key-state">
+                    {selected ? (
+                      <Check size={13} aria-label={d.selected} />
+                    ) : (
+                      <span />
+                    )}
+                  </span>
+                </div>
+                <div className="rp-route-load">
+                  <strong>
+                    {key.rpm}
+                    <small>/100</small>
+                  </strong>
+                  <span>{d.rpm}</span>
+                </div>
+                <div className="rp-route-meter" aria-hidden="true">
+                  <span style={{ width: `${key.rpm}%` }} />
+                </div>
+                <div className="rp-route-budget">
+                  <span>{d.remaining}</span>
+                  <strong>${key.budget}</strong>
+                </div>
+                <div className="rp-route-key-status">
+                  {selected ? d.selected : full ? d.full : d.eligible}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
+      <aside className="rp-route-decision">
+        <p className="rp-route-micro">{d.decision}</p>
+        <ol className="rp-route-events">
+          {[
+            d.receiving,
+            d.checking,
+            strategy === "load" ? d.selecting : d.selectingBudget,
+            d.dispatch,
+          ].map((label, index) => (
+            <li key={label} className={stage > index ? "is-done" : ""}>
+              <span className="rp-route-event-mark">
+                {stage > index ? <Check size={11} /> : <span />}
+              </span>
+              <span>{label}</span>
+              <span className="rp-route-event-number">0{index + 1}</span>
+            </li>
+          ))}
+        </ol>
+        <div className={`rp-route-result ${complete ? "is-complete" : ""}`}>
+          <span className="rp-route-micro">{d.credential}</span>
+          <strong>
+            {chosen ? `${d.key} ${winner.id}` : "—"}
+            <CornerDownRight size={22} />
+          </strong>
+          <p role="status" aria-live="polite">
+            {complete ? result : d.decisionPending}
+          </p>
+        </div>
+        <div className="rp-route-egress">
+          <span className="rp-route-micro">{d.egress}</span>
+          <span>
+            {chosen ? winner.proxy : "—"}
+            <ArrowRight size={12} />
+          </span>
+          <code>{host}</code>
+        </div>
+      </aside>
     </div>
   );
 }
@@ -204,49 +222,59 @@ export function RoutingDemo() {
   return (
     <section className="rp-route-demo" aria-label={d.label}>
       <div className="rp-route-heading">
-        <h2>{d.title}</h2>
-        <span>{d.simulation}</span>
+        <div>
+          <span className="rp-route-indicator" aria-hidden="true" />
+          <h2>{d.title}</h2>
+        </div>
+        <span className="rp-route-simulation">{d.simulation}</span>
       </div>
       <div className="rp-route-controls">
-        <Tabs
-          role="group"
-          aria-label={d.provider}
-          selectedKey={provider}
-          onSelectionChange={(key) => setProvider(key as Provider)}
-          variant="light"
-          size="sm"
-          classNames={{
-            base: "rp-route-provider-tabs",
-            tabList: "gap-0 p-0",
-            tab: "h-11 px-4",
-            cursor: "bg-background shadow-sm border border-default-200",
-            tabContent: "text-xs",
-          }}
-        >
-          <Tab key="openai" title={d.openai} />
-          <Tab key="claude" title={d.claude} />
-        </Tabs>
-        <div className="rp-route-strategy">
+        <div className="rp-route-control-group">
+          <span>{d.provider}</span>
+          <div
+            className="rp-route-segmented"
+            role="group"
+            aria-label={d.provider}
+          >
+            {(["openai", "claude"] as const).map((item) => (
+              <button
+                type="button"
+                key={item}
+                aria-pressed={provider === item}
+                onClick={() => setProvider(item)}
+              >
+                {item === "openai" ? d.openai : d.claude}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="rp-route-control-group">
           <span>{d.strategy}</span>
-          <Tabs
+          <div
+            className="rp-route-segmented"
             role="group"
             aria-label={d.strategy}
-            selectedKey={strategy}
-            onSelectionChange={(key) => setStrategy(key as Strategy)}
-            variant="underlined"
-            color="primary"
-            size="sm"
-            classNames={{
-              tabList: "gap-3 p-0",
-              tab: "h-11 px-0",
-              tabContent: "text-[11px]",
-              cursor: "w-full",
-            }}
           >
-            <Tab key="load" title={d.load} />
-            <Tab key="budget" title={d.budget} />
-          </Tabs>
+            {(["load", "budget"] as const).map((item) => (
+              <button
+                type="button"
+                key={item}
+                aria-pressed={strategy === item}
+                onClick={() => setStrategy(item)}
+              >
+                {item === "load" ? d.load : d.budget}
+              </button>
+            ))}
+          </div>
         </div>
+        <button
+          type="button"
+          className="rp-route-replay"
+          onClick={() => setRun((value) => value + 1)}
+        >
+          <RotateCcw size={13} />
+          {d.replay}
+        </button>
       </div>
       <RoutingScene
         key={`${provider}-${strategy}-${limited}-${run}`}
@@ -255,28 +283,16 @@ export function RoutingDemo() {
         limited={limited}
       />
       <div className="rp-route-demo-actions">
-        <Switch
-          size="sm"
-          isSelected={limited}
-          onValueChange={setLimited}
-          aria-label={d.limit}
-          classNames={{
-            base: "gap-2 max-w-none py-2 m-0",
-            label: "text-[11px]",
-            wrapper: "mr-0",
-          }}
-        >
-          {d.limit}
-        </Switch>
-        <Button
-          variant="light"
-          size="sm"
-          onPress={() => setRun(run + 1)}
-          startContent={<RotateCcw size={13} />}
-          className="h-11 text-[11px]"
-        >
-          {d.replay}
-        </Button>
+        <label className="rp-route-saturation">
+          <input
+            type="checkbox"
+            checked={limited}
+            onChange={(event) => setLimited(event.target.checked)}
+          />
+          <span className="rp-route-toggle" aria-hidden="true" />
+          <span>{d.limit}</span>
+        </label>
+        <span className="rp-route-limit-help">{d.limitHelp}</span>
       </div>
       <p className="rp-route-demo-note">{d.note}</p>
     </section>

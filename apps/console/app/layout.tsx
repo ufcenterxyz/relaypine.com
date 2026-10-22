@@ -9,12 +9,12 @@ export const metadata: Metadata = {
     template: "%s | RelayPine",
   },
   description:
-    "Connect to Claude and OpenAI through one API gateway. Native APIs, capacity-aware routing, and clear usage. Join the waitlist for access.",
+    "Connect to Claude and OpenAI through one API gateway. Native APIs, capacity-aware routing, and usage-based billing in one workspace.",
 };
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#101713" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f6f2" },
+    { media: "(prefers-color-scheme: dark)", color: "#191c18" },
   ],
 };
 export default function RootLayout({
@@ -23,6 +23,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      data-scroll-behavior="smooth"
       className={`${GeistSans.variable} ${GeistMono.variable}`}
       suppressHydrationWarning
     >

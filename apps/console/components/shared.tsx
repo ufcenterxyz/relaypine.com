@@ -12,21 +12,25 @@ import {
   ModalFooter,
   addToast,
 } from "@heroui/react";
-import { Copy, Inbox, RefreshCw, TreePine, Moon, Sun } from "lucide-react";
+import { Copy, Check, Inbox, RefreshCw, Moon, Sun } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { en as t } from "@/i18n/en";
 import { errorMessage } from "@/lib/api";
+export function BrandMark({ className = "" }: { className?: string }) {
+  return (
+    <span className={`rp-brand-mark ${className}`} aria-hidden="true">
+      <svg viewBox="0 0 28 28" fill="none">
+        <path d="M5 20h5L18 6h5M5 14h6l4 6h8M5 8h5" stroke="currentColor" strokeWidth="2.3" strokeLinecap="square" strokeLinejoin="miter" />
+      </svg>
+    </span>
+  );
+}
 export function Brand() {
   return (
-    <Link
-      href="/"
-      className="rp-brand inline-flex items-center gap-2.5 text-lg font-semibold tracking-tight"
-    >
-      <span className="rp-brand-mark flex size-8 items-center justify-center rounded-lg bg-foreground text-background">
-        <TreePine size={20} strokeWidth={1.7} />
-      </span>
-      {t.brand}
+    <Link href="/" className="rp-brand" aria-label="RelayPine home">
+      <BrandMark />
+      <span>{t.brand}</span>
     </Link>
   );
 }
@@ -55,6 +59,7 @@ export function ThemeToggle() {
   );
 }
 export function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
   return (
     <Tooltip content={t.copy}>
       <Button
@@ -66,13 +71,15 @@ export function CopyButton({ value }: { value: string }) {
         onPress={async () => {
           try {
             await navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1800);
             addToast({ title: t.copied, color: "success" });
           } catch {
             addToast({ title: t.copyFailed, color: "danger" });
           }
         }}
       >
-        <Copy size={16} />
+        {copied ? <Check size={16} /> : <Copy size={16} />}
       </Button>
     </Tooltip>
   );
@@ -115,7 +122,7 @@ export function Status({
   label?: string;
 }) {
   return (
-    <Chip variant="flat" size="sm" color={enabled ? "success" : "default"}>
+    <Chip className={`rp-status ${enabled ? "is-enabled" : ""}`} variant="flat" size="sm" startContent={<span className="rp-status-indicator" aria-hidden="true" />}>
       {label || (enabled ? t.enabled : t.disabled)}
     </Chip>
   );
@@ -177,16 +184,16 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="rp-page-header mb-8 flex flex-wrap items-start justify-between gap-4">
+    <div className="rp-page-header">
       <div>
-        <h1 className="text-[30px] font-medium tracking-[-.035em] sm:text-[34px]">
+        <h1>
           {title}
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-default-500">
           {description}
         </p>
       </div>
-      {action}
+      {action && <div className="rp-page-actions">{action}</div>}
     </div>
   );
 }
@@ -202,17 +209,17 @@ export function DataTable({
   caption: string;
 }) {
   return (
-    <div className="rp-data-table overflow-hidden rounded-xl border border-default-200">
+    <div className="rp-data-table">
       {rows.length ? (
         <div
-          className="max-h-[62vh] overflow-auto"
+          className="rp-table-scroll"
           tabIndex={0}
           role="region"
           aria-label={caption}
         >
           <table className="route-table w-full text-sm">
             <caption className="sr-only">{caption}</caption>
-            <thead className="bg-default-50 text-xs text-default-500">
+            <thead className="text-xs text-default-500">
               <tr>
                 {columns.map((c, i) => (
                   <th scope="col" key={`${c}-${i}`}>
@@ -264,7 +271,7 @@ export function Confirm({
       scrollBehavior="inside"
       classNames={{
         base: "rp-modal max-h-[85dvh]",
-        backdrop: "bg-[#0c2117]/25 backdrop-blur-sm",
+        backdrop: "bg-[#191c18]/45 backdrop-blur-sm",
       }}
     >
       <ModalContent>

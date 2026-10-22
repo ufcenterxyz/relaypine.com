@@ -27,29 +27,27 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const refresh = useCallback(async (options?: { throwOnError?: boolean }) => {
-    setRefreshing(true);
-    try {
-      const data = await api<Snapshot>("/api/state");
-      setState(data);
-      setError("");
-    } catch (e) {
-      if (
-        e instanceof ApiError &&
-        e.status === 401
-      ) {
-        setState(null);
-        router.replace(
-          "/?auth=login",
-        );
-      } else {
-        setError(errorMessage(e));
+  const refresh = useCallback(
+    async (options?: { throwOnError?: boolean }) => {
+      setRefreshing(true);
+      try {
+        const data = await api<Snapshot>("/api/state");
+        setState(data);
+        setError("");
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          setState(null);
+          router.replace("/?auth=login");
+        } else {
+          setError(errorMessage(e));
+        }
+        if (options?.throwOnError) throw e;
+      } finally {
+        setRefreshing(false);
       }
-      if (options?.throwOnError) throw e;
-    } finally {
-      setRefreshing(false);
-    }
-  }, [router]);
+    },
+    [router],
+  );
   useEffect(() => {
     let cancelled = false;
     void api<Snapshot>("/api/state")
@@ -61,13 +59,8 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
       })
       .catch((e) => {
         if (cancelled) return;
-        if (
-          e instanceof ApiError &&
-          e.status === 401
-        )
-          router.replace(
-            "/?auth=login",
-          );
+        if (e instanceof ApiError && e.status === 401)
+          router.replace("/?auth=login");
         else setError(errorMessage(e));
       });
     return () => {
@@ -76,23 +69,34 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
   }, [router]);
   if (!state)
     return (
-      <div className="mx-auto max-w-6xl p-6">
-        <Brand />
-        <div className="mt-14">
+      <div className="rp-console-loading" aria-busy={!error}>
+        <aside className="rp-console-loading-rail" aria-hidden="true">
+          <Brand />
+          <div className="rp-console-loading-nav">
+            {[1, 2, 3, 4, 5].map((item) => (
+              <span key={item} />
+            ))}
+          </div>
+        </aside>
+        <div className="rp-console-loading-content">
           {error ? (
             <ErrorBox
               message={`${t.loadError}: ${error}`}
               retry={() => void refresh()}
             />
           ) : (
-            <div aria-label={t.loading}>
-              <Skeleton className="mb-6 h-9 w-56 rounded-lg" />
+            <div aria-label={t.loading} role="status">
+              <Skeleton className="mb-4 h-9 w-56 rounded-md" />
+              <Skeleton className="mb-8 h-4 w-72 max-w-full rounded-md" />
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                {[1, 2, 3, 4].map((i) => (
-                  <Skeleton key={i} className="h-28 rounded-xl" />
+                {[1, 2, 3, 4].map((item) => (
+                  <Skeleton key={item} className="h-32 rounded-lg" />
                 ))}
               </div>
-              <Skeleton className="mt-8 h-72 rounded-xl" />
+              <div className="mt-6 grid gap-5 sm:grid-cols-3">
+                <Skeleton className="h-80 rounded-lg sm:col-span-2" />
+                <Skeleton className="h-80 rounded-lg" />
+              </div>
             </div>
           )}
         </div>

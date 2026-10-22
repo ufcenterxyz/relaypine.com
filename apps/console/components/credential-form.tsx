@@ -16,8 +16,9 @@ import {
   SelectItem,
   Switch,
 } from "@heroui/react";
-import { Check, RefreshCw } from "lucide-react";
+import { Check, RefreshCw, KeyRound } from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { pricingEn as p } from "@/i18n/pricing-en";
 import { api, count, dollars, errorMessage } from "@/lib/api";
 import type { Credential, Endpoint, Proxy } from "@/lib/types";
 import { ErrorBox } from "./shared";
@@ -432,7 +433,7 @@ export function CredentialForm({
       hideCloseButton={phase !== "idle"}
       size="lg"
       scrollBehavior="inside"
-      classNames={{ base: "max-h-[85dvh]" }}
+      classNames={{ base: "rp-management-modal rp-management-credential-modal max-h-[88dvh]" }}
     >
       <ModalContent>
         <form
@@ -443,13 +444,14 @@ export function CredentialForm({
           void (credential || verified ? save() : verify());
           }}
         >
-          <ModalHeader className="flex-col gap-2">
+          <ModalHeader className="rp-management-modal-header flex-col gap-2">
+            <span className="rp-management-modal-eyebrow"><KeyRound size={14} />{p.credentialConnection}</span>
             <h2>{credential ? t.editCredential : t.addCredential}</h2>
             <p className="text-sm font-normal leading-6 text-default-500">
               {credential ? t.credentialEditIntro : t.credentialAddIntro}
             </p>
           </ModalHeader>
-          <ModalBody className="gap-4 overflow-y-auto">
+          <ModalBody className="rp-management-modal-body gap-4 overflow-y-auto">
             {error && (
               <div ref={errorElement}>
                 <ErrorBox message={error} />
@@ -469,6 +471,7 @@ export function CredentialForm({
                 <Select
                   autoFocus
                   label={t.credentialPlatformHost}
+                  variant="bordered"
                   selectedKeys={values.endpoint_id ? [values.endpoint_id] : []}
                   onChange={(event) =>
                     update("endpoint_id", event.target.value)
@@ -491,6 +494,7 @@ export function CredentialForm({
                 </Select>
                 <Input
                   label={credential ? t.rotateSecret : t.secret}
+                  variant="bordered"
                   type="password"
                   autoComplete="new-password"
                   value={values.secret}
@@ -517,7 +521,7 @@ export function CredentialForm({
                 {verified && result && (
                   <section
                     aria-live="polite"
-                    className="space-y-4 rounded-xl border border-default-200 p-4"
+                    className="rp-management-verified space-y-4"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <Chip
@@ -540,10 +544,8 @@ export function CredentialForm({
                         {t.credentialRecheck}
                       </Button>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium">
-                        {count(result.models.length)} {t.credentialModelsFound}
-                      </p>
+                    <div className="rp-management-discovery-count">
+                      <strong>{count(result.models.length)}</strong><span>{t.credentialModelsFound}</span>
                       <p className="mt-1 text-xs leading-5 text-default-500">
                         {t.credentialModelsMetadataOnly}
                       </p>
@@ -551,7 +553,7 @@ export function CredentialForm({
                     {!!result.models.length && (
                       <ul
                         aria-label={t.credentialAvailableModels}
-                        className="max-h-36 space-y-2 overflow-y-auto rounded-lg bg-default-50 p-3"
+                        className="rp-management-discovered-list"
                       >
                         {result.models.map((model) => (
                           <li
@@ -566,16 +568,13 @@ export function CredentialForm({
                         ))}
                       </ul>
                     )}
-                    <div className="border-t border-default-100 pt-3">
+                    <div className="rp-management-discovered-limits">
                       <p className="text-xs font-medium">
                         {result.limits_source === "provider"
                           ? t.credentialProviderLimits
                           : t.credentialDefaultLimits}
                       </p>
-                      <p className="mt-2 text-xs tabular-nums text-default-600">
-                        {count(result.defaults.rpm)} RPM ·{" "}
-                        {count(result.defaults.tpm)} TPM
-                      </p>
+                      <div className="rp-management-limit-values"><div><strong>{count(result.defaults.rpm)}</strong><span>RPM</span></div><div><strong>{count(result.defaults.tpm)}</strong><span>TPM</span></div></div>
                       <p className="mt-2 text-xs leading-5 text-default-500">
                         {credential
                           ? t.credentialEditPreserved
@@ -624,7 +623,7 @@ export function CredentialForm({
                   onSelectionChange={(keys) =>
                     setAdvanced(keys === "all" || keys.has("advanced"))
                   }
-                  className="px-0"
+                  className="rp-management-advanced px-0"
                   itemClasses={{
                     trigger: "py-3",
                     title: "text-sm font-medium",
@@ -729,7 +728,7 @@ export function CredentialForm({
               </p>
             )}
           </ModalBody>
-          <ModalFooter className="shrink-0">
+          <ModalFooter className="rp-management-modal-footer shrink-0">
             <Button
               variant="light"
               isDisabled={phase !== "idle"}

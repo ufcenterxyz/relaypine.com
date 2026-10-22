@@ -2,7 +2,10 @@ import type { AuthCopy } from "./auth-en";
 export const authZh: AuthCopy = {
   signIn: "登录",
   getStarted: "开始使用",
-  title: "欢迎使用 RelayPine。",
+  stepEmail: "01 / 邮箱",
+  stepCode: "02 / 验证",
+  securityNote: "邮箱验证码登录，无需密码。",
+  title: "进入你的工作空间。",
   description: "输入邮箱，我们会发送一次性验证码供你登录。",
   loginNote: "首次使用？验证邮箱后将为你创建工作空间。",
   forbidden: "此账户没有访问这个控制台的权限。",

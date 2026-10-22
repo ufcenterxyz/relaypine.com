@@ -114,13 +114,13 @@ export const en = {
   howTitle: "Get ready for your next request.",
   stepAccount: "Create a workspace",
   stepAccountBody:
-    "Register your interest while RelayPine is in private preview.",
+    "Verify your email to create your workspace.",
   stepKey: "Connect your application",
   stepKeyBody:
     "Create an API key, select a model, and update your SDK base URL.",
   integrationTitle: "Connect with native SDKs",
   integrationBody:
-    "Set RELAYPINE_API_KEY to a key created in the console. Replace MODEL_ID with an enabled model ID from Models & rates. API access is limited during private preview.",
+    "Set RELAYPINE_API_KEY to a key created in the console. Replace MODEL_ID with an enabled model ID from Models & rates.",
   integrationCode: "Integration example",
   openai: "OpenAI",
   anthropic: "Anthropic",

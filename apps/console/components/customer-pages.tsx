@@ -15,6 +15,7 @@ import {
 import {
   Activity,
   ArrowRight,
+  ArrowUpRight,
   Check,
   Code2,
   ReceiptText,
@@ -55,9 +56,9 @@ const requestCost = (request: RequestLog) =>
       ? t.costPending
       : request.cost_status === "recorded"
         ? money(request.cost_micros ?? 0, true)
-      : request.cost_micros !== undefined
-        ? money(request.cost_micros, true)
-        : t.emptyValue;
+        : request.cost_micros !== undefined
+          ? money(request.cost_micros, true)
+          : t.emptyValue;
 export function RequestTable({
   requests,
   short = false,
@@ -67,13 +68,14 @@ export function RequestTable({
 }) {
   const [detail, setDetail] = useState<RequestLog | null>(null);
   const { state } = useConsole();
+  const isOperator = state.surface === "admin" && state.user.operator;
   return (
     <>
       <DataTable
         caption={t.requests}
         columns={[
           t.model,
-          ...(state.user.operator && !short ? [t.tenant] : []),
+          ...(isOperator && !short ? [t.tenant] : []),
           t.status,
           t.tokens,
           t.charge,
@@ -84,14 +86,16 @@ export function RequestTable({
         rows={requests.map((row) => [
           <div key="model">
             <p className="font-mono text-xs">{row.model}</p>
-            <p className="mt-1 text-[11px] text-default-400">
+            <p className="mt-1 text-xs text-default-400">
               {row.id.slice(0, 14)}
             </p>
             {row.billing_mode === "usage_only" && (
-              <p className="mt-1 text-xs text-default-500">{t.modelUsageOnly}</p>
+              <p className="mt-1 text-xs text-default-500">
+                {t.modelUsageOnly}
+              </p>
             )}
           </div>,
-          ...(state.user.operator && !short
+          ...(isOperator && !short
             ? [
                 state.customers?.find(
                   (customer) => customer.id === row.tenant_id,
@@ -113,7 +117,9 @@ export function RequestTable({
             {row.status}
           </Chip>,
           <span key="tokens" className="tabular-nums">
-            {count(row.usage.input_tokens + row.usage.output_tokens)}
+            {row.usage.known
+              ? count(row.usage.input_tokens + row.usage.output_tokens)
+              : c.unknownUsage}
           </span>,
           <span key="charge" className="font-mono text-xs">
             {requestCharge(row)}
@@ -152,7 +158,7 @@ export function RequestTable({
           onClose={() => setDetail(null)}
           size="lg"
           scrollBehavior="inside"
-          classNames={{ base: "max-h-[85dvh]" }}
+          classNames={{ base: "rp-modal max-h-[85dvh]" }}
         >
           <ModalContent>
             <ModalHeader>{t.requestDetail}</ModalHeader>
@@ -160,22 +166,27 @@ export function RequestTable({
               <dl className="space-y-4">
                 {[
                   [t.requestID, detail.id],
-                  [t.customerID, detail.tenant_id],
+                  ...(isOperator ? [[t.customerID, detail.tenant_id]] : []),
                   [t.model, detail.model],
                   [t.provider, detail.provider],
                   [t.status, detail.status],
-                  [t.modelBillingMode, detail.billing_mode === "usage_only" ? t.modelUsageOnly : t.modelMetered],
-                  [t.inputTokens, count(detail.usage.input_tokens)],
-                  [t.outputTokens, count(detail.usage.output_tokens)],
-                  [t.cachedTokens, count(detail.usage.cached_tokens)],
-                  [t.cacheWriteTokens, count(detail.usage.cache_write_tokens)],
+                  [
+                    t.modelBillingMode,
+                    detail.billing_mode === "usage_only"
+                      ? t.modelUsageOnly
+                      : t.modelMetered,
+                  ],
+                  [t.inputTokens, detail.usage.known ? count(detail.usage.input_tokens) : c.unknownUsage],
+                  [t.outputTokens, detail.usage.known ? count(detail.usage.output_tokens) : c.unknownUsage],
+                  [t.cachedTokens, detail.usage.known ? count(detail.usage.cached_tokens) : c.unknownUsage],
+                  [t.cacheWriteTokens, detail.usage.known ? count(detail.usage.cache_write_tokens) : c.unknownUsage],
                   [t.usageKnown, detail.usage.known ? t.yes : t.no],
                   [t.charge, requestCharge(detail)],
-                  ...(state.user.operator ? [[t.cost, requestCost(detail)]] : []),
+                  ...(isOperator ? [[t.cost, requestCost(detail)]] : []),
                   [t.held, money(detail.reserved_micros, true)],
                   [t.latency, `${count(detail.latency_ms)} ms`],
                   [t.key, detail.access_key_id],
-                  [t.credential, detail.credential_id],
+                  ...(isOperator ? [[t.credential, detail.credential_id]] : []),
                   [t.errorCode, detail.error_code],
                 ]
                   .filter(([, value]) => value !== undefined && value !== "")
@@ -192,7 +203,9 @@ export function RequestTable({
                   ))}
               </dl>
               {detail.billing_mode === "usage_only" && (
-                <p className="mt-4 text-xs leading-5 text-default-500">{t.modelUsageOnlyHelp}</p>
+                <p className="mt-4 text-xs leading-5 text-default-500">
+                  {t.modelUsageOnlyHelp}
+                </p>
               )}
             </ModalBody>
           </ModalContent>
@@ -203,86 +216,283 @@ export function RequestTable({
 }
 export function Overview() {
   const { state } = useConsole();
+  const isOperator = state.surface === "admin" && state.user.operator;
   const sum = state.requests.reduce((n, r) => n + r.charge_micros, 0);
-  const active = state.keys.filter((key) => key.enabled).length;
+  const activeKeys = state.keys.filter((key) => key.enabled).length;
   const available = state.wallet.balance_micros - state.wallet.held_micros;
+  const enabledModels = state.models.filter((model) => model.enabled).length;
   const [docs, setDocs] = useState(false);
-  const steps = [
-    {
-      title: c.hostStep,
-      body: c.hostStepBody,
-      done: !!state.endpoints?.some((host) => host.enabled),
-      href: "/app/upstreams",
-    },
-    {
-      title: c.credentialStep,
-      body: c.credentialStepBody,
-      done: !!state.credentials?.some((credential) => credential.enabled),
-      href: "/app/upstreams",
-    },
-    {
-      title: c.modelStep,
-      body: c.modelStepBody,
-      done: state.models.some((model) => model.enabled),
-      href: "/app/models",
-    },
-  ];
+  const baseURL = state.app_url.replace(/\/$/, "");
+  const steps = isOperator
+    ? [
+        {
+          title: c.hostStep,
+          body: c.hostStepBody,
+          done: !!state.endpoints?.some((host) => host.enabled),
+          href: "/app/upstreams",
+        },
+        {
+          title: c.credentialStep,
+          body: c.credentialStepBody,
+          done: !!state.credentials?.some((credential) => credential.enabled),
+          href: "/app/upstreams",
+        },
+        {
+          title: c.modelStep,
+          body: c.modelStepBody,
+          done: enabledModels > 0,
+          href: "/app/models",
+        },
+      ]
+    : [
+        {
+          title: c.keyStep,
+          body: c.keyStepBody,
+          done: activeKeys > 0,
+          href: "/app/keys",
+        },
+        {
+          title: c.balanceStep,
+          body: c.balanceStepBody,
+          done: available > 0,
+          href: "/app/billing",
+        },
+        {
+          title: c.requestStep,
+          body: c.requestStepBody,
+          done: state.requests.length > 0,
+          href: "/app/usage",
+        },
+      ];
   const completedSteps = steps.filter((step) => step.done).length;
+  const recent = state.requests.slice(0, 28).reverse();
+  const peakTokens = Math.max(
+    1,
+    ...recent
+      .filter((request) => request.usage.known)
+      .map(
+        (request) => request.usage.input_tokens + request.usage.output_tokens,
+      ),
+  );
+  const totalTokens = state.requests.reduce(
+    (n, request) =>
+      n +
+      (request.usage.known
+        ? request.usage.input_tokens + request.usage.output_tokens
+        : 0),
+    0,
+  );
+  const unknownUsage = state.requests.filter(
+    (request) => !request.usage.known,
+  ).length;
+  const completed = state.requests.filter(
+    (request) =>
+      request.status === "completed" || request.status === "succeeded",
+  ).length;
+  const errors = state.requests.filter(
+    (request) => !!request.error_code,
+  ).length;
   const metrics = [
     {
       label: t.balance,
       value: money(available),
-      help: t.walletHelp,
+      help: c.availableToSpend,
       icon: Wallet,
+      href: "/app/billing",
     },
     {
-      label: t.spend,
+      label: c.recentSpend,
       value: money(sum, true),
-      help: t.spendHelp,
+      help: c.loadedRequests,
       icon: ReceiptText,
+      href: "/app/billing",
     },
     {
       label: t.requests,
       value: count(state.requests.length),
-      help: t.requestsHelp,
+      help: c.loadedRequests,
       icon: Activity,
+      href: "/app/usage",
     },
     {
-      label: t.keyCount,
-      value: count(active),
+      label: c.activeKeys,
+      value: count(activeKeys),
       help: state.project.name,
       icon: KeyRound,
+      href: "/app/keys",
     },
   ];
   return (
     <>
       <PageHeader
         title={t.overview}
-        description={t.overviewDescription}
+        description={
+          isOperator ? c.operatorOverviewBody : c.customerOverviewBody
+        }
         action={
-          <Button color="primary" as={Link} href="/app/keys">
-            {t.createKey}
-          </Button>
+          <div className="rp-console-header-actions">
+            <Button
+              variant="bordered"
+              onPress={() => setDocs(true)}
+              startContent={<Code2 size={16} />}
+            >
+              {t.integration}
+            </Button>
+            <Button
+              color="primary"
+              as={Link}
+              href="/app/keys"
+              startContent={<Plus size={16} />}
+            >
+              {t.createKey}
+            </Button>
+          </div>
         }
       />
       <div className="rp-console-metrics">
         {metrics.map((metric) => (
-          <div className="rp-console-metric" key={metric.label}>
+          <Link
+            href={metric.href}
+            className="rp-console-metric"
+            key={metric.label}
+          >
             <div className="rp-console-metric-label">
               <span>{metric.label}</span>
               <metric.icon size={16} strokeWidth={1.6} />
             </div>
             <p className="rp-console-metric-value">{metric.value}</p>
-            <p className="rp-console-metric-help">{metric.help}</p>
-          </div>
+            <p className="rp-console-metric-help">
+              {metric.help}
+              <ArrowUpRight size={14} />
+            </p>
+          </Link>
         ))}
+      </div>
+      <div className="rp-console-observation-grid">
+        <section
+          className="rp-console-activity-panel"
+          aria-labelledby="request-activity-title"
+        >
+          <div className="rp-console-activity-heading">
+            <div>
+              <p className="rp-console-eyebrow">{c.trafficEyebrow}</p>
+              <h2 id="request-activity-title">{c.requestActivity}</h2>
+            </div>
+            <span className="rp-console-data-label">
+              {c.latestRequests.replace("{count}", String(recent.length))}
+            </span>
+          </div>
+          <div className="rp-console-activity-totals">
+            <strong>{count(totalTokens)}</strong>
+            <span>{c.tokensInView}</span>
+          </div>
+          {recent.length ? (
+            <>
+              <div
+                className="rp-console-activity-chart"
+                role="img"
+                aria-label={c.chartDescription.replace(
+                  "{count}",
+                  String(recent.length),
+                )}
+              >
+                <div className="rp-console-chart-grid" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div className="rp-console-chart-bars">
+                  {recent.map((request) => {
+                    const tokens =
+                      request.usage.input_tokens + request.usage.output_tokens;
+                    return (
+                      <div
+                        key={request.id}
+                        className={`rp-console-chart-column ${request.error_code ? "has-error" : ""} ${!request.usage.known ? "is-unknown" : ""}`}
+                        title={`${request.model} · ${request.usage.known ? `${count(tokens)} ${t.tokens}` : c.unknownUsage} · ${request.status}`}
+                      >
+                        <span
+                          style={{
+                            height: request.usage.known
+                              ? `${Math.max(3, (tokens / peakTokens) * 100)}%`
+                              : "7px",
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="rp-console-chart-axis">
+                <span>{c.earlierRequests}</span>
+                <span>{c.latestRequest}</span>
+              </div>
+            </>
+          ) : (
+            <div className="rp-console-chart-empty">
+              <Activity size={25} strokeWidth={1.25} />
+              <p>{c.noActivityYet}</p>
+              <span>{c.noActivityBody}</span>
+            </div>
+          )}
+          <div className="rp-console-activity-footer">
+            <span>
+              <i />
+              {count(completed)} {c.completedRequests}
+            </span>
+            <span>
+              <i className="is-error" />
+              {count(errors)} {c.failedRequests}
+            </span>
+            {unknownUsage > 0 && (
+              <span>
+                <i className="is-unknown" />
+                {count(unknownUsage)} {c.unknownUsage}
+              </span>
+            )}
+            <Link href="/app/usage">
+              {t.seeAll}
+              <ArrowRight size={14} />
+            </Link>
+          </div>
+        </section>
+        <aside className="rp-console-developer-panel">
+          <div className="rp-console-panel-topline">
+            <p className="rp-console-eyebrow">{c.developerResources}</p>
+            <Code2 size={19} strokeWidth={1.6} />
+          </div>
+          <h2>{c.endpointTitle}</h2>
+          <p className="rp-console-panel-description">{c.endpointBody}</p>
+          <div className="rp-console-endpoint-list">
+            {[
+              { label: t.openai, value: `${baseURL}/openai/v1` },
+              { label: t.anthropic, value: `${baseURL}/anthropic` },
+            ].map((endpoint) => (
+              <div className="rp-console-endpoint" key={endpoint.label}>
+                <div>
+                  <span>{endpoint.label}</span>
+                  <CopyButton value={endpoint.value} />
+                </div>
+                <code>{endpoint.value}</code>
+              </div>
+            ))}
+          </div>
+          <Link className="rp-console-model-count" href="/app/models">
+            <Waypoints size={15} strokeWidth={1.6} />
+            <span>{c.availableModels}</span>
+            <strong>{count(enabledModels)}</strong>
+            <ArrowRight size={14} />
+          </Link>
+        </aside>
       </div>
       {completedSteps < steps.length && (
         <section className="rp-console-setup">
           <div className="rp-console-setup-intro">
             <p className="rp-console-eyebrow">{c.setupEyebrow}</p>
             <h2>{c.setupTitle}</h2>
-            <p className="rp-console-setup-description">{c.setupBody}</p>
+            <p className="rp-console-setup-description">
+              {isOperator ? c.setupBody : c.customerSetupBody}
+            </p>
             <div className="rp-console-setup-progress">
               <div
                 className="rp-console-setup-progress-track"
@@ -327,57 +537,24 @@ export function Overview() {
           </div>
         </section>
       )}
-      <div className="rp-console-overview-grid">
-        <section className="min-w-0">
-          <div className="rp-console-section-heading">
-            <div>
-              <h2>{t.recentRequests}</h2>
-              <p>{c.recentActivity}</p>
-            </div>
-            <Button as={Link} href="/app/usage" variant="light" size="sm">
-              {t.seeAll}
-            </Button>
-          </div>
-          <RequestTable requests={state.requests.slice(0, 6)} short />
-        </section>
-        <aside className="rp-console-developer-panel">
-          <div className="rp-console-resource-icon">
-            <Code2 size={20} strokeWidth={1.6} />
-          </div>
-          <p className="rp-console-eyebrow">{c.developerResources}</p>
-          <h2>{c.endpointTitle}</h2>
-          <p className="rp-console-panel-description">{c.endpointBody}</p>
-          <div className="rp-console-endpoint-list">
-            {[
-              { label: t.openai, value: "https://relaypine.com/openai/v1" },
-              { label: t.anthropic, value: "https://relaypine.com/anthropic" },
-            ].map((endpoint) => (
-              <div className="rp-console-endpoint" key={endpoint.label}>
-                <div>
-                  <span>{endpoint.label}</span>
-                  <CopyButton value={endpoint.value} />
-                </div>
-                <code>{endpoint.value}</code>
-              </div>
-            ))}
+      <section className="rp-console-recent-section">
+        <div className="rp-console-section-heading">
+          <div>
+            <p className="rp-console-eyebrow">{c.requestLogEyebrow}</p>
+            <h2>{t.recentRequests}</h2>
           </div>
           <Button
-            className="w-full"
+            as={Link}
+            href="/app/usage"
             variant="bordered"
-            onPress={() => setDocs(true)}
-            endContent={<ArrowRight size={15} />}
+            size="sm"
+            endContent={<ArrowRight size={14} />}
           >
-            {t.integration}
+            {t.seeAll}
           </Button>
-          <div className="rp-console-model-count">
-            <Waypoints size={15} strokeWidth={1.6} />
-            <span>{c.availableModels}</span>
-            <strong>
-              {count(state.models.filter((model) => model.enabled).length)}
-            </strong>
-          </div>
-        </aside>
-      </div>
+        </div>
+        <RequestTable requests={state.requests.slice(0, 6)} short />
+      </section>
       {docs && <Integration onClose={() => setDocs(false)} />}
     </>
   );
@@ -388,6 +565,7 @@ export function Keys() {
   const [secret, setSecret] = useState("");
   const [revoke, setRevoke] = useState<AccessKey | null>(null);
   const [docs, setDocs] = useState(false);
+  const baseURL = state.app_url.replace(/\/$/, "");
   const fields: Field[] = [
     {
       key: "name",
@@ -404,11 +582,33 @@ export function Keys() {
         title={t.keys}
         description={t.keysDescription}
         action={
-          <Button color="primary" onPress={() => setAdding(true)}>
+          <Button
+            color="primary"
+            startContent={<Plus size={16} />}
+            onPress={() => setAdding(true)}
+          >
             {t.createKey}
           </Button>
         }
       />
+      <div className="rp-console-resource-summary">
+        <div>
+          <span>{c.keysConfigured}</span>
+          <strong>{count(state.keys.length)}</strong>
+        </div>
+        <div>
+          <span>{c.activeKeys}</span>
+          <strong>
+            {count(state.keys.filter((key) => key.enabled).length)}
+          </strong>
+        </div>
+        <div>
+          <span>{c.keyRevokedCount}</span>
+          <strong>
+            {count(state.keys.filter((key) => !key.enabled).length)}
+          </strong>
+        </div>
+      </div>
       <DataTable
         caption={t.keys}
         columns={[
@@ -451,26 +651,30 @@ export function Keys() {
             title={t.noKeys}
             body={t.noKeysBody}
             action={
-              <Button color="primary" onPress={() => setAdding(true)}>
+              <Button
+                color="primary"
+                startContent={<Plus size={16} />}
+                onPress={() => setAdding(true)}
+              >
                 {t.createKey}
               </Button>
             }
           />
         }
       />
-      <section className="mt-8">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-medium">{t.integrationBase}</h2>
+      <section className="rp-console-key-guide">
+        <div className="rp-console-section-heading">
+          <div>
+            <p className="rp-console-eyebrow">{c.developerResources}</p>
+            <h2>{t.integrationBase}</h2>
+          </div>
           <Button variant="light" size="sm" onPress={() => setDocs(true)}>
             {t.integration}
           </Button>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
-          <CodeBlock label={t.openai} code="https://relaypine.com/openai/v1" />
-          <CodeBlock
-            label={t.anthropic}
-            code="https://relaypine.com/anthropic"
-          />
+          <CodeBlock label={t.openai} code={`${baseURL}/openai/v1`} />
+          <CodeBlock label={t.anthropic} code={`${baseURL}/anthropic`} />
         </div>
       </section>
       {adding && (
@@ -498,6 +702,7 @@ export function Keys() {
         <Modal
           isOpen
           onClose={() => setSecret("")}
+          classNames={{ base: "rp-modal max-h-[85dvh]" }}
           size="lg"
           scrollBehavior="inside"
         >
@@ -545,30 +750,64 @@ export function Keys() {
 export function Usage() {
   const { state } = useConsole();
   const [search, setSearch] = useState("");
-  const rows = state.requests.filter((row) =>
-    `${row.model} ${row.id} ${row.status} ${row.error_code ?? ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
+  const [filter, setFilter] = useState<"all" | "completed" | "errors">("all");
+  const rows = state.requests.filter((row) => {
+    const matchesSearch =
+      `${row.model} ${row.id} ${row.status} ${row.error_code ?? ""}`
+        .toLowerCase()
+        .includes(search.toLowerCase());
+    const matchesStatus =
+      filter === "all" ||
+      (filter === "completed"
+        ? row.status === "completed" || row.status === "succeeded"
+        : !!row.error_code);
+    return matchesSearch && matchesStatus;
+  });
   return (
     <>
       <PageHeader title={t.usage} description={t.usageDescription} />
-      <Input
-        aria-label={t.searchRequests}
-        placeholder={t.searchRequests}
-        value={search}
-        onValueChange={setSearch}
-        isClearable
-        onClear={() => setSearch("")}
-        startContent={<Search size={17} className="text-default-400" />}
-        className="rp-console-search max-w-md"
-      />
-      {search && !rows.length ? (
+      <div className="rp-console-usage-toolbar">
+        <div className="rp-console-segmented" aria-label={t.status}>
+          {(
+            [
+              { id: "all", label: c.allRequestsFilter },
+              { id: "completed", label: c.successfulFilter },
+              { id: "errors", label: c.errorsFilter },
+            ] as const
+          ).map((item) => (
+            <Button
+              key={item.id}
+              variant="light"
+              aria-pressed={filter === item.id}
+              onPress={() => setFilter(item.id)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+        <Input
+          aria-label={t.searchRequests}
+          placeholder={t.searchRequests}
+          value={search}
+          onValueChange={setSearch}
+          isClearable
+          onClear={() => setSearch("")}
+          startContent={<Search size={16} className="text-default-400" />}
+          className="rp-console-search"
+        />
+      </div>
+      {(search || filter !== "all") && !rows.length ? (
         <Empty
           title={t.noResults}
           body={t.resetSearch}
           action={
-            <Button variant="flat" onPress={() => setSearch("")}>
+            <Button
+              variant="flat"
+              onPress={() => {
+                setSearch("");
+                setFilter("all");
+              }}
+            >
               {t.all}
             </Button>
           }
@@ -576,9 +815,12 @@ export function Usage() {
       ) : (
         <RequestTable requests={rows} />
       )}
-      <p className="mt-3 text-xs text-default-400">
-        {count(rows.length)} {t.totalRecords}
-      </p>
+      <div className="rp-console-table-meta">
+        <span>
+          {count(rows.length)} {c.matchingRequests}
+        </span>
+        <span>{c.usageScopeNote}</span>
+      </div>
     </>
   );
 }
@@ -593,7 +835,7 @@ export function Billing() {
             <span className="rp-console-eyebrow">{c.billingEyebrow}</span>
             <span className="rp-console-currency">{c.currency}</span>
           </div>
-          <p className="rp-console-wallet-label">{t.balance}</p>
+          <p className="rp-console-wallet-label">{c.availableToSpend}</p>
           <p className="rp-console-wallet-value">
             {money(state.wallet.balance_micros - state.wallet.held_micros)}
           </p>
@@ -610,9 +852,8 @@ export function Billing() {
             <ReceiptText size={22} strokeWidth={1.5} />
           </div>
           <p className="rp-console-eyebrow">{w.internalLabel}</p>
-          <h2>{w.internalTitle}</h2>
-          <p>{w.internalBody}</p>
-          <p>{t.walletBalanceHelp}</p>
+          <h2>{c.balanceLedger}</h2>
+          <p>{c.balanceLedgerBody}</p>
           <Button
             as={Link}
             href="/app/usage"
@@ -623,7 +864,15 @@ export function Billing() {
           </Button>
         </section>
       </div>
-      <h2 className="rp-console-table-title">{t.ledger}</h2>
+      <div className="rp-console-section-heading">
+        <div>
+          <p className="rp-console-eyebrow">{w.internalLabel}</p>
+          <h2>{t.ledger}</h2>
+        </div>
+        <span className="text-xs text-default-500">
+          {count(state.ledger.length)} {t.totalRecords}
+        </span>
+      </div>
       <DataTable
         caption={t.ledger}
         columns={[t.entryType, t.amount, t.reason, t.reference, t.date]}
@@ -708,7 +957,9 @@ export function Customers() {
   } | null>(null);
   const [search, setSearch] = useState("");
   const customers = (state.customers ?? []).filter((c) =>
-    `${c.name} ${c.email || ""} ${c.id}`.toLowerCase().includes(search.toLowerCase()),
+    `${c.name} ${c.email || ""} ${c.id}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
   );
   return (
     <>
@@ -723,7 +974,14 @@ export function Customers() {
       />
       <DataTable
         caption={t.customers}
-        columns={[t.name, t.email, t.customerID, t.status, t.createdAt, t.actions]}
+        columns={[
+          t.name,
+          t.email,
+          t.customerID,
+          t.status,
+          t.createdAt,
+          t.actions,
+        ]}
         rows={customers.map((customer) => [
           customer.name,
           customer.email || t.emptyValue,
@@ -738,7 +996,9 @@ export function Customers() {
             onPress={() =>
               setCredit({
                 id: customer.id,
-                name: customer.email ? `${customer.name} (${customer.email})` : customer.name,
+                name: customer.email
+                  ? `${customer.name} (${customer.email})`
+                  : customer.name,
                 idempotency: crypto.randomUUID(),
               })
             }

@@ -15,6 +15,7 @@ import {
   addToast,
 } from "@heroui/react";
 import { pricingEn as p } from "@/i18n/pricing-en";
+import { ArrowRight, Check, Database, RefreshCw } from "lucide-react";
 import { validPricePreview, type PricePreview } from "@/lib/pricing";
 import { ModelPricePreview } from "./model-price-preview";
 import { en as t } from "@/i18n/en";
@@ -380,13 +381,13 @@ export function ModelImport({
   return (
     <Modal
       isOpen
-      size={pricePreview ? "2xl" : "lg"}
+      size="2xl"
       scrollBehavior="inside"
       onClose={close}
       isDismissable={!loading}
       isKeyboardDismissDisabled={loading}
       hideCloseButton={loading}
-      classNames={{ base: "max-h-[85dvh]" }}
+      classNames={{ base: "rp-management-modal rp-management-import-modal max-h-[88dvh]" }}
     >
       <ModalContent>
         <form
@@ -400,13 +401,20 @@ export function ModelImport({
             else void discover();
           }}
         >
-          <ModalHeader className="flex-col gap-2">
+          <ModalHeader className="rp-management-modal-header flex-col gap-2">
+            <span className="rp-management-modal-eyebrow"><Database size={14} />{p.catalog}</span>
             <h2>{t.modelImportTitle}</h2>
             <p className="text-sm font-normal leading-6 text-default-500">
               {p.importIntro}
             </p>
           </ModalHeader>
-          <ModalBody className="gap-4 overflow-y-auto">
+          <ol className="rp-management-steps" aria-label={t.modelImportTitle}>
+            {[p.discoverStep, p.selectStep, p.reviewStep].map((label, index) => {
+              const current = pricePreview || receipt ? 2 : result?.status === "verified" && !scopeChanged ? 1 : 0;
+              return <li key={label} data-active={index === current} data-complete={index < current} aria-current={index === current ? "step" : undefined}><span>{index < current ? <Check size={13} /> : `0${index + 1}`}</span>{label}</li>;
+            })}
+          </ol>
+          <ModalBody className="rp-management-modal-body gap-4 overflow-y-auto">
             {error && (
               <div ref={errorBlock}>
                 <ErrorBox message={error} />
@@ -426,6 +434,7 @@ export function ModelImport({
                 <Select
                   autoFocus
                   label={t.credential}
+                  variant="bordered"
                   selectedKeys={credentialID ? [credentialID] : []}
                   onChange={(event) => changeCredential(event.target.value)}
                   description={endpoint?.base_url}
@@ -521,8 +530,8 @@ export function ModelImport({
                 )}
                 {pricePreview && !receipt && <ModelPricePreview preview={pricePreview} selected={selected} disabled={loading} />}
                 {result?.status === "verified" && !scopeChanged && !receipt && !pricePreview && (
-                  <section className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
+                  <section className="rp-management-import-list space-y-3">
+                    <div className="rp-management-section-heading">
                       <p className="text-sm font-medium">
                         {count(result.models.length)} {t.credentialModelsFound}
                       </p>
@@ -531,6 +540,7 @@ export function ModelImport({
                         variant="light"
                         onPress={() => void discover()}
                         isDisabled={loading}
+                        startContent={<RefreshCw size={13} />}
                       >
                         {t.credentialRecheck}
                       </Button>
@@ -565,13 +575,13 @@ export function ModelImport({
               </p>
             )}
           </ModalBody>
-          <ModalFooter className="shrink-0 flex-wrap">
+          <ModalFooter className="rp-management-modal-footer shrink-0 flex-wrap">
             {pricePreview && !receipt && <Button variant="bordered" isDisabled={loading} onPress={() => { setPricePreview(null); setError(""); }}>{p.back}</Button>}
             <Button variant="light" isDisabled={loading} onPress={close}>
               {receipt ? t.close : t.cancel}
             </Button>
             {!!eligible.length && !scopeChanged && (
-              <Button color="primary" type="submit" isLoading={loading}
+              <Button color="primary" type="submit" isLoading={loading} endContent={!loading ? <ArrowRight size={15} /> : undefined}
                 isDisabled={!receipt && result?.status === "verified" && (!selected.length || selected.length > 400)}>
                 {receipt ? t.modelImportRefresh : pricePreview ? p.importAction.replace("{count}", count(selected.length)) : result?.status === "verified"
                   ? p.importReview : t.modelImportDiscover}

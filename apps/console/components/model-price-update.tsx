@@ -8,6 +8,7 @@ import { api, count, errorMessage } from "@/lib/api";
 import { validPricePreview, type PricePreview } from "@/lib/pricing";
 import { ModelPricePreview } from "./model-price-preview";
 import { ErrorBox } from "./shared";
+import { RefreshCw, ArrowRight } from "lucide-react";
 
 export function ModelPriceUpdate({ onClose, onUpdated }: {
   onClose: () => void;
@@ -92,26 +93,27 @@ export function ModelPriceUpdate({ onClose, onUpdated }: {
   }
   return (
     <Modal isOpen onClose={close} size="2xl" scrollBehavior="inside" isDismissable={!applying}
-      isKeyboardDismissDisabled={applying} hideCloseButton={applying} classNames={{ base: "max-h-[85dvh]" }}>
+      isKeyboardDismissDisabled={applying} hideCloseButton={applying} classNames={{ base: "rp-management-modal max-h-[88dvh]" }}>
       <ModalContent>
-        <ModalHeader className="flex-col gap-2">
+        <ModalHeader className="rp-management-modal-header flex-col gap-2">
+          <span className="rp-management-modal-eyebrow"><RefreshCw size={14} />{p.referenceModels}</span>
           <h2>{p.updateTitle}</h2>
           <p className="text-sm font-normal leading-6 text-default-500">{p.updateIntro}</p>
         </ModalHeader>
-        <ModalBody className="gap-4 overflow-y-auto">
+        <ModalBody className="rp-management-modal-body gap-4 overflow-y-auto">
           {error && <div ref={errorBlock}><ErrorBox message={error} /></div>}
           {receipt !== null && <p role="status" className="text-sm">{p.success.replace("{count}", count(receipt))}</p>}
           {loading ? <div aria-label={t.loading} className="space-y-3">{[0, 1, 2].map((n) => <Skeleton key={n} className="h-28 rounded-xl" />)}</div> : preview?.items.length ? (
             <>
-              {preview.items.some((item) => item.status === "manual") && <p className="rounded-lg border border-default-200 p-3 text-sm leading-6">{p.manualNote}</p>}
+              {preview.items.some((item) => item.status === "manual") && <p className="rp-management-notice">{p.manualNote}</p>}
               <ModelPricePreview preview={preview} selected={selected} onSelection={setSelected} disabled={applying || receipt !== null} />
             </>
           ) : !error && <p className="py-6 text-sm text-default-500">{p.none}</p>}
         </ModalBody>
-        <ModalFooter className="flex-wrap">
+        <ModalFooter className="rp-management-modal-footer flex-wrap">
           <Button variant="light" isDisabled={applying} onPress={close}>{t.close}</Button>
-          {receipt === null && <Button variant="bordered" isLoading={loading} isDisabled={applying} onPress={() => void recheck()}>{p.retry}</Button>}
-          <Button color="primary" isLoading={applying} isDisabled={loading || (receipt === null && !selected.length)} onPress={() => void apply()}>
+          {receipt === null && <Button variant="bordered" startContent={!loading ? <RefreshCw size={14} /> : undefined} isLoading={loading} isDisabled={applying} onPress={() => void recheck()}>{p.retry}</Button>}
+          <Button color="primary" endContent={!applying ? <ArrowRight size={15} /> : undefined} isLoading={applying} isDisabled={loading || (receipt === null && !selected.length)} onPress={() => void apply()}>
             {receipt !== null ? p.refresh : p.apply.replace("{count}", count(selected.length))}
           </Button>
         </ModalFooter>

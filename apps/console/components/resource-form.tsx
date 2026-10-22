@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   Button,
   Input,
@@ -15,6 +15,7 @@ import {
 import { en as t } from "@/i18n/en";
 import { errorMessage } from "@/lib/api";
 import { ErrorBox } from "./shared";
+import { SlidersHorizontal } from "lucide-react";
 export interface Field {
   key: string;
   label: string;
@@ -82,6 +83,7 @@ export function ResourceForm({
   }
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     const next: Record<string, string> = {};
     for (const field of visibleFields) {
       const value = values[field.key];
@@ -111,11 +113,13 @@ export function ResourceForm({
   return (
     <Modal
       isOpen
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       isDismissable={!busy}
+      isKeyboardDismissDisabled={busy}
+      hideCloseButton={busy}
       size={fields.length > 5 ? "lg" : "md"}
       scrollBehavior="inside"
-      classNames={{ base: "max-h-[85dvh]" }}
+      classNames={{ base: "rp-management-modal max-h-[88dvh]" }}
     >
       <ModalContent>
         <form
@@ -124,7 +128,8 @@ export function ResourceForm({
           noValidate
           onSubmit={submit}
         >
-          <ModalHeader className="flex-col gap-2">
+          <ModalHeader className="rp-management-modal-header flex-col gap-2">
+            <span className="rp-management-modal-icon"><SlidersHorizontal size={18} /></span>
             <h2>{title}</h2>
             {description && (
               <p className="text-sm font-normal leading-6 text-default-500">
@@ -132,22 +137,25 @@ export function ResourceForm({
               </p>
             )}
           </ModalHeader>
-          <ModalBody className="gap-4 overflow-y-auto">
+          <ModalBody className="rp-management-modal-body gap-4 overflow-y-auto">
             {error && (
               <div ref={errorBlock}>
                 <ErrorBox message={error} />
               </div>
             )}{" "}
+            <div className="rp-management-fields">
             {visibleFields.map((field, index) => (
-              <div key={field.key}>
+              <Fragment key={field.key}>
                 {field.section && (
-                  <h3 className="mb-3 mt-2 text-sm font-semibold">
+                  <h3 className="rp-management-field-section">
                     {field.section}
                   </h3>
                 )}
+              <div className={field.key.endsWith("_rate") ? "rp-management-rate-field" : "rp-management-full-field"}>
                 {field.type === "switch" ? (
                   <div>
                   <Switch
+                    isDisabled={busy}
                     isSelected={Boolean(values[field.key])}
                     onValueChange={(v) => update(field.key, v)}
                   >
@@ -157,6 +165,8 @@ export function ResourceForm({
                   </div>
                 ) : field.type === "select" ? (
                   <Select
+                    isDisabled={busy}
+                    variant="bordered"
                     autoFocus={index === 0}
                     label={field.label}
                     selectedKeys={
@@ -175,6 +185,8 @@ export function ResourceForm({
                   </Select>
                 ) : (
                   <Input
+                    isDisabled={busy}
+                    variant="bordered"
                     isReadOnly={field.readOnly}
                     autoFocus={index === 0}
                     label={field.label}
@@ -193,9 +205,11 @@ export function ResourceForm({
                   />
                 )}
               </div>
+              </Fragment>
             ))}
+            </div>
           </ModalBody>
-          <ModalFooter>
+          <ModalFooter className="rp-management-modal-footer">
             <Button variant="light" isDisabled={busy} onPress={onClose}>
               {t.cancel}
             </Button>

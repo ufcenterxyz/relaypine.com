@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button, Checkbox, CheckboxGroup, Chip, Input } from "@heroui/react";
 import { Search } from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { pricingEn as p } from "@/i18n/pricing-en";
 import { count } from "@/lib/api";
 
 export interface ModelImportOption {
@@ -54,16 +55,19 @@ export function ModelImportSelection({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="rp-management-selection">
       <Input
         aria-label={t.modelImportSearch}
         placeholder={t.modelImportSearch}
         value={search}
         onValueChange={setSearch}
         isDisabled={isDisabled}
+        variant="bordered"
+        isClearable
+        onClear={() => setSearch("")}
         startContent={<Search size={16} />}
       />
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      <div className="rp-management-selection-tools">
         <Checkbox
           isSelected={allVisibleSelected}
           isIndeterminate={selectedVisible.length > 0 && !allVisibleSelected}
@@ -95,8 +99,7 @@ export function ModelImportSelection({
           onValueChange={changeVisibleSelection}
           isDisabled={isDisabled}
           classNames={{
-            wrapper:
-              "max-h-64 flex-nowrap gap-1 overflow-x-hidden overflow-y-auto rounded-lg border border-default-200 p-3",
+            wrapper: "rp-management-model-options",
           }}
         >
           {visible.map((model) => (
@@ -105,7 +108,7 @@ export function ModelImportSelection({
               value={model.id}
               isDisabled={isDisabled || !!model.unavailable}
               classNames={{
-                base: "m-0 w-full max-w-full shrink-0 items-start p-3",
+                base: "rp-management-model-option",
                 wrapper: "mt-0.5 shrink-0",
                 label: "min-w-0 flex-1",
               }}
@@ -131,8 +134,9 @@ export function ModelImportSelection({
           {search.trim() ? t.noResults : t.modelImportEmpty}
         </p>
       )}
-      <p role="status" aria-live="polite" className="text-xs text-default-500">
-        {t.modelImportSelectedCount.replace("{count}", count(selected.size))}
+      <p role="status" aria-live="polite" className="rp-management-selection-status">
+        <strong>{t.modelImportSelectedCount.replace("{count}", count(selected.size))}</strong>
+        {!search.trim() && <span>{p.selectedHelp}</span>}
         {search.trim() && selected.size > selectedVisible.length && (
           <span className="ml-1">{t.modelImportSelectionRetained}</span>
         )}

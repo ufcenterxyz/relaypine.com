@@ -14,8 +14,8 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { en as t } from "@/i18n/en";
 import { authEn as w } from "@/i18n/auth-en";
-import { ErrorBox } from "./shared";
-import { TreePine, ArrowRight, Mail } from "lucide-react";
+import { BrandMark, ErrorBox } from "./shared";
+import { ArrowRight, Mail, LockKeyhole } from "lucide-react";
 
 type Step = "email" | "code";
 type CodeSent = {
@@ -227,8 +227,8 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
       size="md"
       scrollBehavior="inside"
       classNames={{
-        base: "rp-modal max-h-[85dvh]",
-        backdrop: "bg-[#0c2117]/25 backdrop-blur-sm",
+        base: "rp-modal rp-auth-modal max-h-[85dvh]",
+        backdrop: "bg-[#191c18]/45 backdrop-blur-sm",
       }}
     >
       <ModalContent>
@@ -238,22 +238,15 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
           className="flex min-h-0 flex-col overflow-hidden"
           aria-busy={!!busy}
         >
-          <ModalHeader className="flex-col gap-2 px-6 pt-6 sm:gap-3 sm:px-8 sm:pt-8">
-            <span className="mb-1 flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground sm:mb-3 sm:size-10">
-              {checking ? (
-                <Mail size={22} strokeWidth={1.5} />
-              ) : (
-                <TreePine size={24} strokeWidth={1.5} />
-              )}
-            </span>
-            <h2 className="text-[25px] font-medium leading-tight tracking-[-.04em] sm:text-[27px]">
-              {checking ? w.verifyTitle : w.title}
-            </h2>
-            <p className="text-[13px] font-normal leading-[1.6] text-default-500 sm:text-sm">
-              {checking ? w.verifyDescription : w.description}
-            </p>
+          <ModalHeader className="rp-auth-header">
+            <div className="rp-auth-identity">
+              {checking ? <span className="rp-brand-mark rp-auth-mark"><Mail size={20} /></span> : <BrandMark className="rp-auth-mark" />}
+              <span>{checking ? w.stepCode : w.stepEmail}</span>
+            </div>
+            <h2>{checking ? w.verifyTitle : w.title}</h2>
+            <p>{checking ? w.verifyDescription : w.description}</p>
           </ModalHeader>
-          <ModalBody className="min-h-0 gap-4 overflow-y-auto px-6 pt-3 sm:gap-5 sm:px-8 sm:pt-4">
+          <ModalBody className="rp-auth-body min-h-0 overflow-y-auto">
             <>
                 {error && <ErrorBox message={error} />}
                 {checking ? (
@@ -370,7 +363,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                     <Input
                       variant="bordered"
                       labelPlacement="outside"
-                      placeholder=" "
+                      placeholder="you@company.com"
                       classNames={fieldClasses}
                       autoFocus
                       label={t.email}
@@ -383,14 +376,14 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                       isInvalid={!!errors.email}
                       errorMessage={errors.email}
                     />
-                    <p className="text-xs leading-5 text-default-500">
+                    <p className="rp-auth-email-note">
                       {w.loginNote}
                     </p>
                   </>
                 )}
             </>
           </ModalBody>
-          <ModalFooter className="flex-col gap-3 px-6 pb-6 pt-5 sm:gap-4 sm:px-8 sm:pb-7 sm:pt-6">
+          <ModalFooter className="rp-auth-footer">
                 <Button
                   className="h-12 w-full"
                   endContent={<ArrowRight size={16} />}
@@ -401,6 +394,7 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
                 >
                   {checking ? w.verify : w.sendCode}
                 </Button>
+            <p className="rp-auth-footer-note"><LockKeyhole size={12} />{w.securityNote}</p>
           </ModalFooter>
         </form>
       </ModalContent>

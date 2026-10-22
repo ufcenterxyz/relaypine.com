@@ -54,6 +54,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [menu, setMenu] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const isOperator = state.surface === "admin" && state.user.operator;
   const isActive = (id: string) =>
     id ? path.startsWith(`/app/${id}`) : path === "/app";
   const title =
@@ -79,7 +80,11 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
       >
         <span>{item.label}</span>
         {isActive(item.id) && (
-          <span className="rp-console-nav-indicator" aria-hidden="true" />
+          <ChevronRight
+            className="rp-console-nav-indicator"
+            size={14}
+            aria-hidden="true"
+          />
         )}
       </Button>
     ));
@@ -90,16 +95,16 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
           {state.tenant.name.charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0">
-          <p>{state.tenant.name}</p>
-          <span>{state.surface === "admin" && state.user.operator ? t.operator : c.personalWorkspace}</span>
+          <p title={state.tenant.name}>{state.tenant.name}</p>
+          <span>{state.project.name}</span>
         </div>
       </div>
       <p className="rp-console-nav-label">{c.workspaceNavigation}</p>
       <nav aria-label={t.workspace}>{navItems(customerNav)}</nav>
-      {state.surface === "admin" && state.user.operator && (
+      {isOperator && (
         <>
           <p className="rp-console-nav-label rp-console-operations-label">
-            {t.operations}
+            {c.infrastructureNavigation}
           </p>
           <nav aria-label={t.operations}>{navItems(operatorNav)}</nav>
         </>
@@ -125,7 +130,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
           </span>
           <div className="min-w-0">
             <p>{state.user.name}</p>
-            <span>{state.user.email}</span>
+            <span title={state.user.email}>{state.user.email}</span>
           </div>
         </div>
         <Button
@@ -154,6 +159,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
       <aside className="rp-console-sidebar">
         <div className="rp-console-brand">
           <Brand />
+          <span className="rp-console-edition">{c.consoleLabel}</span>
         </div>
         <div className="rp-console-sidebar-inner">{nav}</div>
       </aside>
@@ -175,7 +181,7 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
             <span className="rp-console-project">{state.project.name}</span>
             <ChevronRight
               className="rp-console-breadcrumb-divider"
-              size={14}
+              size={13}
               strokeWidth={1.6}
             />
             <span className="rp-console-current-page">{title}</span>
@@ -216,21 +222,27 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
             {t.privacyNote}
           </span>
           <span className="rp-console-footer-brand">
-            {t.brand} <span>/</span> {c.consoleLabel}
+            {t.brand}
+            <span>/</span>
+            {c.consoleLabel}
           </span>
         </footer>
       </div>
       {menu && (
         <Modal
           isOpen
+          disableAnimation
           onClose={() => setMenu(false)}
           size="sm"
           placement="top"
           scrollBehavior="inside"
-          classNames={{ base: "max-h-[85dvh]" }}
+          classNames={{
+            wrapper: "rp-console-drawer-wrapper",
+            base: "rp-console-drawer max-h-[100dvh]",
+          }}
         >
           <ModalContent>
-            <ModalHeader>
+            <ModalHeader className="rp-console-drawer-header">
               <Brand />
             </ModalHeader>
             <ModalBody className="rp-console-mobile-menu">{nav}</ModalBody>
