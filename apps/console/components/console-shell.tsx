@@ -4,6 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Button,
+  Dropdown,
+  DropdownItem,
+  DropdownMenu,
+  DropdownTrigger,
   Tooltip,
   Modal,
   ModalContent,
@@ -15,6 +19,7 @@ import {
   Activity,
   ArrowUpRight,
   ChevronRight,
+  ChevronsUpDown,
   Coins,
   GitBranch,
   Github,
@@ -66,6 +71,17 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  async function signOut() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await api("/api/auth/logout", {});
+      router.replace("/");
+    } catch (e) {
+      addToast({ title: errorMessage(e), color: "danger" });
+      setLoggingOut(false);
+    }
+  }
   const navItems = (items: typeof customerNav) =>
     items.map((item) => (
       <Button
@@ -124,33 +140,47 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
         >
           {t.githubSource}
         </Button>
-        <div className="rp-console-user-row">
-          <span className="rp-console-avatar" aria-hidden="true">
-            {initials}
-          </span>
-          <div className="min-w-0">
-            <p>{state.user.name}</p>
-            <span title={state.user.email}>{state.user.email}</span>
-          </div>
-        </div>
-        <Button
-          className="rp-console-signout"
-          variant="light"
-          startContent={<LogOut size={16} strokeWidth={1.7} />}
-          isLoading={loggingOut}
-          onPress={async () => {
-            setLoggingOut(true);
-            try {
-              await api("/api/auth/logout", {});
-              router.replace("/");
-            } catch (e) {
-              addToast({ title: errorMessage(e), color: "danger" });
-              setLoggingOut(false);
-            }
-          }}
+        <Dropdown
+          disableAnimation
+          placement="top-start"
+          offset={8}
+          radius="sm"
+          classNames={{ content: "rp-console-user-menu" }}
         >
-          {t.signOut}
-        </Button>
+          <DropdownTrigger>
+            <Button
+              className="rp-console-user-row"
+              variant="light"
+              aria-label={`${c.account}: ${state.user.email}`}
+              isLoading={loggingOut}
+            >
+              <span className="rp-console-avatar" aria-hidden="true">
+                {initials}
+              </span>
+              <span className="rp-console-user-copy">
+                <strong>{state.user.name}</strong>
+                <span>{state.user.email}</span>
+              </span>
+              <ChevronsUpDown size={15} className="rp-console-user-chevron" aria-hidden="true" />
+            </Button>
+          </DropdownTrigger>
+          <DropdownMenu
+            disabledKeys={loggingOut ? ["signout"] : []}
+            onAction={(key) => { if (key === "signout") void signOut(); }}
+            itemClasses={{ base: "min-h-11 rounded-[2px]" }}
+            topContent={
+              <div className="rp-console-user-menu-identity">
+                <span>{c.userIdentity}</span>
+                <strong>{state.user.name}</strong>
+                <p>{state.user.email}</p>
+              </div>
+            }
+          >
+            <DropdownItem key="signout" color="danger" startContent={<LogOut size={16} strokeWidth={1.7} />}>
+              {t.signOut}
+            </DropdownItem>
+          </DropdownMenu>
+        </Dropdown>
       </div>
     </div>
   );
@@ -199,18 +229,6 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
               </Button>
             </Tooltip>
             <ThemeToggle />
-            <span className="rp-console-topbar-separator" />
-            <Tooltip content={t.home}>
-              <Button
-                isIconOnly
-                as={Link}
-                href="/"
-                variant="light"
-                aria-label={t.home}
-              >
-                <ArrowUpRight size={17} />
-              </Button>
-            </Tooltip>
           </div>
         </header>
         <main className="rp-console-content" tabIndex={0} aria-label={title}>

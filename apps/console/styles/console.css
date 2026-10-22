@@ -17,9 +17,9 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: #101722;
-  color: #e8edf5;
-  border-right: 1px solid #293341;
+  background: var(--rp-surface);
+  color: var(--rp-ink);
+  border-right: 1px solid var(--rp-line);
 }
 .rp-console-brand {
   min-height: 94px;
@@ -32,18 +32,18 @@
 }
 .rp-console-brand .rp-brand,
 .rp-console-drawer-header .rp-brand {
-  color: #e8edf5;
+  color: var(--rp-ink);
   font-size: 20px;
 }
 .rp-console-brand .rp-brand-mark,
 .rp-console-drawer-header .rp-brand-mark {
-  background: #e8edf5;
-  color: #101722;
+  background: var(--rp-ink);
+  color: var(--rp-surface);
   box-shadow: none;
 }
 .rp-console-edition {
   margin-left: 41px;
-  color: #9ba8bd;
+  color: var(--rp-muted);
   font-family: var(--font-geist-mono), monospace;
   font-size: 12px;
   line-height: 1;
@@ -56,7 +56,7 @@
   overflow-y: auto;
   padding: 10px 12px 18px;
   scrollbar-width: thin;
-  scrollbar-color: #4b5b73 transparent;
+  scrollbar-color: var(--rp-line) transparent;
 }
 .rp-console-navigation {
   display: flex;
@@ -70,7 +70,7 @@
   margin: 0 3px 27px;
   padding: 13px 10px;
   border: 0;
-  border-bottom: 1px solid #293341;
+  border-bottom: 1px solid var(--rp-line);
   border-radius: 0;
   background: transparent;
 }
@@ -81,8 +81,8 @@
   place-items: center;
   border: 0;
   border-radius: 2px;
-  background: #1e2d42;
-  color: #c4d1e6;
+  background: var(--rp-wash);
+  color: var(--rp-ink);
   font-size: 13px;
   font-weight: 550;
 }
@@ -92,11 +92,11 @@
   white-space: nowrap;
   font-size: 13px;
   font-weight: 500;
-  color: #e8edf5;
+  color: var(--rp-ink);
 }
 .rp-console-workspace span {
   display: block;
-  color: #9ba8bd;
+  color: var(--rp-muted);
   margin-top: 3px;
   font-size: 12px;
   overflow: hidden;
@@ -106,7 +106,7 @@
 .rp-console-nav-label {
   padding: 0 13px;
   margin: 0 0 9px;
-  color: #9ba8bd;
+  color: var(--rp-muted);
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.07em;
@@ -125,24 +125,24 @@
   font-size: 13px;
   font-weight: 400;
   gap: 11px;
-  color: #c5cede;
+  color: var(--rp-ink);
 }
 .rp-console-nav-item svg {
   flex-shrink: 0;
 }
 .rp-console-nav-item:hover {
-  color: #fff;
-  background: #1b2738;
+  color: var(--rp-ink);
+  background: var(--rp-wash);
 }
 .rp-console-nav-item.is-active {
-  background: #1b2738;
-  color: #e8edf5;
+  background: var(--rp-wash);
+  color: var(--rp-ink);
   font-weight: 500;
-  border-left-color: #7198ff;
+  border-left-color: var(--rp-accent);
 }
 .rp-console-nav-indicator {
   margin-left: auto;
-  color: #7198ff;
+  color: var(--rp-accent);
 }
 .rp-console-operations-label {
   margin-top: 30px;
@@ -154,56 +154,90 @@
 .rp-console-source {
   min-height: 44px;
   margin-bottom: 10px;
-  color: #9ba8bd;
+  color: var(--rp-muted);
 }
 .rp-console-user-row {
   display: flex;
+  width: 100%;
+  height: auto;
+  min-height: 68px;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
-  padding: 18px 8px 12px;
-  border-top: 1px solid #293341;
+  padding: 14px 8px;
+  border-top: 1px solid var(--rp-line);
+  border-radius: 0;
+  color: var(--rp-ink);
+  text-align: left;
+}
+.rp-console-user-row:hover,
+.rp-console-user-row[aria-expanded="true"] {
+  background: var(--rp-wash);
 }
 .rp-console-avatar {
   display: grid;
   place-items: center;
   flex: 0 0 30px;
   height: 30px;
-  background: #1e2d42;
+  background: var(--rp-wash);
   border: 0;
   border-radius: 2px;
   font-size: 12px;
-  color: #c4d1e6;
+  color: var(--rp-ink);
 }
-.rp-console-user-row p {
-  color: #e8edf5;
+.rp-console-user-copy {
+  min-width: 0;
+  flex: 1;
+}
+.rp-console-user-copy strong {
+  display: block;
+  color: var(--rp-ink);
   font-size: 12px;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rp-console-user-row div > span {
+.rp-console-user-copy > span {
   display: block;
   font-size: 12px;
   margin-top: 3px;
-  color: #9ba8bd;
+  color: var(--rp-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rp-console-signout {
-  width: 100%;
-  height: 38px;
-  min-height: 38px;
-  justify-content: flex-start;
-  color: #9ba8bd;
-  font-size: 12px;
-  gap: 11px;
-  padding-left: 10px;
+.rp-console-user-chevron {
+  flex-shrink: 0;
+  color: var(--rp-muted);
 }
-.rp-console-signout:hover {
-  background: #1b2738;
-  color: #fff;
+.rp-console-user-menu {
+  width: min(260px, calc(100vw - 24px));
+  padding: 4px;
+  color: var(--rp-ink);
+  background: var(--rp-surface);
+  border: 1px solid var(--rp-line);
+  border-radius: 3px;
+  box-shadow: 0 8px 24px rgb(9 18 34 / .12);
+}
+.rp-console-user-menu-identity {
+  padding: 10px 8px 14px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--rp-line);
+  overflow-wrap: anywhere;
+}
+.rp-console-user-menu-identity > span,
+.rp-console-user-menu-identity p {
+  display: block;
+  color: var(--rp-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.rp-console-user-menu-identity strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 13px;
+  font-weight: 500;
 }
 .rp-console-main {
   flex: 1;
@@ -253,12 +287,6 @@
   min-width: 34px;
   width: 34px;
   height: 34px;
-}
-.rp-console-topbar-separator {
-  width: 1px;
-  height: 16px;
-  background: var(--rp-line);
-  margin: 0 10px;
 }
 .rp-console-mobile-brand {
   display: none;
@@ -372,10 +400,11 @@
 .rp-console-activity-panel {
   min-width: 0;
   padding: 25px 26px 0;
-  background: #101722;
-  color: #e8edf5;
+  background: var(--rp-surface);
+  color: var(--rp-ink);
   border: 0;
-  border-radius: 2px;
+  border-block: 1px solid var(--rp-line);
+  border-radius: 0;
 }
 .rp-console-activity-heading {
   display: flex;
@@ -384,7 +413,7 @@
   gap: 12px;
 }
 .rp-console-activity-panel .rp-console-eyebrow {
-  color: #9ba8bd;
+  color: var(--rp-muted);
 }
 .rp-console-activity-heading h2 {
   font-size: 19px;
@@ -395,7 +424,7 @@
 .rp-console-data-label {
   font-family: var(--font-geist-mono), monospace;
   white-space: nowrap;
-  color: #9ba8bd;
+  color: var(--rp-muted);
   font-size: 12px;
   letter-spacing: 0.03em;
   padding-top: 2px;
@@ -415,7 +444,7 @@
 }
 .rp-console-activity-totals > span {
   font-size: 12px;
-  color: #a9b5c8;
+  color: var(--rp-muted);
 }
 .rp-console-activity-chart {
   position: relative;
@@ -430,7 +459,7 @@
   justify-content: space-between;
 }
 .rp-console-chart-grid > span {
-  border-top: 1px dashed #334258;
+  border-top: 1px dashed var(--rp-line);
   width: 100%;
 }
 .rp-console-chart-bars {
@@ -452,27 +481,27 @@
 }
 .rp-console-chart-column > span {
   width: 100%;
-  background: #7198ff;
+  background: var(--rp-accent);
   border-radius: 2px 2px 0 0;
   opacity: 0.9;
   min-height: 3px;
 }
 .rp-console-chart-column:hover > span {
   opacity: 1;
-  background: #9ab6ff;
+  background: var(--rp-accent);
 }
 .rp-console-chart-column.has-error > span {
-  background: #f17b82;
+  background: hsl(var(--heroui-danger));
 }
 .rp-console-chart-column.is-unknown > span {
   background: transparent;
-  border: 1px solid #9ba8bd;
+  border: 1px solid var(--rp-muted);
   border-radius: 2px;
 }
 .rp-console-chart-axis {
   display: flex;
   justify-content: space-between;
-  color: #9ba8bd;
+  color: var(--rp-muted);
   font-family: var(--font-geist-mono), monospace;
   font-size: 12px;
   margin-top: 9px;
@@ -484,15 +513,15 @@
   justify-content: center;
   min-height: 150px;
   padding: 15px 0;
-  color: #9ba8bd;
+  color: var(--rp-muted);
 }
 .rp-console-chart-empty p {
-  color: #e8edf5;
+  color: var(--rp-ink);
   font-size: 14px;
   margin-top: 11px;
 }
 .rp-console-chart-empty > span {
-  color: #9ba8bd;
+  color: var(--rp-muted);
   font-size: 12px;
   margin-top: 5px;
 }
@@ -501,11 +530,11 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 15px;
-  border-top: 1px solid #293341;
+  border-top: 1px solid var(--rp-line);
   margin-top: 19px;
   padding: 15px 0;
   font-size: 12px;
-  color: #c5cede;
+  color: var(--rp-ink);
 }
 .rp-console-activity-footer > span {
   display: flex;
@@ -516,21 +545,21 @@
   width: 5px;
   height: 5px;
   border-radius: 1px;
-  background: #7198ff;
+  background: var(--rp-accent);
 }
 .rp-console-activity-footer i.is-error {
-  background: #f17b82;
+  background: hsl(var(--heroui-danger));
 }
 .rp-console-activity-footer i.is-unknown {
   background: transparent;
-  border: 1px solid #9ba8bd;
+  border: 1px solid var(--rp-muted);
 }
 .rp-console-activity-footer a {
   display: flex;
   align-items: center;
   gap: 7px;
   margin-left: auto;
-  color: #e8edf5;
+  color: var(--rp-ink);
 }
 .rp-console-developer-panel {
   min-width: 0;
@@ -842,9 +871,10 @@
 .rp-console-wallet {
   padding: 27px 30px;
   border: 0;
-  border-radius: 2px;
-  background: #101722;
-  color: #e8edf5;
+  border-block: 1px solid var(--rp-line);
+  border-radius: 0;
+  background: var(--rp-surface);
+  color: var(--rp-ink);
 }
 .rp-console-wallet-heading {
   display: flex;
@@ -852,7 +882,7 @@
   justify-content: space-between;
 }
 .rp-console-wallet .rp-console-eyebrow {
-  color: #9ba8bd;
+  color: var(--rp-muted);
 }
 .rp-console-currency {
   font-family: var(--font-geist-mono), monospace;
@@ -860,11 +890,11 @@
   border: 0;
   border-radius: 0;
   padding: 0;
-  color: #c4d1e6;
+  color: var(--rp-ink);
 }
 .rp-console-wallet-label {
   font-size: 12px;
-  color: #a9b5c8;
+  color: var(--rp-muted);
   margin-top: 30px;
 }
 .rp-console-wallet-value {
@@ -878,7 +908,7 @@
 }
 .rp-console-wallet-reserved {
   padding-top: 18px;
-  border-top: 1px solid #293341;
+  border-top: 1px solid var(--rp-line);
 }
 .rp-console-wallet-reserved > div {
   display: flex;
@@ -887,7 +917,7 @@
   font-size: 12px;
 }
 .rp-console-wallet-reserved span {
-  color: #9ba8bd;
+  color: var(--rp-muted);
 }
 .rp-console-wallet-reserved strong {
   font-family: var(--font-geist-mono), monospace;
@@ -897,7 +927,7 @@
   font-size: 12px;
   line-height: 1.7;
   margin-top: 9px;
-  color: #9ba8bd;
+  color: var(--rp-muted);
 }
 .rp-console-accounting-note {
   padding: 27px 30px;
@@ -1092,15 +1122,15 @@
   height: 100dvh;
   max-height: 100dvh;
   border-radius: 0 !important;
-  background: #101722 !important;
-  color: #e8edf5 !important;
+  background: var(--rp-surface) !important;
+  color: var(--rp-ink) !important;
 }
 .rp-console-drawer > button {
-  color: #e8edf5;
+  color: var(--rp-ink);
 }
 .rp-console-drawer-header {
   padding: 24px 22px;
-  border-bottom: 1px solid #293341;
+  border-bottom: 1px solid var(--rp-line);
 }
 .rp-console-mobile-menu {
   padding: 20px 13px;
@@ -1122,12 +1152,12 @@
   width: 224px;
   flex-shrink: 0;
   padding: 32px 23px;
-  background: #101722;
-  color: #e8edf5;
+  background: var(--rp-surface);
+  color: var(--rp-ink);
 }
 .rp-console-loading-rail .rp-brand-mark {
-  background: #e8edf5;
-  color: #101722;
+  background: var(--rp-ink);
+  color: var(--rp-surface);
 }
 .rp-console-loading-nav {
   display: grid;
@@ -1139,7 +1169,7 @@
   height: 13px;
   width: 75%;
   border-radius: 3px;
-  background: #293341;
+  background: var(--rp-line);
 }
 .rp-console-loading-nav > span:nth-child(even) {
   width: 60%;
@@ -1285,10 +1315,6 @@
     width: 44px;
     min-width: 44px;
     height: 44px;
-  }
-  .rp-console-topbar-actions > .rp-console-topbar-separator,
-  .rp-console-topbar-actions > a {
-    display: none;
   }
   .rp-console-mobile-brand .rp-brand {
     font-size: 18px;
