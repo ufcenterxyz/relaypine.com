@@ -146,6 +146,38 @@ func parseUsage(raw json.RawMessage, provider string) (domain.Usage, bool) {
 }
 
 func validatePayload(m map[string]json.RawMessage, path string) error {
+	_, err := validatePayloadWithImages(m, path)
+	return err
+}
+
+func validatePayloadWithImages(m map[string]json.RawMessage, path string) (imageInputSummary, error) {
+	var images imageInputSummary
+	if err := validatePayloadCapabilities(m, path); err != nil {
+		return images, err
+	}
+	for _, field := range []string{"input", "messages", "system"} {
+		if raw, ok := m[field]; ok {
+			if field == "messages" && (path == "/v1/messages" || path == "/v1/messages/count_tokens") {
+				var err error
+				images, err = inspectAnthropicImages(raw)
+				if err != nil {
+					return imageInputSummary{}, err
+				}
+				continue
+			}
+			var v any
+			if json.Unmarshal(raw, &v) != nil {
+				return imageInputSummary{}, errors.New("invalid " + field)
+			}
+			if err := validateContent(v, ""); err != nil {
+				return imageInputSummary{}, err
+			}
+		}
+	}
+	return images, nil
+}
+
+func validatePayloadCapabilities(m map[string]json.RawMessage, path string) error {
 	// A server-side retry can run another model with different permissions,
 	// limits and prices. The current reservation and settlement cover one model.
 	if _, exists := m["fallbacks"]; exists {
@@ -224,22 +256,13 @@ func validatePayload(m map[string]json.RawMessage, path string) error {
 	if cache := object(m["cache_control"]); str(cache["ttl"]) == "1h" {
 		return errors.New("one-hour cache writes require separate pricing")
 	}
-	// Ordinary text and user-defined tool input/output are allowed. Content blocks
-	// referring to uploaded files, images, remote history or hosted computation are
-	// refused because serialized request size cannot bound their input cost.
-	for _, field := range []string{"input", "messages", "system"} {
-		if raw, ok := m[field]; ok {
-			var v any
-			if json.Unmarshal(raw, &v) != nil {
-				return errors.New("invalid " + field)
-			}
-			if err := validateContent(v, ""); err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
+
+// Ordinary text and user-defined tool input/output remain opaque. Image blocks
+// are allowed only through the Anthropic message-position parser above, which
+// supplies an independently bounded input-cost summary. All other references
+// to external input or hosted computation remain unsupported.
 func validateContent(v any, parent string) error {
 	switch x := v.(type) {
 	case []any:

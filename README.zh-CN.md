@@ -59,7 +59,32 @@ make console  # 终端二
 | OpenAI | `http://127.0.0.1:4811/openai/v1` | Chat Completions、Responses 创建/查询/删除、Models |
 | Anthropic | `http://127.0.0.1:4811/anthropic` | Messages、Count tokens、Models |
 
-使用 `Authorization: Bearer rp_live_...` 或 Anthropic 的 `x-api-key`。上游秘密只存于服务端。保留 JSON / SSE 原生字段，不做 Claude 与 OpenAI 跨协议转换。当前支持文本及客户端执行的函数工具；图片、音频、文件、托管工具、后台生成等无法可靠计量的能力被拒绝。Responses 续接按租户和项目校验并固定原上游凭据；发送后不自动重放生成。
+使用 `Authorization: Bearer rp_live_...` 或 Anthropic 的 `x-api-key`。上游秘密只存于服务端。保留 JSON / SSE 原生字段，不做 Claude 与 OpenAI 跨协议转换。支持文本及客户端执行的函数工具；Anthropic Messages 和 Count tokens 还支持 user content 中的内联 base64 PNG/JPEG，包括 user 消息内的 `tool_result.content`。OpenAI 图片输入、图片 URL、文件输入及引用、其他图片格式、音频、托管工具及后台生成仍不支持。Responses 续接按租户和项目校验并固定原上游凭据；发送后不自动重放生成。
+
+已配置且支持视觉的模型可使用原生 SDK：
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+import { readFile } from "node:fs/promises";
+
+const client = new Anthropic({
+  apiKey: process.env.RELAYPINE_API_KEY,
+  baseURL: "https://relaypine.com/anthropic",
+});
+await client.messages.create({
+  model: "your-enabled-vision-model", // 替换为已启用且授权的模型别名
+  max_tokens: 256,
+  messages: [{ role: "user", content: [
+    { type: "image", source: {
+      type: "base64", media_type: "image/png",
+      data: (await readFile("screenshot.png")).toString("base64"),
+    } },
+    { type: "text", text: "描述这张图片。" },
+  ] }],
+});
+```
+
+包含 base64、文本和 JSON 的**整个请求仍限 2 MiB**。本地同时限制每请求最多 20 张图、每轴最多 8,000 像素、单图最多 1,600 万像素、总计最多 3,200 万像素；只接受完整静态 PNG/JPEG，声明类型必须与文件一致。建议编码前裁剪或缩小尺寸；照片可用 JPEG 压缩，文字和图表通常适合 PNG。base64 比二进制约增加三分之一体积，还需为 JSON 和文本留出空间。网关不缩放或重新压缩图片，图片 payload 原样转发，不写入请求日志。
 
 Anthropic 的工作区头由选中的上游 Key 配置决定，调用者不能覆盖。`anthropic-beta` 支持经过核对的单模型能力，未知 beta 和 `fallbacks` 会在转发及额度预留前明确拒绝。完整支持列表、后台设置及 SDK 示例见 [Anthropic 接入说明](docs/anthropic-compatibility.md)。
 
@@ -79,7 +104,9 @@ Anthropic 的工作区头由选中的上游 Key 配置决定，调用者不能�
 
 历史“仅记录用量”请求保留原始快照，不追溯扣款；迁移模型只影响后续请求。没有可靠价格的模型保持禁用等待定价，不默认为免费。鉴权、RPM、TPM、并发、上游预算、输出上限和固定代理规则继续执行。启用前，销售和成本的输入/输出费率须全部为正数。
 
-保留整数 micro-USD 账本、模型价格快照、请求前预留与请求后结算，以及独立的上游成本预算。内部额度调整要求原因并记录操作者。该机制用于预算和使用控制，不会发起外部扣款。
+保留整数 micro-USD 账本、模型价格快照、请求前预留与请求后结算，以及独立的上游成本预算。图片请求在原文本/请求体保守估算中只扣除已验证图片的 base64 逻辑长度，再按每图 `2 * ceil(width / 28) * ceil(height / 28) + 256` 加入图片上界；同一上界用于上下文、TPM 和金额预留，最终按上游可信 usage 结算。这不会放宽 2 MiB 请求上限。显式 `count_tokens` 请求不收取 RelayPine 金额费用，但仍受权限和容量检查；网关不会在生成前自动额外调用它。
+
+内部额度调整要求原因并记录操作者。该机制用于预算和使用控制，不会发起外部扣款。
 
 没有在线充值、支付订单操作、退款、支付 webhook 或支付 worker。历史支付表和历史资金记录保留以避免破坏已有数据，当前服务不再写入或处理外部付款。详见[用量与额度说明](docs/commercial-billing.md)。
 
