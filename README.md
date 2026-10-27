@@ -77,7 +77,32 @@ Keep your native SDK and replace its base URL and API key:
 
 Authenticate with your RelayPine `rp_live_…` access key using `Authorization: Bearer …`, or Anthropic's `x-api-key`. Upstream API keys remain on the server. Behind the hosted domain, the base URLs are `https://relaypine.com/openai/v1` and `https://relaypine.com/anthropic`.
 
-RelayPine preserves each provider's protocol and does not convert between OpenAI and Anthropic. The supported inference surface is text and client-executed function tools. Images, audio, files, hosted tools, and background generation are rejected where costs cannot be reliably accounted for. A request is not automatically replayed after it has been sent upstream.
+RelayPine preserves each provider's protocol and does not convert between OpenAI and Anthropic. It supports text and client-executed function tools. Anthropic Messages and Count tokens also accept inline base64 PNG/JPEG images in user content, including a user message's `tool_result.content`. OpenAI image inputs, image URLs, file inputs/references, other image formats, audio, hosted tools, and background generation remain unsupported. A request is not automatically replayed after it has been sent upstream.
+
+For a configured model that supports vision:
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+import { readFile } from "node:fs/promises";
+
+const client = new Anthropic({
+  apiKey: process.env.RELAYPINE_API_KEY,
+  baseURL: "https://relaypine.com/anthropic",
+});
+await client.messages.create({
+  model: "your-enabled-vision-model",
+  max_tokens: 256,
+  messages: [{ role: "user", content: [
+    { type: "image", source: {
+      type: "base64", media_type: "image/png",
+      data: (await readFile("screenshot.png")).toString("base64"),
+    } },
+    { type: "text", text: "Describe this image." },
+  ] }],
+});
+```
+
+The entire JSON request, including base64 and text, must fit within **2 MiB**. Local image limits are 20 images per request, 8,000 pixels per axis, 16 million pixels per image, and 32 million pixels in total. All limits apply together. Only complete static PNG/JPEG files with a matching media type are accepted. Resize or crop before encoding; JPEG compression may help photographs fit, while PNG often suits text and diagrams. Base64 adds roughly one third to the binary size, so leave room for JSON and text. RelayPine forwards the image payload without resizing or recompressing it and does not write image data to request logs.
 
 Anthropic workspace headers come from the saved upstream credential. Only explicitly supported `anthropic-beta` capabilities are accepted; unknown betas and `fallbacks` are rejected before forwarding. See [Anthropic compatibility](docs/anthropic-compatibility.md) and the [HTTP contract](contracts/http.md).
 
@@ -86,6 +111,8 @@ Anthropic workspace headers come from the saved upstream credential. Only explic
 Budgets are **local accounting limits**, not live provider balances. Credential discovery imports limits only when the API exposes them with the supplied key's permissions. Otherwise, it uses conservative local defaults of 60 RPM, 100,000 TPM, and 10 concurrent requests; these are not provider guarantees. Unknown keys on one endpoint share a default quota group until configured otherwise.
 
 Enabled models must have metered pricing with positive input/output sales and cost rates. Reference pricing reads the providers’ current public price tables; the model-list APIs themselves do not expose these rates. The console shows the source and check time, previews changes, and applies selected updates with version checks. Official reference pricing is restricted to the matching official upstream; compatible hosts need explicit rates. A price is a reference, not an account-specific invoice or negotiated discount.
+
+For image requests, the conservative input bound excludes only the logical base64 length of validated images from the existing text/body estimate, then adds `2 * ceil(width / 28) * ceil(height / 28) + 256` per image. The same bound feeds context checks, TPM admission, and monetary reservations; final charges use verified upstream usage. This does not reduce the 2 MiB HTTP limit. Explicit `count_tokens` requests are free of RelayPine monetary charges but still subject to access and capacity checks; the gateway does not automatically call that endpoint before generation.
 
 Historical `usage_only` requests retain their original accounting snapshots. Migrating a model to metered pricing affects future requests only: it never rewrites old charges or gives a workspace credit. Import and price updates preserve access-key permissions and upstream budgets. Authentication, RPM, TPM, concurrency, output limits, and proxy rules still apply. Internal balance adjustments do not charge a payment method or add credit to an upstream provider. See [usage and budgets](docs/commercial-billing.md) for settlement behavior.
 

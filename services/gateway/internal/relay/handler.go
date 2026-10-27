@@ -1,4 +1,4 @@
-// Package relay forwards a deliberately bounded, text-and-function-tool subset of
+// Package relay forwards a deliberately bounded text, function-tool and inline-image subset of
 // the native OpenAI and Anthropic protocols. Each request has at most one network
 // attempt: a failed or interrupted send is never replayed and charged twice.
 package relay
@@ -341,10 +341,14 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if !validAccounting(p.model) || p.model.MaxOutputTokens <= 0 {
 		return errors.New("model has no complete price and output limit configuration")
 	}
-	if err = validatePayload(m, p.path); err != nil {
+	images, err := validatePayloadWithImages(m, p.path)
+	if err != nil {
 		return err
 	}
-	p.input = int64(len(body))*2 + 4096
+	p.input, err = estimatedInputTokens(len(body), images)
+	if err != nil {
+		return err
+	}
 	if raw, exists := m["previous_response_id"]; exists && string(raw) != "null" {
 		rid := str(raw)
 		if !validID(rid) {

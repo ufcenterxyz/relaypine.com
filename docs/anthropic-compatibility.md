@@ -59,6 +59,62 @@ const message = await client.messages.create({
 不需要在 SDK 中传工作区 ID；它由管理员配置。模型、价格和真实 Key 不会由本次
 兼容性更新自动创建。
 
+## 内联图片
+
+`POST /anthropic/v1/messages` 与 `POST /anthropic/v1/messages/count_tokens`
+支持 user 消息 content 数组中的 `image` 块，也支持 user 消息的
+`tool_result.content` 数组内的图片。assistant、system、工具参数或其他位置不会
+因为形似图片 JSON 而获得图片支持；嵌套的 `tool_result` 不支持。
+
+图片 `source` 只允许 `type`、`media_type`、`data` 三个字段：`type` 必须为
+`base64`，`media_type` 必须为 `image/png` 或 `image/jpeg`，`data` 为标准 base64
+字符串，不带 data URL 前缀、换行或空格。图片块只允许 `type`、`source` 和可选的
+`cache_control`；缓存规则不变，仍拒绝需要单独定价的一小时缓存写入。
+
+| 本地限制 | 上限 |
+| --- | --- |
+| 整个 HTTP JSON 请求，含文本、base64 和封装 | 2 MiB |
+| 每个请求的图片总数，含工具结果中的图片 | 20 |
+| 每张图的宽、高 | 各 8,000 像素 |
+| 每张图的像素面积 | 16,000,000 |
+| 请求内所有图片的像素面积之和 | 32,000,000 |
+
+所有限制同时生效，不代表上游模型保证接受该大小。文件必须完整可解码且媒体类型
+匹配；APNG、GIF、WebP、损坏或截断文件、URL 来源和文件 ID 引用均拒绝。OpenAI
+路由仍不支持图片。网关不下载远程图片、不缩放或重新编码图片，已验证的图片
+payload 保留后转发，也不写图片请求日志；既有模型别名替换和输出上限处理不变。
+
+SDK 图片示例（沿用上文的 `client`）：
+
+```ts
+import { readFile } from "node:fs/promises";
+
+const input: Parameters<typeof client.messages.countTokens>[0] = {
+  model: "your-enabled-vision-model",
+  messages: [{ role: "user", content: [
+    { type: "image", source: {
+      type: "base64", media_type: "image/png",
+      data: (await readFile("screenshot.png")).toString("base64"),
+    } },
+    { type: "text", text: "描述这张图片。" },
+  ] }],
+};
+// 可选：客户端明确发起的免费 token 查询；网关不会自动代为调用。
+const tokens = await client.messages.countTokens(input);
+const message = await client.messages.create({ ...input, max_tokens: 256 });
+```
+
+使用 JPEG 时同时改为真实 JPEG 文件和 `media_type: "image/jpeg"`。编码前先裁剪
+或缩小不必要的区域；照片可降低 JPEG 质量，文字和图表可保留 PNG。base64 约增加
+三分之一体积，必须为文本与 JSON 留出空间。网关自身不会压缩以绕过请求上限。
+
+请求预留只从原文本/请求体估算中扣除已验证图片位置的 base64 逻辑长度，再为每图
+加入 `2 * ceil(width / 28) * ceil(height / 28) + 256` 的保守输入上界。相同上界用于
+参考价上下文限制、TPM 和客户/上游资金预留；它不是实际 token 数或最终账单，
+可信 usage 到达后按价格快照结算。`count_tokens` 不预留金额或扣取 RelayPine
+余额，但保留模型、鉴权、上下文和容量限制，且不支持 streaming。详见
+[用量与额度说明](commercial-billing.md)。
+
 ## Beta 支持范围
 
 网关同时解析重复的 `anthropic-beta` 头和逗号分隔列表，清理空格并去重；不会再
@@ -73,7 +129,7 @@ const message = await client.messages.create({
 | `fine-grained-tool-streaming-2025-05-14` | 需要此开关的模型的工具参数流式输出 |
 
 具体模型是否支持某个 beta 仍由上游验证。新版模型已经正式提供的能力不必额外添加
-旧 beta。此列表是 RelayPine 针对现有文本、客户端函数工具和单模型计费范围的支持
+旧 beta。此列表是 RelayPine 针对现有文本、内联图片、客户端函数工具和单模型计费范围的支持
 决策，不意味着任意 Anthropic beta 都可以使用。
 
 例如，在已配置模型支持的前提下：
@@ -108,5 +164,5 @@ const message = await client.beta.messages.create({
 实现服务端 fallback 的逐模型授权、预留和结算。详见
 [Refusals and fallback](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback)。
 
-Beta 请求仍受标准服务等级、文本与函数工具、缓存费率、最大输出量等检查约束。
+Beta 请求仍受标准服务等级、支持的文本/图片与函数工具、缓存费率、最大输出量等检查约束。
 工作区和 beta 头不会被转发给 OpenAI 上游。
