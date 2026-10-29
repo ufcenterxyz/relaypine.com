@@ -217,13 +217,32 @@ type CapturedResponse struct {
 	Truncated   bool   `json:"truncated,omitempty"`
 }
 
-// RequestDetail has no payload when capture is off, the payload has expired,
-// the request predates capture, or the request is still running.
+// RequestDetail carries the payload only when PayloadStatus is PayloadStored.
+// RetentionDays is zero when bodies are kept indefinitely.
 type RequestDetail struct {
 	Request       Request         `json:"request"`
 	Payload       *RequestPayload `json:"payload,omitempty"`
+	PayloadStatus string          `json:"payload_status"`
 	RetentionDays int             `json:"retention_days"`
 }
+
+// Payload statuses tell the console why a request has no payload.
+const (
+	PayloadStored = "stored"
+	// The request is running, or finished moments ago and is still being saved.
+	PayloadPending = "pending"
+	// Made before recording started or while it was off, or the save failed.
+	PayloadNotRecorded = "not_recorded"
+	// Recording is off and nothing was stored for this request.
+	PayloadDisabled = "disabled"
+	// Deleted after the retention period.
+	PayloadExpired = "expired"
+	// In an archive storage class; it must be restored before it can be read.
+	PayloadArchived = "archived"
+	// Stored, but storage could not return or decrypt it.
+	PayloadUnavailable = "unavailable"
+)
+
 type LedgerEntry struct {
 	ID           string    `json:"id"`
 	TenantID     string    `json:"tenant_id"`

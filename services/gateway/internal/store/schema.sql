@@ -65,8 +65,10 @@ CREATE TABLE IF NOT EXISTS attempts (
  FOREIGN KEY (request_id) REFERENCES requests(id), INDEX(request_id)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS request_payloads (
- request_id VARCHAR(64) PRIMARY KEY, created_at DATETIME(6) NOT NULL, payload MEDIUMBLOB NOT NULL,
- FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE, INDEX(created_at)
+ request_id VARCHAR(64) PRIMARY KEY, created_at DATETIME(6) NOT NULL,
+ location VARCHAR(16) NOT NULL DEFAULT 'database', object_key VARCHAR(255) NULL, payload MEDIUMBLOB NULL,
+ FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE, INDEX(created_at),
+ INDEX request_payloads_location(location,created_at)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS ledger_entries (
  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL, kind VARCHAR(32) NOT NULL, amount_micros BIGINT NOT NULL,

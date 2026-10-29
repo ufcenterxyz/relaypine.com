@@ -93,7 +93,7 @@ export const en = {
   lightMode: "Switch to light mode",
   menu: "Open navigation",
   copyright: "RelayPine. Built for your next request.",
-  privacyNote: "Request and response bodies are encrypted and expire automatically.",
+  privacyNote: "Request and response bodies are stored encrypted.",
   landingEyebrow: "CLAUDE + OPENAI, CONNECTED",
   landingTitle: "One gateway.\nEvery next idea.",
   landingDescription:

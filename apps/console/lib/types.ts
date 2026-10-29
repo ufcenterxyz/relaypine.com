@@ -158,9 +158,20 @@ export interface RequestPayload {
   /** The provider's reply when the client did not receive it. Administrator only. */
   upstream?: CapturedResponse;
 }
+/** Why a request detail has no payload; "stored" when it has one. */
+export type PayloadStatus =
+  | "stored"
+  | "pending"
+  | "not_recorded"
+  | "disabled"
+  | "expired"
+  | "archived"
+  | "unavailable";
 export interface RequestDetail {
   request: RequestLog;
   payload?: RequestPayload;
+  payload_status: PayloadStatus;
+  /** 0 when bodies are kept indefinitely. */
   retention_days: number;
 }
 export interface LedgerEntry {

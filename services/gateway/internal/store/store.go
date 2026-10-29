@@ -35,19 +35,27 @@ var (
 var schema string
 
 // Config contains instance-specific policy. Every replica using the same
-// database must use the same administrator identity and body retention.
+// database must use the same administrator identity and request body settings.
 type Config struct {
 	SuperAdminEmail string
-	// PayloadRetention is how long request and response bodies are kept.
-	// Zero disables body capture and removes bodies that are already stored.
+	// PayloadCapture records request and response bodies for request inspection.
+	PayloadCapture bool
+	// PayloadRetention deletes captured bodies this long after capture. Zero
+	// keeps them indefinitely.
 	PayloadRetention time.Duration
+	// PayloadObjects keeps captured bodies in object storage, leaving an index
+	// row in MySQL. Without it, bodies are kept in MySQL.
+	PayloadObjects ObjectStore
 }
 
 type Store struct {
 	DB               *sql.DB
 	aead             cipher.AEAD
 	superAdminEmail  string
+	payloadCapture   bool
 	payloadRetention time.Duration
+	objects          ObjectStore
+	uploads          payloadUploads
 }
 
 func Open(ctx context.Context, dsn, masterKey string, config Config) (*Store, error) {
@@ -89,7 +97,7 @@ func Open(ctx context.Context, dsn, masterKey string, config Config) (*Store, er
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	s := &Store{DB: db, aead: aead, superAdminEmail: adminEmail, payloadRetention: config.PayloadRetention}
+	s := &Store{DB: db, aead: aead, superAdminEmail: adminEmail, payloadCapture: config.PayloadCapture, payloadRetention: config.PayloadRetention, objects: config.PayloadObjects}
 	if err = db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("connect MySQL: %w", err)
@@ -139,6 +147,19 @@ func Open(ctx context.Context, dsn, masterKey string, config Config) (*Store, er
 	}
 	if attemptErrorColumn == 0 {
 		if _, err = conn.ExecContext(ctx, "ALTER TABLE attempts ADD COLUMN error_code VARCHAR(128) NOT NULL DEFAULT '' AFTER cost_micros"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	// Request bodies can live in object storage with only an index row here.
+	// Rows from before this change hold their body in MySQL.
+	var payloadLocationColumn int
+	if err = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='request_payloads' AND column_name='location'").Scan(&payloadLocationColumn); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if payloadLocationColumn == 0 {
+		if _, err = conn.ExecContext(ctx, "ALTER TABLE request_payloads ADD COLUMN location VARCHAR(16) NOT NULL DEFAULT 'database' AFTER created_at, ADD COLUMN object_key VARCHAR(255) NULL AFTER location, MODIFY payload MEDIUMBLOB NULL, ADD INDEX request_payloads_location(location,created_at)"); err != nil {
 			db.Close()
 			return nil, err
 		}

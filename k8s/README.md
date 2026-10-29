@@ -24,7 +24,8 @@ images with the `placeholder` tag.
 Required secrets in `relaypine-dev`:
 
 - `tcr-secret`: registry pull credentials for `sgccr.ccs.tencentyun.com`.
-- `relaypine-secrets`: `MYSQL_DSN`, `MASTER_KEY`, `REDIS_PASSWORD`, `MAILGUN_API_KEY`.
+- `relaypine-secrets`: `MYSQL_DSN`, `MASTER_KEY`, `REDIS_PASSWORD`, `MAILGUN_API_KEY`, and, once
+  request bodies move to COS, `OBJECT_STORAGE_ACCESS_KEY_ID` and `OBJECT_STORAGE_SECRET_ACCESS_KEY`.
   The Redis password must be a generated URL-safe token without whitespace. App configuration
   belongs in `relaypine-config`, not the secret. Preserve `MASTER_KEY` across
   releases so stored upstream credentials remain decryptable.
@@ -45,6 +46,50 @@ The gateway applies additive MySQL schema migrations during startup. It creates
 the super administrator account configured by `SUPERADMIN_EMAIL`. Other verified
 mailboxes receive isolated customer workspaces with zero initial balance. No password
 or Stripe payment service is used.
+
+## Request bodies
+
+The gateway keeps encrypted request and response bodies for request details
+indefinitely while `REQUEST_BODY_RETENTION_DAYS` is unset. Releases before
+dev-tag/v0.1.13 delete bodies older than 7 days by default, and delete every
+body when it is `0`; before rolling the gateway back to one of them, set
+`REQUEST_BODY_RETENTION_DAYS: "3650"`. Until object storage is configured,
+bodies are stored in the CDB database. To move them to COS as volume
+grows:
+
+1. Create a private bucket in `ap-singapore`, the cluster's region, named
+   `<name>-<AppId>`. Keep the default virtual-hosted addressing; COS buckets
+   created since 2024 do not accept path-style requests.
+2. Add a lifecycle rule for prefix `request-bodies/`, objects larger than 64 KB,
+   that moves them to `STANDARD_IA` after 30 days:
+
+   ```xml
+   <LifecycleConfiguration>
+     <Rule>
+       <ID>request-bodies-infrequent-access</ID>
+       <Filter><And><Prefix>request-bodies/</Prefix><ObjectSizeGreaterThan>65536</ObjectSizeGreaterThan></And></Filter>
+       <Status>Enabled</Status>
+       <Transition><Days>30</Days><StorageClass>STANDARD_IA</StorageClass></Transition>
+     </Rule>
+   </LifecycleConfiguration>
+   ```
+
+   Smaller objects stay in standard storage because COS bills infrequent-access
+   objects as at least 64 KB. Do not add archive transitions: archived bodies
+   cannot be viewed until restored.
+3. Create a CAM sub-user allowed only `cos:PutObject` and `cos:GetObject`, plus
+   `cos:DeleteObject` if a retention period is set, on
+   `qcs::cos:ap-singapore:uid/<AppId>:<bucket>/request-bodies/*`.
+4. Add `OBJECT_STORAGE_ENDPOINT: https://cos-internal.ap-singapore.tencentcos.cn`,
+   `OBJECT_STORAGE_REGION: ap-singapore` and `OBJECT_STORAGE_BUCKET` to
+   `relaypine-config`, and the sub-user's SecretId and SecretKey as
+   `OBJECT_STORAGE_ACCESS_KEY_ID` and `OBJECT_STORAGE_SECRET_ACCESS_KEY` to
+   `relaypine-secrets`, then restart the gateway. The internal endpoint resolves
+   only inside Tencent Cloud and avoids public traffic charges.
+
+The gateway logs `Request bodies are stored in object storage` at startup and
+moves bodies already in CDB to the bucket in the background. The bucket is not
+part of CDB backups; enable versioning if deleted bodies must be recoverable.
 
 ## Routing and transport
 

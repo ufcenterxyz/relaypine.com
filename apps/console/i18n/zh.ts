@@ -93,7 +93,7 @@ export const zh: Copy = {
   lightMode: "切换浅色模式",
   menu: "打开导航",
   copyright: "RelayPine，为你的下一次请求而生。",
-  privacyNote: "请求和响应正文加密存储，到期自动删除。",
+  privacyNote: "请求和响应正文加密存储。",
   landingEyebrow: "连接 CLAUDE 与 OPENAI",
   landingTitle: "一个网关。\n承载每个新想法。",
   landingDescription:

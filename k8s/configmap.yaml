@@ -9,8 +9,10 @@ data:
   ADMIN_APP_URL: https://admin.relaypine.com
   GATEWAY_ADDR: 0.0.0.0:4811
   ALLOW_PRIVATE_UPSTREAMS: "false"
-  # Encrypted request/response bodies for the console's request details.
-  REQUEST_BODY_RETENTION_DAYS: "7"
+  # Encrypted request/response bodies for the console's request details, kept
+  # indefinitely while REQUEST_BODY_RETENTION_DAYS is unset. They stay in CDB
+  # until object storage is added (k8s/README.md).
+  REQUEST_BODY_CAPTURE: "true"
   # nginx currently replaces incoming X-Forwarded-For with its socket peer.
   # Refresh this /32 if the controller pod is rescheduled; never trust arbitrary
   # client-provided forwarding headers or a whole public address range here.

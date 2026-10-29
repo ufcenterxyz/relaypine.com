@@ -6,9 +6,13 @@
 
 Compose 数据卷属于 `relaypine`。停止依赖可用 `docker compose stop`；不要用 `down -v` 删除业务数据。
 
-请求详情需要的请求与响应正文保存在 `request_payloads` 表，gzip 压缩后用 `MASTER_KEY` 加密，与请求 ID 绑定。`REQUEST_BODY_RETENTION_DAYS` 控制保留天数（默认 7，范围 0–3650），所有副本必须使用相同取值；设为 `0` 会停止记录并在下一轮清理中删除已存正文。每个请求最多保存 2 MiB 请求和 4 MiB 响应，正文较大或流量较高时需相应评估数据库容量。备份数据库时同样包含这些加密正文，需配合 `MASTER_KEY` 才能读取。
+请求详情需要的请求与响应正文默认长期保存。每个请求最多保存 2 MiB 请求和 4 MiB 响应，gzip 压缩后用 `MASTER_KEY` 加密并绑定请求 ID；更换 `MASTER_KEY` 后旧正文无法读取。`REQUEST_BODY_RETENTION_DAYS` 留空（默认）时一直保留，设为 1–3650 则到期后分批删除；旧版本把 `0` 当作停止记录并删除全部正文，现在设为 `0` 会拒绝启动。`REQUEST_BODY_CAPTURE=false` 停止记录新正文，已存正文不受影响。所有副本必须使用相同的正文配置。
 
-Go 网关每 15 秒运行请求恢复，并分批删除超过保留期的请求正文。Stripe 客户端、支付收件箱处理、支付对账及相关 HTTP 入口已移除，环境不再需要 `STRIPE_*` 变量。历史支付数据保留，不再自动处理。
+正文默认存于 MySQL 的 `request_payloads` 表，适合本地和小流量部署，数据库备份也包含这些密文。流量变大后配置 S3 兼容对象存储（腾讯云 COS、Amazon S3、Cloudflare R2、MinIO）：`OBJECT_STORAGE_ENDPOINT`、`OBJECT_STORAGE_REGION`、`OBJECT_STORAGE_BUCKET`、`OBJECT_STORAGE_ACCESS_KEY_ID`、`OBJECT_STORAGE_SECRET_ACCESS_KEY` 需同时设置，缺一项网关拒绝启动；MinIO 等需要路径寻址的服务加 `OBJECT_STORAGE_PATH_STYLE=true`，COS 保持默认的虚拟主机寻址。此后 MySQL 只保留索引行，正文写入 `request-bodies/<年>/<月>/<日>/<请求 ID>`，内容在网关内加密，存储服务看不到明文。正文在响应结束后于后台上传，不增加请求延迟；上传失败、待上传积压超过 32 MiB 或网关正在停止时，正文先写入 MySQL，之后自动迁移到对象存储；启用前已存在 MySQL 的正文也会自动迁移。网关被强制终止时，尚未上传完的正文可能丢失，通常不到一秒的流量。存储桶不在数据库备份范围内，按需开启版本控制或跨地域复制。
+
+旧正文很少被查看，用存储桶生命周期规则降低成本：`request-bodies/` 前缀下大于 64 KB 的对象 30 天后转为低频存储（COS 与 S3 均为 `STANDARD_IA`）。低频存储可以直接读取；COS 低频存储不足 64 KB 的对象按 64 KB 计费，小对象转换反而更贵，所以规则按对象大小过滤。不要转入归档或深度归档：这类对象需要先恢复才能读取，控制台只会显示“正文已归档”。网关只需要该前缀的上传和读取权限，设置保留期时再加删除权限，不需要列举或管理存储桶。
+
+Go 网关每 15 秒运行请求恢复；另一个后台任务每 15 秒删除超过保留期的正文，并把暂存在 MySQL 的正文迁移到对象存储，多副本时同一时间只有一个副本执行。Stripe 客户端、支付收件箱处理、支付对账及相关 HTTP 入口已移除，环境不再需要 `STRIPE_*` 变量。历史支付数据保留，不再自动处理。
 
 生产要求 `APP_ENV=production`、不同主机名的 HTTPS `APP_URL` 和 `ADMIN_APP_URL`，并关闭 `ALLOW_PRIVATE_UPSTREAMS`。反向代理将 `/api/*`、`/openai/*`、`/anthropic/*` 指向 Go，其余指向 Next.js。流式接口禁用代理缓冲并设置足够超时；单请求最长 5 分钟；结果未知的请求不重放，只有上游在产生输出前明确拒绝时才换到下一条路线。
 

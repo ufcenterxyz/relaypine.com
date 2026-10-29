@@ -12,7 +12,7 @@ import {
   Tab,
   Tabs,
 } from "@heroui/react";
-import { Activity, ImageOff } from "lucide-react";
+import { Activity, ImageOff, RefreshCw } from "lucide-react";
 import { en as t } from "@/i18n/en";
 import { consoleEn as c } from "@/i18n/console-en";
 import { requestDetailEn as d } from "@/i18n/request-detail-en";
@@ -126,6 +126,10 @@ export function RequestDetailModal({
   }, [request.id, attempt]);
   const row = result?.detail?.request ?? request;
   const payload = result?.detail?.payload;
+  const reload = () => {
+    setResult(undefined);
+    setAttempt((n) => n + 1);
+  };
   const bodies = (render: (payload: RequestPayload) => ReactNode) => {
     if (!result)
       return slow ? (
@@ -136,16 +140,9 @@ export function RequestDetailModal({
         </div>
       ) : null;
     if (result.error)
-      return (
-        <ErrorBox
-          message={`${d.loadFailed}: ${result.error}`}
-          retry={() => {
-            setResult(undefined);
-            setAttempt((n) => n + 1);
-          }}
-        />
-      );
-    if (!payload && result.detail) return <MissingBodies detail={result.detail} />;
+      return <ErrorBox message={`${d.loadFailed}: ${result.error}`} retry={reload} />;
+    if (!payload && result.detail)
+      return <MissingBodies detail={result.detail} onReload={reload} />;
     return payload ? render(payload) : null;
   };
   return (
@@ -204,16 +201,43 @@ export function RequestDetailModal({
   );
 }
 
-function MissingBodies({ detail }: { detail: RequestDetail }) {
-  if (detail.request.status === "in_progress")
-    return <Empty title={d.runningTitle} body={d.runningBody} />;
-  if (detail.retention_days <= 0)
-    return <Empty title={d.disabledTitle} body={d.disabledBody} />;
-  const days =
-    detail.retention_days === 1
-      ? d.oneDay
-      : d.days.replace("{count}", count(detail.retention_days));
-  return <Empty title={d.missingTitle} body={d.missingBody.replace("{days}", days)} />;
+function MissingBodies({
+  detail,
+  onReload,
+}: {
+  detail: RequestDetail;
+  onReload: () => void;
+}) {
+  const reload = (label: string) => (
+    <Button size="sm" variant="flat" onPress={onReload} startContent={<RefreshCw size={14} />}>
+      {label}
+    </Button>
+  );
+  switch (detail.payload_status) {
+    case "pending":
+      return detail.request.status === "in_progress" ? (
+        <Empty title={d.runningTitle} body={d.runningBody} action={reload(t.refresh)} />
+      ) : (
+        <Empty title={d.savingTitle} body={d.savingBody} action={reload(t.refresh)} />
+      );
+    case "disabled":
+      return <Empty title={d.disabledTitle} body={d.disabledBody} />;
+    case "expired": {
+      const days =
+        detail.retention_days === 1
+          ? d.oneDay
+          : d.days.replace("{count}", count(detail.retention_days));
+      return <Empty title={d.expiredTitle} body={d.expiredBody.replace("{days}", days)} />;
+    }
+    case "archived":
+      return <Empty title={d.archivedTitle} body={d.archivedBody} />;
+    case "unavailable":
+      return (
+        <Empty title={d.unavailableTitle} body={d.unavailableBody} action={reload(t.retry)} />
+      );
+    default:
+      return <Empty title={d.missingTitle} body={d.missingBody} />;
+  }
 }
 
 function Facts({ rows }: { rows: [string, ReactNode][] }) {
