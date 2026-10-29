@@ -92,6 +92,10 @@ type plan struct {
 	// bound on image input tokens, which is priced separately.
 	image      *imageRequest
 	imageInput int64
+	// imageTool is set when a Responses request offers image_generation.
+	imageTool *imageToolPlan
+	// inputImages counts the OpenAI image inputs of the request.
+	inputImages int
 	// contentType is the upstream body type; empty means JSON.
 	contentType string
 	// originalBytes is the client's body size when original is a summary.
@@ -277,6 +281,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "invalid_price", "Unable to reserve this request")
 			return
 		}
+	}
+	if p.imageTool != nil {
+		// Every allowed image call at its worst case, at the image model's rates.
+		text, image, output := p.imageTool.bounds()
+		sell, cost, err := estimateImage(text, image, output, p.imageTool.model)
+		if err != nil {
+			fail(w, 400, "invalid_price", "Unable to reserve this request")
+			return
+		}
+		reserved, costReserve = reserved+sell, costReserve+cost
 	}
 	h.route(w, r, p, sharedLimits(p, config), candidates, reserved, costReserve)
 }
@@ -508,10 +522,11 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if !validAccounting(p.model) || p.model.MaxOutputTokens <= 0 {
 		return errors.New("model has no complete price and output limit configuration")
 	}
-	images, err := validatePayloadWithImages(m, p.path)
+	images, err := validatePayloadWithImages(m, p.path, p.model.UpstreamModel)
 	if err != nil {
 		return err
 	}
+	p.inputImages = images.OpenAIImages
 	p.input, err = estimatedInputTokens(len(body), images)
 	if err != nil {
 		return err
@@ -580,6 +595,9 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 		}
 		options["include_usage"] = json.RawMessage("true")
 		m["stream_options"], _ = json.Marshal(options)
+	}
+	if err = h.prepareImageTool(p, m, models); err != nil {
+		return err
 	}
 	m["model"], _ = json.Marshal(p.model.UpstreamModel)
 	p.fields = m
@@ -871,17 +889,29 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		h.relayImage(w, r, response, p, settlement)
 		return
 	}
-	body, err = io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	// Replies that can carry generated images: an image tool call, or a
+	// stored response retrieved by ID.
+	images := p.imageTool != nil || p.resource
+	limit := int64(maxResponseBytes)
+	if images {
+		limit = maxImageToolResponseBytes
+	}
+	body, err = io.ReadAll(io.LimitReader(response.Body, limit+1))
 	// Every rejection below returns a gateway error instead of this body.
 	rejected := func() { result.upstream = upstreamReply(response, body, maxCapturedUpstreamBytes) }
-	if err != nil || len(body) > maxResponseBytes {
+	if err != nil || int64(len(body)) > limit {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "invalid_response"
 		rejected()
 		fail(w, 502, "upstream_error", "Unable to read bounded upstream response")
 		return
 	}
-	obj := object(body)
+	// A reply with generated images is parsed without them.
+	parsed := body
+	if images {
+		parsed = compactImageJSON(body)
+	}
+	obj := object(parsed)
 	if obj == nil {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "invalid_response"
@@ -889,11 +919,19 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		fail(w, 502, "upstream_error", "Expected a JSON response")
 		return
 	}
+	// The image model's tokens join the text model's verified usage.
+	toolUsage := func() {
+		if p.imageTool != nil && settlement.Usage.Known {
+			u := &settlement.Usage
+			u.ImageTextTokens, u.ImageInputTokens, u.ImageOutputTokens = p.imageTool.usage(obj, 0)
+		}
+	}
 	if _, exists := obj["error"]; exists && string(obj["error"]) != "null" {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "upstream_error"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
-		h.price(settlement, p.model)
+		toolUsage()
+		h.price(settlement, p)
 		rejected()
 		fail(w, 502, "upstream_error", "The selected upstream returned an error")
 		return
@@ -902,7 +940,8 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.Status = "failed"
 		settlement.ErrorCode = "upstream_response_failed"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
-		h.price(settlement, p.model)
+		toolUsage()
+		h.price(settlement, p)
 		rejected()
 		fail(w, 502, "upstream_error", "The upstream response did not complete")
 		return
@@ -927,9 +966,14 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.Usage.Known = true
 	} else {
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
+		toolUsage()
 	}
 	settlement.Status = "completed"
-	h.price(settlement, p.model)
+	h.price(settlement, p)
+	if capture, ok := w.(*responseCapture); ok && images {
+		// Inspection keeps the reply without its images.
+		capture.summarize(parsed)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(30 * time.Second))
@@ -949,7 +993,8 @@ func (h *Handler) saveResource(ctx context.Context, p plan, c candidate, id stri
 	}
 	return h.repo.SaveResource(ctx, domain.Resource{ID: id, TenantID: p.key.TenantID, ProjectID: p.key.ProjectID, CredentialID: c.credential.ID, EndpointID: c.endpoint.ID, Model: p.model.ID, InputTokens: p.input + p.output})
 }
-func (h *Handler) price(s *domain.Settlement, m domain.Model) {
+func (h *Handler) price(s *domain.Settlement, p plan) {
+	m := p.model
 	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
 		// Token evidence is independent from pricing. Unknown cost must not
 		// erase verified usage or become a synthetic free monetary settlement.
@@ -959,7 +1004,19 @@ func (h *Handler) price(s *domain.Settlement, m domain.Model) {
 	if !s.Usage.Known {
 		return
 	}
-	charge, cost, err := charges(s.Usage, m)
+	usage := s.Usage
+	if p.imageTool != nil {
+		// The image tool's tokens are the image model's, priced below.
+		usage.ImageTextTokens, usage.ImageInputTokens, usage.ImageOutputTokens = 0, 0, 0
+	}
+	charge, cost, err := charges(usage, m)
+	if err == nil && p.imageTool != nil {
+		tool := domain.Usage{InputTokens: s.Usage.ImageTextTokens, ImageInputTokens: s.Usage.ImageInputTokens, ImageOutputTokens: s.Usage.ImageOutputTokens, Known: true}
+		var toolCharge, toolCost int64
+		if toolCharge, toolCost, err = charges(tool, p.imageTool.model); err == nil {
+			charge, cost = charge+toolCharge, cost+toolCost
+		}
+	}
 	if err != nil {
 		s.Usage.Known = false
 		s.ErrorCode = "invalid_usage"

@@ -28,6 +28,10 @@ type imageDimensions struct{ Width, Height int }
 type imageInputSummary struct {
 	Images      []imageDimensions
 	Base64Bytes int64
+	// OpenAI images are bounded per image by model and detail level, since a
+	// remote image's dimensions are unknown before OpenAI reads it.
+	OpenAIImages int
+	OpenAITokens int64
 }
 
 func inspectAnthropicImages(raw json.RawMessage) (imageInputSummary, error) {

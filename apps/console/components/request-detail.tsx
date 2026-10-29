@@ -313,8 +313,9 @@ function OverviewPanel({
             rows={[
               [t.cachedTokens, tokens(usage.cached_tokens)],
               [t.cacheWriteTokens, tokens(usage.cache_write_tokens)],
-              ...((usage.image_input_tokens || usage.image_output_tokens)
+              ...((usage.image_input_tokens || usage.image_output_tokens || usage.image_text_tokens)
                 ? ([
+                    ...(usage.image_text_tokens ? [[im.imageTextTokens, tokens(usage.image_text_tokens)]] : []),
                     [im.imageInputTokens, tokens(usage.image_input_tokens ?? 0)],
                     [im.imageOutputTokens, tokens(usage.image_output_tokens ?? 0)],
                   ] as [string, ReactNode][])

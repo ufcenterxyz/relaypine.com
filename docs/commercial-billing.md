@@ -31,7 +31,7 @@
 
 ### Anthropic 图片输入的保守预留
 
-Messages 与 `count_tokens` 仅接受 user content（含 user 的 `tool_result.content`）中的内联 base64 静态 PNG/JPEG；图片 URL、上传文件引用、其他图片格式和 OpenAI 图片输入仍不支持。整个 JSON 请求仍限 2 MiB；本地最多 20 张、每轴 8,000 像素、单图 16,000,000 像素、总计 32,000,000 像素，所有限制同时执行。
+Messages 与 `count_tokens` 仅接受 user content（含 user 的 `tool_result.content`）中的内联 base64 静态 PNG/JPEG；图片 URL、上传文件引用和其他图片格式仍不支持。整个 JSON 请求仍限 2 MiB；本地最多 20 张、每轴 8,000 像素、单图 16,000,000 像素、总计 32,000,000 像素，所有限制同时执行。
 
 输入上界按下式计算，`ceil` 表示向上取整，宽高来自已验证图片：
 
@@ -45,6 +45,16 @@ Messages 与 `count_tokens` 仅接受 user content（含 user 的 `tool_result.c
 
 同一输入上界用于参考价上下文检查、TPM 准入和金额预留；生成请求还结合输出上限预留客户额度及上游成本。这是本网关的保守预算，不是上游 tokenizer 的精确结果或新增按图片收费的费率。最终按可信上游 usage 和请求价格快照结算，释放多余预留；已有未知用量处理规则不变。图片数据原样转发，不为估算重新压缩或写入请求日志。
 
+### OpenAI 图片输入的保守预留
+
+Chat Completions 接受 user 消息中的 `image_url`，Responses 接受 user 消息及函数、自定义工具输出中的 `input_image`；来源可以是 https URL 或 base64 的 PNG、JPEG、WebP、GIF data URL，不接受文件 ID。OpenAI 先按模型规则缩放图片再计 Token，因此即使是尺寸未知的远程图片，每张图也有上限。每图上界取该上游模型在对应 `detail` 下的最大值再加 1：gpt-6-astra 与 gpt-5.6-sol/terra/luna 为 309（low）、3,001（high）、36,001（original 与默认 auto）；gpt-5.5 为 309、3,001、12,001、12,001；gpt-5.4 系列为 4,917、3,001、12,001、3,001；gpt-5.2 为 4,917；OpenAI 未公布规则的模型（如 gpt-6.1、gpt-6-sol、pro 版本）按 30,000 patch 上限乘 1.2，为 36,001。
+
+```text
+输入上界 = 2 × (原请求体字节数 − 已验证 data URL 的 base64 字节数) + 4096 + 各图片上界之和
+```
+
+该上界同样用于参考价上下文检查、TPM 准入和金额预留。OpenAI 把图片 Token 计入回复中的输入 Token，按模型输入价计费，因此最终按回复中的用量精确结算。默认 `auto` 在最新模型上等于原图分辨率，单张预留较大；需要一次发送多张图片时建议指定 `detail: "high"` 或 `"low"`。
+
 客户端显式请求 `count_tokens` 时不预留金额、不扣 RelayPine 余额，仍执行模型权限、上下文、RPM/TPM 与并发等检查。网关不会为每个生成请求自动发起额外的 `count_tokens` 调用。编码前缩小尺寸或压缩图片可减少传输体积；其中缩小像素尺寸也会降低本地图片输入上界。
 
 ## 图像生成
@@ -52,6 +62,8 @@ Messages 与 `count_tokens` 仅接受 user content（含 user 的 `tool_result.c
 只有 GPT Image 2 与 2.5（`gpt-image-2`、`gpt-image-2.5-*` 及带日期的快照）可通过 `/openai/v1/images/generations` 和 `/openai/v1/images/edits` 调用；已退役或即将退役的模型（DALL·E、gpt-image-1、1.5、1-mini、chatgpt-image-latest）不提供。图像模型的价格包括文本输入、缓存文本输入、文本输出（GPT Image 2 与 2.5 未公布，为 0）、图像输入和图像输出；参考价格取自 OpenAI 价格页 “Image generation models” 的 Standard 表，带日期的快照沿用对应模型的价格。
 
 预留按最坏情况计算：输出 Token 使用 OpenAI 的计算器按尺寸和质量计算（`auto` 取最大值，每张 23,719），GPT Image 2 加 25%，2.5 加 100%（其模型页说明该计算器不适用于 2.5），每张部分预览图加 100，再乘以张数；文本输入按提示词字节数加 2,048；每张输入图像或蒙版按 32,768。输出按图像与文本输出中较高的费率预留。结算使用回复中的 `usage`：文本与图像的拆分一致时分别计价，否则全部输入按图像输入、全部输出按图像输出计价（两者费率更高）。流式请求只生成一张图，仅 completed 事件携带用量；没有 completed 事件的流与其他上游失败一样不向客户收费。回复缺少用量时保留上游预留等待对账，不会事后向客户补扣。
+
+Responses 的 `image_generation` 工具：文本模型照常按 `usage` 计费；工具调用的图像模型（默认 `gpt-image-2`，须是该 Key 可用的已启用 GPT Image 2 或 2.5 模型）按自身价格另计。`max_tool_calls` 限制图像调用次数（默认 1，最多 4），预留按每次调用 32,768 个文本 Token、4 张上下文图像和该尺寸与质量的输出上界计算。结算优先使用 `tool_usage.image_gen`，输入全部按非缓存价格计（OpenAI 不报告缓存的图像输入），输出至少为每张已完成图像按 OpenAI 计算器得到的值，流式再加每张已收到的部分预览图 100 个；没有 `tool_usage` 时，每次调用按最坏情况计费：该尺寸与质量的输出上界、修订后的提示词加 2,048 个文本 Token，编辑另加一张输入图像。用户选择了这一保守口径，可能略高于 OpenAI 的实际扣费。
 
 请求记录保存请求与回复中除图像数据以外的全部字段，图像以字节数代替，避免把大体积图片写入数据库。
 

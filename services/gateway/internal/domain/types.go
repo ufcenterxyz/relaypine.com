@@ -165,7 +165,11 @@ type Usage struct {
 	// price them separately. InputTokens and OutputTokens stay text-only.
 	ImageInputTokens  int64 `json:"image_input_tokens,omitempty"`
 	ImageOutputTokens int64 `json:"image_output_tokens,omitempty"`
-	Known             bool  `json:"known"`
+	// ImageTextTokens is the text input of the image model that a Responses
+	// image_generation tool called, priced at that image model's text rate.
+	// The image tool's image tokens use the two fields above.
+	ImageTextTokens int64 `json:"image_text_tokens,omitempty"`
+	Known           bool  `json:"known"`
 }
 type Request struct {
 	ID             string    `json:"id"`

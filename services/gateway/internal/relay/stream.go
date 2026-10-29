@@ -19,11 +19,15 @@ const maxFrameBytes = 1 << 20
 var cumulativeTokens = map[string]bool{"input_tokens": true, "output_tokens": true, "cache_read_input_tokens": true, "cache_creation_input_tokens": true}
 
 type streamTracker struct {
-	usage             domain.Usage
-	anthropic         map[string]json.RawMessage
-	completed, failed bool
-	resourceID        string
-	finalFailedUsage  bool
+	usage domain.Usage
+	// The image tool's tokens from the final Response, and the partial
+	// images the stream delivered.
+	toolText, toolImage, toolOutput int64
+	partialImages                   int
+	anthropic                       map[string]json.RawMessage
+	completed, failed               bool
+	resourceID                      string
+	finalFailedUsage                bool
 }
 
 // inspectImage follows an Images API stream: partial images, then one
@@ -136,6 +140,14 @@ func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
 				}
 			}
 		}
+		if kind == "response.image_generation_call.partial_image" {
+			t.partialImages++
+		}
+		if p.imageTool != nil && (kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed") {
+			if response := object(obj["response"]); response != nil {
+				t.toolText, t.toolImage, t.toolOutput = p.imageTool.usage(response, t.partialImages)
+			}
+		}
 		if kind == "response.completed" || kind == "response.incomplete" {
 			t.completed = true
 		}
@@ -156,7 +168,7 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 	frameLimit := maxFrameBytes
 	// Request inspection keeps image events without their base64 images.
 	capture, _ := w.(*responseCapture)
-	if p.image != nil {
+	if p.image != nil || p.imageTool != nil {
 		frameLimit = maxImageFrameBytes
 		if capture != nil {
 			capture.summarize(nil)
@@ -193,12 +205,18 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 		}
 		if len(parts) > 0 {
 			data := bytes.Join(parts, []byte("\n"))
+			if p.imageTool != nil {
+				// Events with generated images are parsed and kept without them.
+				data = compactImageJSON(data)
+			}
 			resource, err := tracker.inspect(data, p)
 			if err != nil {
 				return err
 			}
-			if p.image != nil && capture != nil {
+			if capture != nil && p.image != nil {
 				capture.addSummary(append(append([]byte("data: "), summarizeImageEvent(data)...), '\n', '\n'))
+			} else if capture != nil && p.imageTool != nil {
+				capture.addSummary(append(append([]byte("data: "), data...), '\n', '\n'))
 			}
 			if resource != "" {
 				if err = h.saveResource(r.Context(), p, c, resource); err != nil {
@@ -243,9 +261,15 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 	if streamErr == nil && len(frame) > 0 && !tracker.completed && !tracker.failed {
 		streamErr = process()
 	}
+	withTool := func() {
+		if p.imageTool != nil && s.Usage.Known {
+			s.Usage.ImageTextTokens, s.Usage.ImageInputTokens, s.Usage.ImageOutputTokens = tracker.toolText, tracker.toolImage, tracker.toolOutput
+		}
+	}
 	if tracker.completed && !tracker.failed && streamErr == nil {
 		s.Status = "completed"
 		s.Usage = tracker.usage
+		withTool()
 		if strings.HasSuffix(p.path, "/responses") && tracker.resourceID == "" {
 			s.Status = "failed"
 			s.ErrorCode = "resource_binding_missing"
@@ -264,6 +288,7 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 		s.Usage = domain.Usage{}
 		if tracker.completed || tracker.finalFailedUsage {
 			s.Usage = tracker.usage
+			withTool()
 		}
 		if tracker.completed && strings.HasSuffix(p.path, "/responses") && tracker.resourceID == "" {
 			s.Status = "failed"
@@ -280,7 +305,7 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 			_ = flush()
 		}
 	}
-	h.price(s, p.model)
+	h.price(s, p)
 }
 
 func streamError(w http.ResponseWriter, provider string) {

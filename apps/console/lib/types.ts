@@ -134,6 +134,7 @@ export interface RequestLog {
     cache_write_tokens: number;
     image_input_tokens?: number;
     image_output_tokens?: number;
+    image_text_tokens?: number;
     known: boolean;
   };
   charge_micros: number;

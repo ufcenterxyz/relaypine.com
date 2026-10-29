@@ -15,10 +15,11 @@ export function isPriced(model: Model) {
   return model.input_rate > 0 && model.output_rate > 0;
 }
 
-// Text and image tokens of a request, without cache reads and writes.
+// Text and image tokens of a request, without cache reads and writes. An image
+// generation tool adds its image model's prompt and image tokens.
 export function usageTokens(usage: RequestLog["usage"]) {
   return {
-    input: usage.input_tokens + (usage.image_input_tokens ?? 0),
+    input: usage.input_tokens + (usage.image_input_tokens ?? 0) + (usage.image_text_tokens ?? 0),
     output: usage.output_tokens + (usage.image_output_tokens ?? 0),
   };
 }

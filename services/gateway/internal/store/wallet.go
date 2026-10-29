@@ -163,7 +163,7 @@ func customerCharge(reserved, charge int64, status string) int64 {
 }
 
 func (s *Store) Settle(ctx context.Context, requestID string, v domain.Settlement) error {
-	if v.ChargeMicros < 0 || v.ChargeMicros > maxAmount || v.CostMicros < 0 || v.CostMicros > maxAmount || v.Usage.InputTokens < 0 || v.Usage.OutputTokens < 0 || v.Usage.CachedTokens < 0 || v.Usage.CacheWriteTokens < 0 || v.Usage.ImageInputTokens < 0 || v.Usage.ImageOutputTokens < 0 || v.LatencyMS < 0 || len(v.ErrorCode) > 128 {
+	if v.ChargeMicros < 0 || v.ChargeMicros > maxAmount || v.CostMicros < 0 || v.CostMicros > maxAmount || v.Usage.InputTokens < 0 || v.Usage.OutputTokens < 0 || v.Usage.CachedTokens < 0 || v.Usage.CacheWriteTokens < 0 || v.Usage.ImageInputTokens < 0 || v.Usage.ImageOutputTokens < 0 || v.Usage.ImageTextTokens < 0 || v.LatencyMS < 0 || len(v.ErrorCode) > 128 {
 		return errors.New("invalid settlement")
 	}
 	switch v.Status {

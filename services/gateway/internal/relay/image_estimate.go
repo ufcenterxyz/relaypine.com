@@ -10,7 +10,10 @@ func estimatedInputTokens(bodyBytes int, images imageInputSummary) (int64, error
 	if bodyBytes < 0 || bodyBytes > maxRequestBytes || images.Base64Bytes < 0 || images.Base64Bytes > int64(bodyBytes) {
 		return 0, errors.New("invalid image input bound")
 	}
-	input := 2*(int64(bodyBytes)-images.Base64Bytes) + 4096
+	if images.OpenAIImages < 0 || images.OpenAITokens < 0 || images.OpenAITokens > int64(images.OpenAIImages)*48170 {
+		return 0, errors.New("invalid image input bound")
+	}
+	input := 2*(int64(bodyBytes)-images.Base64Bytes) + 4096 + images.OpenAITokens
 	for _, image := range images.Images {
 		if image.Width < 1 || image.Height < 1 || image.Width > 8000 || image.Height > 8000 {
 			return 0, errors.New("invalid image dimensions")

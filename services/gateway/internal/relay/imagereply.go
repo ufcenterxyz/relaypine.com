@@ -343,5 +343,5 @@ func (h *Handler) relayImage(w http.ResponseWriter, r *http.Request, response *h
 		}
 		s.Usage, _ = parseImageUsage(scan.fields["usage"])
 	}
-	h.price(s, p.model)
+	h.price(s, p)
 }

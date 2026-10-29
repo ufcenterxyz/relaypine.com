@@ -15,6 +15,7 @@ export const imageEn = {
   notApplicable: "—",
   imageInputTokens: "Image input tokens",
   imageOutputTokens: "Image output tokens",
+  imageTextTokens: "Image prompt tokens",
 } as const;
 
 type Widen<T> = T extends string ? string : { [K in keyof T]: Widen<T[K]> };

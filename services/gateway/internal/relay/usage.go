@@ -178,32 +178,39 @@ func parseUsage(raw json.RawMessage, provider string) (domain.Usage, bool) {
 }
 
 func validatePayload(m map[string]json.RawMessage, path string) error {
-	_, err := validatePayloadWithImages(m, path)
+	_, err := validatePayloadWithImages(m, path, "")
 	return err
 }
 
-func validatePayloadWithImages(m map[string]json.RawMessage, path string) (imageInputSummary, error) {
+// validatePayloadWithImages checks a request and summarizes its images. The
+// upstream model ID selects OpenAI's per-image token bound.
+func validatePayloadWithImages(m map[string]json.RawMessage, path, upstream string) (imageInputSummary, error) {
 	var images imageInputSummary
 	if err := validatePayloadCapabilities(m, path); err != nil {
 		return images, err
 	}
 	for _, field := range []string{"input", "messages", "system"} {
-		if raw, ok := m[field]; ok {
-			if field == "messages" && (path == "/v1/messages" || path == "/v1/messages/count_tokens") {
-				var err error
-				images, err = inspectAnthropicImages(raw)
-				if err != nil {
-					return imageInputSummary{}, err
-				}
-				continue
-			}
+		raw, ok := m[field]
+		if !ok {
+			continue
+		}
+		var err error
+		switch {
+		case field == "messages" && (path == "/v1/messages" || path == "/v1/messages/count_tokens"):
+			images, err = inspectAnthropicImages(raw)
+		case field == "messages" && path == "/v1/chat/completions":
+			images, err = inspectOpenAIChatImages(raw, upstream)
+		case field == "input" && path == "/v1/responses":
+			images, err = inspectResponsesImages(raw, upstream)
+		default:
 			var v any
 			if json.Unmarshal(raw, &v) != nil {
 				return imageInputSummary{}, errors.New("invalid " + field)
 			}
-			if err := validateContent(v, ""); err != nil {
-				return imageInputSummary{}, err
-			}
+			err = validateContent(v, "")
+		}
+		if err != nil {
+			return imageInputSummary{}, err
 		}
 	}
 	return images, nil
@@ -274,6 +281,13 @@ func validatePayloadCapabilities(m map[string]json.RawMessage, path string) erro
 		}
 		for _, t := range tools {
 			kind := str(t["type"])
+			if kind == "image_generation" {
+				if !strings.HasSuffix(path, "/responses") {
+					return errors.New("the image generation tool is supported only by the Responses API")
+				}
+				// Validated with its image model by prepareImageTool.
+				continue
+			}
 			if kind != "" && kind != "function" && kind != "custom" {
 				return errors.New("built-in tools are not supported")
 			}

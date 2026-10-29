@@ -56,7 +56,7 @@ func TestInlineImagesSummaries(t *testing.T) {
 				imageBlock("png", p), map[string]any{"type": "tool_result", "tool_use_id": "call_1", "content": []any{imageBlock("jpeg", j)}},
 			)}
 			before := string(m["messages"])
-			summary, err := validatePayloadWithImages(m, path)
+			summary, err := validatePayloadWithImages(m, path, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,13 +100,13 @@ func TestImagePositionsAndOpaqueUserData(t *testing.T) {
 		"nested tool result": {"messages": imageMessages(map[string]any{"type": "tool_result", "content": []any{map[string]any{"type": "tool_result", "content": []any{img}}}})},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if summary, err := validatePayloadWithImages(m, "/v1/messages"); err == nil || len(summary.Images) != 0 || summary.Base64Bytes != 0 {
+			if summary, err := validatePayloadWithImages(m, "/v1/messages", ""); err == nil || len(summary.Images) != 0 || summary.Base64Bytes != 0 {
 				t.Fatal("unsupported image position accepted or partial metadata returned")
 			}
 		})
 	}
 	for _, path := range []string{"/v1/chat/completions", "/v1/responses"} {
-		if _, err := validatePayloadWithImages(map[string]json.RawMessage{"messages": imageMessages(img)}, path); err == nil {
+		if _, err := validatePayloadWithImages(map[string]json.RawMessage{"messages": imageMessages(img)}, path, ""); err == nil {
 			t.Fatal("accepted an OpenAI image")
 		}
 	}

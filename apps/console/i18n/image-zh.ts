@@ -16,4 +16,5 @@ export const imageZh: ImageCopy = {
   notApplicable: "—",
   imageInputTokens: "图像输入 Token",
   imageOutputTokens: "图像输出 Token",
+  imageTextTokens: "图像提示词 Token",
 };
