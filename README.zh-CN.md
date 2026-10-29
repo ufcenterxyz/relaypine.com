@@ -62,6 +62,21 @@ make console  # 终端二
 
 使用 `Authorization: Bearer rp_live_...` 或 Anthropic 的 `x-api-key`。上游秘密只存于服务端。保留 JSON / SSE 原生字段，不做 Claude 与 OpenAI 跨协议转换。支持文本及客户端执行的函数工具；Anthropic Messages 和 Count tokens 还支持 user content 中的内联 base64 PNG/JPEG，包括 user 消息内的 `tool_result.content`。Chat Completions 与 Responses 支持 user content 中的 OpenAI 图片输入（Responses 还支持函数与自定义工具输出中的图片），可用 https URL 或 base64 的 PNG、JPEG、WebP、GIF data URL，不接受文件 ID。每张图片先按该模型在对应 `detail` 下的最高 Token 预留（例如 gpt-5.4 的 `high` 为 3,001；GPT-6 Astra 的 `auto`，以及 OpenAI 未公布规则的模型，为 36,001），再按 OpenAI 报告的输入 Token 结算。发送较多图片时使用 `detail: "high"` 或 `"low"` 可减少预留。文件输入及引用、音频、除 Responses 图像生成以外的托管工具及后台生成仍不支持。Responses 可以使用 `image_generation` 工具：图像模型（默认 `gpt-image-2`）按自己的价格计费，加在文本模型的 Token 之上，用量取自 OpenAI 的 `tool_usage`；由于 OpenAI 可能漏报或少报，每张生成的图像至少按 OpenAI 计算器对其尺寸和质量的值计费，没有报告时按最坏情况计费。`max_tool_calls`（默认 1，最多 4）限制每个回复的图像数量。图像生成通过 OpenAI Images API（`/openai/v1/images/generations`、`/openai/v1/images/edits`）使用 GPT Image 2 或 2.5 模型，按 OpenAI 返回的用量计费：文本输入、输入图像和生成图像的 Token 分别按公布价格计价；每个请求先按尺寸、质量和张数预留最坏情况，再按实际金额结算。编辑接口接受上传的 PNG、JPEG、WebP 图片和 base64 data URL，不接受文件 ID 或远程 URL。Responses 续接按租户和项目校验并固定原上游凭据。只有上游在产生任何输出之前明确拒绝（请求没有发出，或返回 HTTP 401、402、403、429、5xx），请求才会换到下一条通道；每个请求最多尝试三条通道，官方通道优先。结果未知的请求（例如请求发出后连接中断）不会重放。Responses 和 Token 计数不会使用备用通道，因为其他服务商无法接续它们保存的状态。
 
+生成图像使用 OpenAI Images API 和 GPT Image 2 或 2.5 模型（`gpt-image-2`、`gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`）：
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({ baseURL: "https://relaypine.com/openai/v1", apiKey: process.env.RELAYPINE_API_KEY });
+const result = await client.images.generate({
+  model: "gpt-image-2",
+  prompt: "A lighthouse at dusk, watercolor",
+  size: "1024x1024",
+  quality: "medium",
+});
+const png = Buffer.from(result.data![0].b64_json!, "base64");
+```
+
 已配置且支持视觉的模型可使用原生 SDK：
 
 ```ts
@@ -103,13 +118,17 @@ Anthropic 的工作区头由选中的上游 Key 配置决定，调用者不能�
 
 ## 用量与额度
 
-启用的模型必须按费率计费。批量导入从官方公开价表获取标准文本参考价，显示来源和检查时间；模型列表 API 本身不返回这些单价。更新入口先展示旧价与新价，选中后按模型版本应用，防止覆盖并发编辑。参考价不是账号专属合同价格；在常规路线中，自动官方参考价只适用于对应官方上游（已配置的备用通道也可承接该模型）。
+启用的模型必须按费率计费。批量导入从官方公开价表获取标准参考价（文本模型，以及 GPT Image 图像模型的文本输入、图像输入和图像输出价格），显示来源和检查时间；模型列表 API 本身不返回这些单价。更新入口先展示旧价与新价，选中后按模型版本应用，防止覆盖并发编辑。参考价不是账号专属合同价格；在常规路线中，自动官方参考价只适用于对应官方上游（已配置的备用通道也可承接该模型）。
 
 由备用通道完成的请求按模型的正常售价向客户计费；上游成本按模型的上游成本价估算记录，备用通道的消费上限在 OpenRouter 或 ZenMux 账户中设置。被拒绝的尝试没有上游成本，管理员的请求记录会列出每一条尝试过的通道。
 
 历史“仅记录用量”请求保留原始快照，不追溯扣款；迁移模型只影响后续请求。没有可靠价格的模型保持禁用等待定价，不默认为免费。鉴权、RPM、TPM、并发、上游预算、输出上限和固定代理规则继续执行。启用前，销售和成本的输入/输出费率须全部为正数。
 
-保留整数 micro-USD 账本、模型价格快照、请求前预留与请求后结算，以及独立的上游成本预算。图片请求在原文本/请求体保守估算中只扣除已验证图片的 base64 逻辑长度，再按每图 `2 * ceil(width / 28) * ceil(height / 28) + 256` 加入图片上界；同一上界用于上下文、TPM 和金额预留，最终按上游可信 usage 结算。这不会放宽 2 MiB 请求上限。显式 `count_tokens` 请求不收取 RelayPine 金额费用，但仍受权限和容量检查；网关不会在生成前自动额外调用它。
+保留整数 micro-USD 账本、模型价格快照、请求前预留与请求后结算，以及独立的上游成本预算。图片请求在原文本/请求体保守估算中只扣除已验证图片的 base64 逻辑长度，再按每图 `2 * ceil(width / 28) * ceil(height / 28) + 256` 加入图片上界；同一图片上界用于上下文检查、金额预留和 TPM 准入（TPM 准入中的文本按约每 4 字节 1 个 Token 估算，而不是保守上界），最终按上游可信 usage 结算。这不会放宽 2 MiB 请求上限。显式 `count_tokens` 请求不收取 RelayPine 金额费用，但仍受权限和容量检查；网关不会在生成前自动额外调用它。
+
+**限流。** 请求按贴近实际的 Token 估算计入租户、访问 Key、上游 Key 和额度组当分钟的计数：文本约每 4 字节 1 个 Token，加上每张图片的上界和输出上限。计数低于 TPM 时就放行，因此单个大请求在空闲的 Key 上也能执行，之后的请求等到下一分钟或前面的请求结算。请求结算后，估算改为实际用量；拒绝了该请求的通道全额退回估算。本地默认值只用于不知道真实限额的 Key，请按服务商的实际额度设置每把上游 Key 的限额，尤其是发送长上下文的 Agent，否则 100,000 TPM 的 Key 同一时间大约只能执行一个这样的请求。
+
+**输出上限。** 请求未写输出上限时，网关按模型配置的输出上限补上：Chat Completions 为 `max_completion_tokens`（发往备用通道为 `max_tokens`），Responses 为 `max_output_tokens`，Messages 为 `max_tokens`。该上限也决定余额预留。OpenAI 自己的限流也会计入请求里的输出上限，因此大流量调用最好写上合理的上限。
 
 内部额度调整要求原因并记录操作者。该机制用于预算和使用控制，不会发起外部扣款。
 

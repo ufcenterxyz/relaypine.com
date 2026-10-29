@@ -9,6 +9,9 @@
 - Claude / OpenAI 原生协议，官方与兼容 host、多 Key、共享 RPM/TPM/并发及每 Key SOCKS5。
 - 批量发现与导入模型、官方标准参考价预览和更新、价格版本冲突保护。
 - JSON / SSE、Responses 资源归属、请求前余额预留和用量后扣费、独立上游成本预算。
+- OpenAI 图像能力：Images API 生成与编辑（GPT Image 2 与 2.5）、Chat Completions 与 Responses 的图片输入、Responses `image_generation` 工具，均按 OpenAI 报告的 Token 结算。
+- OpenRouter / ZenMux 备用通道及其余额显示。
+- TPM 按贴近实际的估算准入，结算后改为实际用量。
 - MySQL / Redis、隔离数据库的集成测试、前端类型检查、lint、生产构建与浏览器验收。
 
 ## 访问控制验收
@@ -23,7 +26,7 @@
 
 ## 价格与扣费验收
 
-导入精确匹配参考价，未知价不猜、不免费放行；更新先预览，应用时验证模型版本。既有模型补价不修改历史账本，不自动增加余额。
+导入精确匹配参考价（含 GPT Image 图像价格及带日期快照），未知价不猜、不免费放行；更新先预览，应用时验证模型版本。图像请求的预留必须是真实上界，结算与 OpenAI 报告的文本和图像 Token 一致；图像工具缺少用量报告时按最坏情况计费。既有模型补价不修改历史账本，不自动增加余额。
 
 零余额请求在上游发送前拒绝；成功调用按不可变价格快照幂等扣费。保留共享限流、Responses 租户归属、SOCKS5 失败关闭、并发余额预留和中断恢复测试。没有 Stripe、退款、支付 webhook 或支付 worker。
 

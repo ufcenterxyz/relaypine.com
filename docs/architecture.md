@@ -45,13 +45,16 @@
 | OpenAI | `POST /v1/chat/completions` | JSON/SSE，不强制转换为 Responses |
 | OpenAI | `POST /v1/responses` | 同步 JSON/SSE；资源引用必须遵循亲和路由 |
 | OpenAI | `GET /v1/responses/{id}`、`DELETE /v1/responses/{id}` | 仅处理本中转已记录归属、调用方有权限的资源 |
+| OpenAI | `POST /v1/images/generations`、`POST /v1/images/edits` | 仅 GPT Image 2 与 2.5；JSON/SSE，编辑接受上传图片或 base64 data URL；按图像 Token 计费 |
 | 两者 | `GET /v1/models` | 返回当前访问 Key 允许使用的模型；按所属协议输出格式 |
 
 入口建议为 `/openai/v1/*` 与 `/anthropic/v1/*`，使模型列表、错误格式和鉴权路径没有歧义。后续可用不同域名映射为各自的 `/v1/*`。客户端保持原生 SDK，仅调整 base URL 与访问 Key；具体 CLI 的端点覆盖通过验收后再声明兼容。
 
 保留 Anthropic 的版本和允许的 beta 头；替换上游认证，过滤 hop-by-hop 头、Cookie、客户端伪造的组织/项目及内部路由头。上游组织/项目由管理员配置。
 
-第一版不做跨协议转换、Files/Vector Stores、Batch、background Responses、Realtime/WebSocket、图像/音频专用端点或云厂商 IAM。允许的请求字段在协议内透传；涉及尚未支持的资源或会产生独立费用的内置工具，必须能力检查并明确拒绝。普通由客户端执行的工具调用可正常透传。
+不做跨协议转换、Files/Vector Stores、Batch、background Responses、Realtime/WebSocket、音频端点或云厂商 IAM。允许的请求字段在协议内透传；涉及尚未支持的资源或会产生独立费用的内置工具，必须能力检查并明确拒绝。普通由客户端执行的工具调用可正常透传。
+
+当前实现的图像能力：Images API 生成与编辑（GPT Image 2 与 2.5，按文本与图像 Token 精确计费）；Chat Completions 与 Responses 接受用户消息中的图片输入（Responses 还接受函数与自定义工具输出中的图片），来源限 https URL 或 base64 data URL，文件 ID 一律拒绝，以免引用同一上游账户中其他客户上传的文件；Responses 唯一放行的内置工具是 `image_generation`，图像模型固定、`max_tool_calls` 限制调用次数，按图像模型价格另计。参数采用白名单，未知参数可能改变费用，因此直接拒绝。
 
 ## 3. 额度与限流
 
@@ -68,6 +71,8 @@ OpenAI 限流存在于组织、项目及模型共享组；Claude 存在组织和
 | 上游查询余额 | 特定供应商余额插件 | 显示来源、更新时间和有效期 |
 
 官方 Usage/Cost 接口用于用量或历史成本核对，不等同普通推理 Key 的实时剩余余额接口。使用这些能力需要对应的管理权限，Admin Key 应与推理 Key 分开保管。[OpenAI Costs API](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs)、[Claude Usage and Cost API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api)
+
+当前实现的限流：每个请求按贴近实际的 Token 估算（文本约每 4 字节 1 个 Token，加图片上界、续接输入和输出上限）进入租户、访问 Key、上游 Key 和额度组当分钟的计数；计数低于限额就放行，单个大请求在空闲的 Key 上也能执行；请求结算后计数改为实际用量，被拒绝或预留失败的通道全额退回，用量未知时保留估算。RPM 与并发不受影响。上游 Key 的默认限额只是本地保护值，应配置为服务商的实际额度。
 
 未知余额不当成无限，也不假装为零。在余额优先策略下，优先使用同币种、同口径且未过期的可比较余额；只有本地预算的 Key 可使用明确选择的“本地剩余预算”口径。未设置可比较预算的 Key 需配置备用顺序，不能偷偷混合排序。
 
@@ -111,6 +116,8 @@ flowchart LR
 5. 收到 usage 后幂等结算，区分输入、输出、缓存读写及供应商报告的其它计费项，释放预留差额。
 6. 流中断或 usage 缺失时记录待核对/估算金额，不能直接当作免费请求。估算和实收分别展示。
 
+图像请求的上界同样必须真实可靠，因为客户扣款不超过预留：Images API 按 OpenAI 的输出 Token 计算器和尺寸、质量、张数预留，Responses 图像工具按每次调用的最坏情况预留。图像工具的费用只出现在 `tool_usage.image_gen`，OpenAI 说明它可能缺失或少报，因此结算时按报告值且不低于每张已完成图像的计算器值，没有报告时按最坏情况计费。
+
 MySQL 是预算账本权威来源；Redis 管速率和并发，避免两个系统分别作为金钱余额的权威。跨存储没有天然原子事务，使用持久状态机、补偿和恢复扫描。预算预留有恢复期限；并发租约有心跳，但租约过期不代表上游未产生费用。恢复任务必须通过状态版本比较或行锁领取，确认尝试不再活跃后才补偿，防止与仍运行的发送协程竞态退款。恢复与结算用唯一约束阻止重复扣款或退款。Redis 或预算数据库不可用时停止接纳新的收费请求。
 
 每份日/月预留绑定具体预算期间及其时区；跨周期完成仍结算到原预留期间。周期重置创建新期间，不清空旧期间的未完成预留或账目。
@@ -119,7 +126,7 @@ MySQL 是预算账本权威来源；Redis 管速率和并发，避免两个系�
 
 ## 6. 重试与流式转发
 
-原样转发 SSE 数据，同时旁路解析状态和 usage；保留未知事件，按背压输出，不累积整段回答。客户端断开后取消上游请求并释放本地连接资源。
+原样转发 SSE 数据，同时旁路解析状态和 usage；保留未知事件，按背压输出，不累积整段回答。含生成图像的回复体积大：非流式 Images 回复边收边转发，只保留 usage 等小字段；Responses 图像回复与流式图像事件在解析和存档时去掉 base64 图像，存档记录原始大小。客户端断开后取消上游请求并释放本地连接资源。
 
 | 场景 | 处理 |
 | --- | --- |

@@ -102,6 +102,31 @@ replaces, keeps or deletes it in the same transaction and records
 `management_key=true` on the backup endpoint while one exists. The key is used
 only to read the vendor account balance and is never returned.
 
+## Image models and usage
+
+`models.config` may carry `kind:"image"` and `image_input_rate`,
+`image_output_rate`, `cost_image_input_rate` and `cost_image_output_rate`. The
+kind is derived from an OpenAI `upstream_model` in a supported GPT Image family
+(`gpt-image-2`, `gpt-image-2.5-*`, and dated snapshots) on every save and every
+read, never taken from a client, so rows saved before image support read
+correctly. Image rates on any other model are rejected. An enabled image model
+needs positive sales and cost text input, image input and image output rates;
+its text output rate may be zero.
+
+`requests.usage_json` may carry `image_input_tokens`, `image_output_tokens` and
+`image_text_tokens`. For Images API calls the first two are the image model's
+image tokens, and `input_tokens`/`output_tokens` its text tokens. For a
+Responses request with the image generation tool, `image_text_tokens`,
+`image_input_tokens` and `image_output_tokens` are the image model's tokens
+next to the text model's usage. The relay computes the charge from both models'
+rates; `Settle` rejects negative counts. The customer snapshot hides
+`cost_image_*` rates like every other cost rate.
+
+Request inspection stores image calls without their images. Images API request
+bodies with uploads keep every field, with each image replaced by its type and
+size. Replies and stream events keep every field, with each base64 image
+replaced by a short note, and record the real size of the reply.
+
 ## Historical payment tables
 
 `topup_orders`: `id VARCHAR(64) PRIMARY KEY`, `tenant_id VARCHAR(64)`,
