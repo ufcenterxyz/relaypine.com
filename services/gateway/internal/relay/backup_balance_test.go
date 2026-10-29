@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -122,5 +123,45 @@ func TestBackupCheckReportsAccountBalance(t *testing.T) {
 	result, err = checkBackup(context.Background(), vendor, "sk-or-inference", "sk-or-wrong", http.DefaultClient, models)
 	if err != nil || result.Balance.BalanceMicros != nil || !strings.Contains(result.Balance.Error, "management key") || !result.Models[0].Available {
 		t.Fatalf("wrong management key %+v %v", result, err)
+	}
+}
+
+// The OpenRouter catalog serves both protocols: a check downloads it once,
+// compressed, and a reply that expands beyond the size limit is refused.
+func TestBackupCatalogIsCompressedAndReadOnce(t *testing.T) {
+	var catalogReads int
+	var bomb bool
+	vendor := vendorServer(t, map[string]func(http.ResponseWriter, *http.Request){
+		"/api/v1/key": func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{"data":{"label":"relaypine","limit_remaining":null}}`)
+		},
+		"/api/v1/models": func(w http.ResponseWriter, r *http.Request) {
+			catalogReads++
+			if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+				t.Error("catalog request did not ask for compression")
+			}
+			w.Header().Set("Content-Encoding", "gzip")
+			zw := gzip.NewWriter(w)
+			defer zw.Close()
+			if bomb {
+				_, _ = io.WriteString(zw, `{"data":[{"id":"`+strings.Repeat("a", backupCatalogMaxBody)+`"}]}`)
+				return
+			}
+			_, _ = io.WriteString(zw, `{"data":[{"id":"openai/gpt-5.4-mini"},{"id":"anthropic/claude-sonnet-4.5"}]}`)
+		},
+	})
+	vendor.ID, vendor.Name = "openrouter", "OpenRouter"
+	models := []domain.Model{
+		{ID: "mini", Provider: "openai", UpstreamModel: "gpt-5.4-mini", Enabled: true},
+		{ID: "sonnet", Provider: "anthropic", UpstreamModel: "claude-sonnet-4-5", Enabled: true},
+	}
+	client := &http.Client{Transport: &http.Transport{DisableCompression: true}}
+	result, err := checkBackup(context.Background(), vendor, "sk-or-inference", "", client, models)
+	if err != nil || catalogReads != 1 || !result.Models[0].Available || !result.Models[1].Available {
+		t.Fatalf("check %+v %v reads=%d", result.Models, err, catalogReads)
+	}
+	bomb = true
+	if _, err = checkBackup(context.Background(), vendor, "sk-or-inference", "", client, models); err == nil || !strings.Contains(err.Error(), "oversized") {
+		t.Fatalf("oversized compressed catalog accepted: %v", err)
 	}
 }

@@ -43,7 +43,7 @@ Go 网关每 15 秒运行请求恢复，并分批删除超过保留期的请求�
 - 内部额度调整需填写原因，保留操作者及唯一业务参考。
 - 备用通道（OpenRouter / ZenMux）在 Upstreams 配置，使用 **Check key** 确认 Key 和模型覆盖范围；Key 检查不发起付费推理。备用通道只在官方路线全部不可用时承接 Chat Completions 和 Messages，消费上限需在服务商账户设置。管理员请求记录中带多次尝试的请求即发生过换路，可按尝试的 `error_code` 判断官方故障类型。被拒绝的 Key 会暂时冷却（401/402/403 五分钟，429 按 Retry-After，5xx 与未发出请求 30 秒），冷却期间请求直接走下一条路线。
 - 备用通道余额需要服务商的管理 Key：OpenRouter 的 Management Key（同时可以创建和删除 API Key，权限较大）或 ZenMux 的 Management API Key。管理 Key 只用于读取余额，按服务商加密保存，不参与转发，也不会返回给浏览器；不需要时可在编辑弹框中删除。余额每分钟最多读取一次，点击刷新会重新读取。
-- 备用通道兼容性实测：在 `services/gateway` 运行 `RELAYPINE_LIVE_OPENROUTER_KEY=... RELAYPINE_LIVE_ZENMUX_KEY=... go test -run TestLiveBackupCompatibility -v ./internal/relay`。测试让本地官方上游返回 529，经真实故障切换路径向服务商发送 Chat、流式 Chat、工具调用、Messages、流式 Messages 和带 beta 头的工具流式请求，每项最多 64 个输出 Token，总成本不到一美分。未设置 Key 时自动跳过。
+- 备用通道兼容性实测：在 `services/gateway` 运行 `RELAYPINE_LIVE_OPENROUTER_KEY=... RELAYPINE_LIVE_ZENMUX_KEY=... go test -run TestLiveBackupCompatibility -v ./internal/relay`。测试让本地官方上游返回 529，经真实故障切换路径向服务商发送 Chat、流式 Chat、工具调用、长提示缓存、Messages、流式 Messages、带 beta 头的工具流式请求、提示缓存写入与读取以及扩展思考，并核对每次结算的 Token 与服务商返回的用量完全一致。总成本约两美分，未设置 Key 时自动跳过。本机代理若使用 fake-IP DNS（解析到 198.18.0.0/15），网关的私网保护会拒绝连接，本地检查 Key 需使用允许私网的开发配置；线上解析为公网地址，不受影响。
 
 本地预算不等于供应商余额；管理员自己的调用仍受访问 Key、租户限流和预算约束。移除 Stripe 不等于将钱包设为无限。
 

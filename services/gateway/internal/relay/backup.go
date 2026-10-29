@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"io"
@@ -104,11 +105,17 @@ func checkBackup(ctx context.Context, vendor domain.BackupVendor, secret, manage
 	if managementKey != "" {
 		accountBalance(ctx, vendor, managementKey, client, &result.Balance)
 	}
-	catalogs := map[string]map[string]bool{}
+	// OpenRouter serves both protocols from one catalog; read each source once.
+	catalogs, sources := map[string]map[string]bool{}, map[string]map[string]bool{}
 	for _, protocol := range []string{"openai", "anthropic"} {
-		ids, err := backupCatalog(ctx, vendor, protocol, secret, client)
-		if err != nil {
-			return result, err
+		base, auth := catalogSource(vendor, protocol)
+		ids, fetched := sources[base]
+		if !fetched {
+			var err error
+			if ids, err = backupCatalog(ctx, vendor, base, auth, secret, client); err != nil {
+				return result, err
+			}
+			sources[base] = ids
 		}
 		catalogs[protocol] = ids
 	}
@@ -136,6 +143,10 @@ func backupGet(ctx context.Context, client *http.Client, address, secret, authMo
 		return 0, discoveryError(400, "invalid_backup", "The backup address could not be used.")
 	}
 	request.Header.Set("Accept", "application/json")
+	// Model catalogs are large; compressed transfer is about ten times smaller,
+	// which matters through a slow egress proxy. The relay transport leaves
+	// decoding to us, so the decompressed size is bounded below.
+	request.Header.Set("Accept-Encoding", "gzip")
 	if authMode == "x-api-key" {
 		request.Header.Set("X-Api-Key", secret)
 		request.Header.Set("Anthropic-Version", "2023-06-01")
@@ -154,10 +165,20 @@ func backupGet(ctx context.Context, client *http.Client, address, secret, authMo
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 		return response.StatusCode, nil
 	}
-	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
+	reader := io.Reader(response.Body)
+	switch response.Header.Get("Content-Encoding") {
+	case "", "identity":
+	case "gzip":
+		unzipped, err := gzip.NewReader(response.Body)
+		if err != nil {
+			return response.StatusCode, discoveryError(502, "invalid_backup_response", "The backup provider returned invalid or oversized data. Try again later.")
+		}
+		defer unzipped.Close()
+		reader = unzipped
+	default:
 		return response.StatusCode, discoveryError(502, "invalid_backup_response", "The backup provider returned an unsupported compressed response.")
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, backupCatalogMaxBody+1))
+	body, err := io.ReadAll(io.LimitReader(reader, backupCatalogMaxBody+1))
 	if err != nil || len(body) > backupCatalogMaxBody || json.Unmarshal(body, target) != nil {
 		return response.StatusCode, discoveryError(502, "invalid_backup_response", "The backup provider returned invalid or oversized data. Try again later.")
 	}
@@ -214,11 +235,16 @@ func verifyBackupKey(ctx context.Context, vendor domain.BackupVendor, secret str
 
 // backupCatalog returns the IDs a vendor serves on one protocol. OpenRouter has
 // a single catalog; ZenMux publishes the Messages-compatible subset separately.
-func backupCatalog(ctx context.Context, vendor domain.BackupVendor, protocol, secret string, client *http.Client) (map[string]bool, error) {
-	base, auth := vendor.OpenAIBaseURL, "bearer"
+// catalogSource is where a vendor lists the models it serves on a protocol.
+// ZenMux publishes its Messages-compatible subset separately.
+func catalogSource(vendor domain.BackupVendor, protocol string) (string, string) {
 	if protocol == "anthropic" && vendor.ID == "zenmux" {
-		base, auth = vendor.AnthropicBaseURL+"/v1", vendor.AnthropicAuthMode
+		return vendor.AnthropicBaseURL + "/v1", vendor.AnthropicAuthMode
 	}
+	return vendor.OpenAIBaseURL, "bearer"
+}
+
+func backupCatalog(ctx context.Context, vendor domain.BackupVendor, base, auth, secret string, client *http.Client) (map[string]bool, error) {
 	ids, cursors := map[string]bool{}, map[string]bool{}
 	query := url.Values{}
 	for page := 0; page < backupCatalogMaxPages; page++ {
