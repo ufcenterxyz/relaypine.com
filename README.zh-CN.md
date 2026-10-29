@@ -16,7 +16,7 @@ GitHub Actions 在推送 `dev-tag/v*` 标签时运行检查，构建 Web 和 Gat
 
 ## 本地启动
 
-需要 Go 1.26、Node.js 20.9+、Yarn 1、Docker Compose。
+需要 Go 1.26、Node.js 22.23.4（在仓库根目录运行 `nvm install && nvm use`）、Yarn 1、Docker Compose。
 
 ```sh
 SUPERADMIN_EMAIL=you@example.com make setup

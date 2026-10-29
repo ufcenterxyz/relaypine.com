@@ -20,7 +20,7 @@ Customers sign in with an email code at [relaypine.com](https://relaypine.com). 
 
 ## Quick start
 
-Prerequisites: Go 1.26, Node.js 20.9 or newer (CI uses Node.js 22), Yarn Classic, Python 3, and Docker Compose.
+Prerequisites: Go 1.26, Node.js 22.23.4 (`nvm install && nvm use` from the repository root), Yarn Classic, Python 3, and Docker Compose.
 
 ```sh
 git clone https://github.com/ufcenterxyz/relaypine.com.git
