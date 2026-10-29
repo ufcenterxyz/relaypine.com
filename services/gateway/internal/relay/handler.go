@@ -84,6 +84,9 @@ type plan struct {
 	fields        map[string]json.RawMessage
 	anthropicBeta string
 	input, output int64
+	// tpm is the token estimate charged to rate limits: a realistic figure,
+	// where input and output above are strict bounds for the money hold.
+	tpm int64
 	// limitAdded marks a chat max_completion_tokens the gateway filled in.
 	limitAdded              bool
 	stream, count, resource bool
@@ -344,7 +347,7 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 	var last attempt
 	// The estimate is charged to the shared buckets once and to each route
 	// that admits the request; settlement turns it into the tokens used.
-	estimate := p.input + p.output
+	estimate := p.tpm
 	var sharedTokens, routeTokens tokenHold
 	var capacityErr error
 	var untrackedBudget bool
@@ -572,6 +575,9 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	}
 	p.inputImages = images.OpenAIImages
 	p.input, err = estimatedInputTokens(len(body), images)
+	if err == nil {
+		p.tpm = admissionTokens(len(body), images, p.input)
+	}
 	if err != nil {
 		return err
 	}
@@ -592,6 +598,7 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 		}
 		p.binding = &binding
 		p.input += binding.InputTokens
+		p.tpm += binding.InputTokens
 	}
 	if ref := p.model.PricingReference; ref != nil && (ref.MaxInputTokens <= 0 || p.input > ref.MaxInputTokens) {
 		return errors.New("request exceeds the standard reference price context limit; shorten the input or configure a separately priced model")
@@ -643,6 +650,7 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if err = h.prepareImageTool(p, m, models); err != nil {
 		return err
 	}
+	p.tpm += p.output
 	m["model"], _ = json.Marshal(p.model.UpstreamModel)
 	p.fields = m
 	p.body, err = json.Marshal(m)

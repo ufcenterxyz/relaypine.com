@@ -72,7 +72,8 @@ func (l *imageRecordingLimiter) acquire(ctx context.Context, id string, buckets 
 }
 
 // Use the existing fake limiter with an extra observation of the bound supplied
-// by Handler, so the context/TPM/money paths cannot silently diverge.
+// by Handler, so the image bound shared by the context check, TPM admission and
+// the money hold cannot silently diverge.
 func TestImageForwardingAndActualUsageSettlement(t *testing.T) {
 	data := handlerImageData(t)
 	for _, stream := range []bool{false, true} {
@@ -124,10 +125,13 @@ func TestImageForwardingAndActualUsageSettlement(t *testing.T) {
 			if repo.reservations[0].Request.ReservedMicros <= wantCharge || repo.reservations[0].Request.ReservedMicros > 20000 {
 				t.Fatal("image was not conservatively reserved using its visual bound")
 			}
-			wantBound := 2*int64(len(body)-len(data)) + 4096 + 2*10*10 + 256
+			// The money hold keeps the strict text bound; admission charges about
+			// one token per four bytes of text. Both carry the same image bound.
+			text := int64(len(body) - len(data))
+			wantBound := 2*text + 4096 + 2*10*10 + 256
 			wantReserve, wantCostReserve, err := estimate(wantBound, 64, repo.models[0])
-			if err != nil || limiter.tokens != wantBound+64 || repo.reservations[0].Request.ReservedMicros != wantReserve || repo.reservations[0].CostReserve != wantCostReserve {
-				t.Fatal("TPM and financial reservation did not share the same image input bound")
+			if err != nil || limiter.tokens != (text+3)/4+2*10*10+256+64 || repo.reservations[0].Request.ReservedMicros != wantReserve || repo.reservations[0].CostReserve != wantCostReserve {
+				t.Fatalf("admission charged %d tokens; the hold must use the strict bound and admission the same image bound", limiter.tokens)
 			}
 		})
 	}

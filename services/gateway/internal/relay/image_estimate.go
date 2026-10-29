@@ -28,3 +28,13 @@ func estimatedInputTokens(bodyBytes int, images imageInputSummary) (int64, error
 	}
 	return input, nil
 }
+
+// admissionTokens is the rate-limit estimate of a request's input: about one
+// token per four bytes of text, the heuristic OpenAI's own limiter uses, plus
+// the same per-image bounds as the money hold. The hold keeps the strict
+// bound of estimatedInputTokens; this estimate only decides admission, and
+// settlement replaces it with the tokens used.
+func admissionTokens(bodyBytes int, images imageInputSummary, bound int64) int64 {
+	text := int64(bodyBytes) - images.Base64Bytes
+	return (text+3)/4 + bound - (2*text + 4096)
+}

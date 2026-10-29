@@ -125,11 +125,16 @@ func TestRedisAtomicSharedCapacity(t *testing.T) {
 	if _, err := l.acquire(ctx, requestID(), []limits{group}, 1); !errors.Is(err, errCapacity) {
 		t.Fatalf("cooldown ignored: %v", err)
 	}
+	// A token bucket admits while its minute is below the limit: the request
+	// that crosses it runs, and the next one waits.
 	tokens := limits{scope: prefix + ":tokens", tpm: 20}
 	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 13); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 8); !errors.Is(err, errCapacity) {
+	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 8); err != nil {
+		t.Fatalf("request below the limit refused: %v", err)
+	}
+	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 1); !errors.Is(err, errCapacity) {
 		t.Fatalf("TPM limit ignored: %v", err)
 	}
 	// Expired process leases are removed before admission; crashed gateways cannot

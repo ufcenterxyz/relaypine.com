@@ -547,6 +547,7 @@ func (h *Handler) prepareImage(r *http.Request, p *plan, models []domain.Model) 
 	p.imageInput = images
 	p.input = text + images
 	p.output = q.outputTokens()
+	p.tpm = p.input + p.output
 	p.stream = q.stream
 	p.image = q
 	if q.inspectionNotes != nil {

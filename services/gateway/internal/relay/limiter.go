@@ -49,7 +49,10 @@ func bucketKeys(scope string, now time.Time) []string {
 }
 
 // All tenant, access key, upstream key and shared-group checks and increments
-// execute in one transaction. Rejected candidates consume no capacity.
+// execute in one transaction. Rejected candidates consume no capacity. A token
+// bucket admits while its minute is below its limit, so a request whose
+// estimate alone exceeds the limit still runs on an idle key; it then holds the
+// minute until settlement replaces the estimate with the tokens it used.
 var acquireScript = redis.NewScript(`
 local now=tonumber(ARGV[1]); local expires=tonumber(ARGV[2]); local id=ARGV[3]; local tokens=tonumber(ARGV[4])
 for i=1,#KEYS,4 do
@@ -58,7 +61,7 @@ for i=1,#KEYS,4 do
   if tonumber(redis.call('GET',KEYS[i+3]) or '0')>now then return 0 end
   local rpm=tonumber(ARGV[a]); local tpm=tonumber(ARGV[a+1]); local conc=tonumber(ARGV[a+2])
   if rpm>0 and tonumber(redis.call('GET',KEYS[i]) or '0')+1>rpm then return 0 end
-  if tpm>0 and tonumber(redis.call('GET',KEYS[i+1]) or '0')+tokens>tpm then return 0 end
+  if tpm>0 and tonumber(redis.call('GET',KEYS[i+1]) or '0')>=tpm then return 0 end
   if conc>0 and redis.call('ZCARD',KEYS[i+2])+1>conc then return 0 end
 end
 for i=1,#KEYS,4 do

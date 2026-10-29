@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,15 +118,16 @@ func TestRedisAdjustSettlesTokens(t *testing.T) {
 	l := &redisLimiter{client: client}
 	bucket := limits{scope: "test:" + requestID() + ":tokens", rpm: 100, tpm: 1500, concurrency: 10}
 	t.Cleanup(func() { client.Del(ctx, bucketKeys(bucket.scope, time.Now())...) })
-	w, err := l.acquire(ctx, requestID(), []limits{bucket}, 1000)
+	// An idle key runs a request whose estimate alone exceeds its limit.
+	w, err := l.acquire(ctx, requestID(), []limits{bucket}, 5000)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("idle key refused a large estimate: %v", err)
 	}
-	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1000); err != errCapacity {
-		t.Fatalf("second estimate admitted: %v", err)
+	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1); err != errCapacity {
+		t.Fatalf("a full minute admitted another request: %v", err)
 	}
-	// The first request used 100 tokens.
-	if err = l.adjust(ctx, []limits{bucket}, w, -900); err != nil {
+	// The request used 100 tokens; the minute reopens.
+	if err = l.adjust(ctx, []limits{bucket}, w, -4900); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1000); err != nil {
@@ -180,5 +183,85 @@ func TestRequestsWithoutOutputLimitKeepAdmitting(t *testing.T) {
 	}
 	if n, _ := client.Get(context.Background(), tpmKey("credential:"+f.credentials[0].ID, start)).Int64(); n != 45 {
 		t.Fatalf("key holds %d tokens after three settled requests, want 45", n)
+	}
+}
+
+// A 100,000 TPM key serving a model with a 65,536 token output cap: agent-sized
+// requests that name no output limit, or a large one, run on an idle key.
+// Before, any body above about 16 KB was refused on every attempt.
+func TestLargeRequestsRunOnAnIdleKey(t *testing.T) {
+	client := redisTestClient(t)
+	up := newImageUpstream(t, "application/json", smallChatReply)
+	h, f := fixture("openai", up.server.URL)
+	run := requestID()
+	f.key.ID, f.key.TenantID = "access-"+run, "tenant-"+run
+	f.credentials[0].ID, f.credentials[0].QuotaGroup = "credential-"+run, "group-"+run
+	f.models[0].MaxOutputTokens = 65536
+	h.limiter = &redisLimiter{client: client}
+	scopes := []string{"tenant:" + f.key.TenantID, "access:" + f.key.ID, "credential:" + f.credentials[0].ID, "group:" + f.credentials[0].QuotaGroup}
+	clear := func() {
+		for _, scope := range scopes {
+			client.Del(context.Background(), bucketKeys(scope, time.Now())...)
+		}
+	}
+	t.Cleanup(clear)
+	text := strings.Repeat("Explain the next step of the plan. ", 1800)
+	for _, c := range []struct{ name, limit string }{{"60 KB, no output limit", ""}, {"60 KB, 32k output limit", `"max_completion_tokens":32000,`}} {
+		clear()
+		w := serveRequest(h, newRequest("/openai/v1/chat/completions", `{"model":"model",`+c.limit+`"messages":[{"role":"user","content":"`+text+`"}]}`))
+		if w.Code != 200 {
+			t.Fatalf("%s: HTTP %d %s", c.name, w.Code, w.Body.String())
+		}
+	}
+}
+
+// Two requests without an output limit in flight together on one 100,000 TPM
+// key: each estimate is about 66,000 tokens, and both run. The upstream answers
+// only once both have arrived, so a refused second request would fail the test.
+func TestConcurrentRequestsWithoutOutputLimitBothRun(t *testing.T) {
+	client := redisTestClient(t)
+	arrived := make(chan struct{}, 2)
+	both := make(chan struct{})
+	var once sync.Once
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		arrived <- struct{}{}
+		if len(arrived) == 2 {
+			once.Do(func() { close(both) })
+		}
+		select {
+		case <-both:
+		case <-time.After(10 * time.Second):
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, smallChatReply)
+	}))
+	t.Cleanup(up.Close)
+	h, f := fixture("openai", up.URL)
+	run := requestID()
+	f.key.ID, f.key.TenantID = "access-"+run, "tenant-"+run
+	f.credentials[0].ID, f.credentials[0].QuotaGroup = "credential-"+run, "group-"+run
+	f.models[0].MaxOutputTokens = 65536
+	h.limiter = &redisLimiter{client: client}
+	t.Cleanup(func() {
+		for _, scope := range []string{"tenant:" + f.key.TenantID, "access:" + f.key.ID, "credential:" + f.credentials[0].ID, "group:" + f.credentials[0].QuotaGroup} {
+			client.Del(context.Background(), bucketKeys(scope, time.Now())...)
+		}
+	})
+	codes := make(chan int, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			codes <- serveRequest(h, newRequest("/openai/v1/chat/completions", `{"model":"model","messages":[{"role":"user","content":"ping"}]}`)).Code
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		if code := <-codes; code != 200 {
+			t.Fatalf("a concurrent request got HTTP %d", code)
+		}
+	}
+	select {
+	case <-both:
+	default:
+		t.Fatal("the requests did not run at the same time")
 	}
 }
