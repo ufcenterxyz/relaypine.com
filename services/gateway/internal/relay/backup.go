@@ -100,11 +100,9 @@ func checkBackup(ctx context.Context, vendor domain.BackupVendor, secret, manage
 	if err := verifyBackupKey(ctx, vendor, secret, client, &result); err != nil {
 		return result, err
 	}
-	// A rejected management key is reported with the balance; the inference
-	// key and model coverage are still valid.
-	if managementKey != "" {
-		accountBalance(ctx, vendor, managementKey, client, &result.Balance)
-	}
+	// A balance that cannot be read, or a rejected management key, is
+	// reported with the balance; the key and model coverage are still valid.
+	readAccountBalance(ctx, vendor, secret, managementKey, client, &result.Balance)
 	// OpenRouter serves both protocols from one catalog; read each source once.
 	catalogs, sources := map[string]map[string]bool{}, map[string]map[string]bool{}
 	for _, protocol := range []string{"openai", "anthropic"} {

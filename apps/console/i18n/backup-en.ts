@@ -72,7 +72,7 @@ export const backupEn = {
   managementKey: "Management key (optional)",
   managementKeyHelp: {
     openrouter:
-      "Lets RelayPine read the account balance. OpenRouter management keys can also create and delete API keys, so save one only if you accept that.",
+      "Usually not needed: the API key above already reads the account balance. Add one only if no balance appears. OpenRouter management keys can also create and delete API keys.",
     zenmux:
       "Lets RelayPine read the pay-as-you-go balance. Create a Management API key in the ZenMux console; inference keys cannot read balances.",
   },

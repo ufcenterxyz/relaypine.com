@@ -27,6 +27,8 @@ type Server struct {
 	PricingFetcher func(context.Context, []string) pricing.Catalog
 	// BackupBalanceFetcher replaces vendor balance reads in tests.
 	BackupBalanceFetcher func(ctx context.Context, vendor, secret, managementKey, proxyURL string) relay.BackupBalance
+	// BackupChecker replaces vendor key checks in tests.
+	BackupChecker        func(ctx context.Context, vendor, secret, managementKey, proxyURL string, models []domain.Model) (relay.BackupCheck, error)
 	Store                *store.Store
 	Redis                *redis.Client
 	Relay                http.Handler

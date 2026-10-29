@@ -67,7 +67,7 @@ export const backupZh: BackupCopy = {
   managementKey: "管理 Key（可选）",
   managementKeyHelp: {
     openrouter:
-      "用于读取账户余额。OpenRouter 的管理 Key 还能创建和删除 API Key，确认可以接受再保存。",
+      "通常无需填写：上面的 API Key 已能读取账户余额，只有余额不显示时才需要添加。OpenRouter 的管理 Key 还能创建和删除 API Key。",
     zenmux:
       "用于读取按量付费余额。请在 ZenMux 控制台创建 Management API Key；普通推理 Key 无法读取余额。",
   },

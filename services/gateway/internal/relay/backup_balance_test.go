@@ -51,7 +51,8 @@ func TestOpenRouterBalanceUsesManagementKeyForAccount(t *testing.T) {
 	if got.Error != "" || got.BalanceMicros == nil || *got.BalanceMicros != 74750000 || got.KeyLimitRemainingMicros == nil || *got.KeyLimitRemainingMicros != 4250000 || !got.ManagementKey {
 		t.Fatalf("balance %+v", got)
 	}
-	// Without a management key only the key's own cap is known.
+	// Where OpenRouter refuses the API key the account balance, only the
+	// key's own cap is known, and that is not an error.
 	got = fetchBackupBalance(context.Background(), vendor, "sk-or-inference", "", http.DefaultClient)
 	if got.Error != "" || got.BalanceMicros != nil || got.KeyLimitRemainingMicros == nil || got.ManagementKey {
 		t.Fatalf("inference-only balance %+v", got)
@@ -68,9 +69,10 @@ func TestOpenRouterBalanceUsesManagementKeyForAccount(t *testing.T) {
 }
 
 func TestZenMuxBalanceReadsPayAsYouGoCredits(t *testing.T) {
-	limited := false
+	limited, reads := false, 0
 	vendor := vendorServer(t, map[string]func(http.ResponseWriter, *http.Request){
 		"/api/v1/management/payg/balance": func(w http.ResponseWriter, r *http.Request) {
+			reads++
 			if limited {
 				w.WriteHeader(422)
 				return
@@ -85,15 +87,45 @@ func TestZenMuxBalanceReadsPayAsYouGoCredits(t *testing.T) {
 	if got.Error != "" || got.BalanceMicros == nil || *got.BalanceMicros != 482740000 || got.KeyLimitRemainingMicros != nil {
 		t.Fatalf("balance %+v", got)
 	}
-	// ZenMux inference keys cannot read any balance.
+	// ZenMux inference keys cannot read any balance, so none is requested.
 	got = fetchBackupBalance(context.Background(), vendor, "sk-ai-inference", "", http.DefaultClient)
-	if got.Error != "" || got.BalanceMicros != nil || got.ManagementKey {
+	if got.Error != "" || got.BalanceMicros != nil || got.ManagementKey || reads != 1 {
 		t.Fatalf("inference-only balance %+v", got)
 	}
 	limited = true
 	got = fetchBackupBalance(context.Background(), vendor, "sk-ai-inference", "sk-mg-management", http.DefaultClient)
 	if got.BalanceMicros != nil || !strings.Contains(got.Error, "rate-limited") {
 		t.Fatalf("rate limited %+v", got)
+	}
+}
+
+// OpenRouter shows the account balance to the API key itself, as the live
+// API does today, so neither the balance nor the check needs a management key.
+func TestOpenRouterBalanceReadsWithAPIKey(t *testing.T) {
+	vendor := vendorServer(t, map[string]func(http.ResponseWriter, *http.Request){
+		"/api/v1/key": func(w http.ResponseWriter, r *http.Request) {
+			if requireKey("sk-or-inference", w, r) {
+				_, _ = io.WriteString(w, `{"data":{"label":"relaypine","limit_remaining":null}}`)
+			}
+		},
+		"/api/v1/credits": func(w http.ResponseWriter, r *http.Request) {
+			if requireKey("sk-or-inference", w, r) {
+				_, _ = io.WriteString(w, `{"data":{"total_credits":20,"total_usage":7.5}}`)
+			}
+		},
+		"/api/v1/models": func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{"data":[{"id":"openai/gpt-5.4-mini"}]}`)
+		},
+	})
+	vendor.ID, vendor.Name = "openrouter", "OpenRouter"
+	got := fetchBackupBalance(context.Background(), vendor, "sk-or-inference", "", http.DefaultClient)
+	if got.Error != "" || got.BalanceMicros == nil || *got.BalanceMicros != 12500000 || got.KeyLimitRemainingMicros != nil || got.ManagementKey {
+		t.Fatalf("balance %+v", got)
+	}
+	models := []domain.Model{{ID: "mini", Provider: "openai", UpstreamModel: "gpt-5.4-mini", Enabled: true}}
+	result, err := checkBackup(context.Background(), vendor, "sk-or-inference", "", http.DefaultClient, models)
+	if err != nil || result.Balance.Error != "" || result.Balance.BalanceMicros == nil || *result.Balance.BalanceMicros != 12500000 || !result.Models[0].Available {
+		t.Fatalf("check %+v %v", result, err)
 	}
 }
 

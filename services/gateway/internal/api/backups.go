@@ -131,10 +131,11 @@ func (s *Server) saveBackup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) checkBackup(w http.ResponseWriter, r *http.Request, user domain.User) {
 	ctx := r.Context()
 	var input struct {
-		Vendor        string `json:"vendor"`
-		Secret        string `json:"secret"`
-		ProxyID       string `json:"proxy_id"`
-		ManagementKey string `json:"management_key"`
+		Vendor              string `json:"vendor"`
+		Secret              string `json:"secret"`
+		ProxyID             string `json:"proxy_id"`
+		ManagementKey       string `json:"management_key"`
+		RemoveManagementKey bool   `json:"remove_management_key"`
 	}
 	if read(r, &input) != nil || !validSecretInput(input.Secret) || !validSecretInput(input.ManagementKey) || len(input.ProxyID) > 64 {
 		fail(w, 400, "invalid_backup", "Choose OpenRouter or ZenMux and enter a valid API key.")
@@ -173,9 +174,11 @@ func (s *Server) checkBackup(w http.ResponseWriter, r *http.Request, user domain
 		}
 		secret = saved.Secret
 	}
-	// An empty management key checks the saved one, if any.
+	// The management key resolves as saving would store it: a new key
+	// replaces the saved one, a requested removal checks without one, and
+	// otherwise the saved key, if any, is checked.
 	managementKey := strings.TrimSpace(input.ManagementKey)
-	if managementKey == "" {
+	if managementKey == "" && !input.RemoveManagementKey {
 		if managementKey, err = s.Store.BackupManagementKey(ctx, vendor.ID); err != nil {
 			s.report(w, err)
 			return
@@ -207,7 +210,7 @@ func (s *Server) checkBackup(w http.ResponseWriter, r *http.Request, user domain
 		s.report(w, err)
 		return
 	}
-	result, err := relay.CheckBackup(ctx, vendor.ID, secret, managementKey, proxyURL, s.AllowPrivate, models)
+	result, err := s.runBackupCheck(ctx, vendor.ID, secret, managementKey, proxyURL, models)
 	if err != nil {
 		var problem *relay.DiscoveryError
 		if errors.As(err, &problem) {
@@ -218,6 +221,13 @@ func (s *Server) checkBackup(w http.ResponseWriter, r *http.Request, user domain
 		return
 	}
 	write(w, 200, result)
+}
+
+func (s *Server) runBackupCheck(ctx context.Context, vendor, secret, managementKey, proxyURL string, models []domain.Model) (relay.BackupCheck, error) {
+	if s.BackupChecker != nil {
+		return s.BackupChecker(ctx, vendor, secret, managementKey, proxyURL, models)
+	}
+	return relay.CheckBackup(ctx, vendor, secret, managementKey, proxyURL, s.AllowPrivate, models)
 }
 
 func backupBalanceKey(vendor string) string { return "rp:backup-balance:" + vendor }
@@ -319,7 +329,10 @@ func (s *Server) backupBalances(w http.ResponseWriter, r *http.Request, user dom
 		wg.Add(1)
 		go func(i int, j job) {
 			defer wg.Done()
-			results[i] = s.fetchBackupBalance(ctx, j.vendor, j.secret, j.managementKey, j.proxyURL)
+			// The read outlives the browser request, within its own time limit,
+			// so a reload or navigation never caches a cancelled read as a
+			// vendor timeout.
+			results[i] = s.fetchBackupBalance(context.WithoutCancel(ctx), j.vendor, j.secret, j.managementKey, j.proxyURL)
 			if s.Redis == nil {
 				return
 			}

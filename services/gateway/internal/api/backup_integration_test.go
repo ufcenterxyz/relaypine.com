@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -168,6 +170,50 @@ func TestBackupBalances(t *testing.T) {
 	if read(true); calls != 2 {
 		t.Fatalf("refresh did not fetch: %d", calls)
 	}
+	// A browser that leaves mid-read does not cancel the vendor read, so the
+	// cache keeps the real balance instead of a cancelled read.
+	browser, leave := context.WithCancel(context.Background())
+	defer leave()
+	fetcher := f.s.BackupBalanceFetcher
+	f.s.BackupBalanceFetcher = func(ctx context.Context, vendor, gotSecret, gotManagement, proxyURL string) relay.BackupBalance {
+		leave()
+		if ctx.Err() != nil {
+			t.Error("the balance read was cancelled with the browser request")
+		}
+		return fetcher(ctx, vendor, gotSecret, gotManagement, proxyURL)
+	}
+	request := httptest.NewRequest("POST", "/api/admin/backups/balances", strings.NewReader(`{"refresh":true}`)).WithContext(browser)
+	parsed, _ := url.Parse(admin)
+	request.Host, request.RemoteAddr = parsed.Host, f.remote
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", admin)
+	request.AddCookie(f.operatorCookie)
+	f.h.ServeHTTP(httptest.NewRecorder(), request)
+	f.s.BackupBalanceFetcher = fetcher
+	if b := read(false); b.BalanceMicros == nil || b.Error != "" || calls != 3 {
+		t.Fatalf("balance after the browser left %+v calls %d", b, calls)
+	}
+	// A check resolves keys exactly as saving would store them: empty fields
+	// use the saved keys, a requested removal checks without the management
+	// key, and a newly entered management key is used as given.
+	var checked string
+	f.s.BackupChecker = func(_ context.Context, vendor, gotSecret, gotManagement, proxyURL string, _ []domain.Model) (relay.BackupCheck, error) {
+		checked = gotSecret + "|" + gotManagement
+		return relay.BackupCheck{Vendor: vendor, Models: []relay.BackupCoverage{}, Balance: relay.BackupBalance{Vendor: vendor}}, nil
+	}
+	for _, c := range []struct {
+		input map[string]any
+		want  string
+	}{
+		{map[string]any{"vendor": "zenmux"}, secret + "|" + management},
+		{map[string]any{"vendor": "zenmux", "remove_management_key": true}, secret + "|"},
+		{map[string]any{"vendor": "zenmux", "management_key": "fixture-new-management", "remove_management_key": true}, secret + "|fixture-new-management"},
+	} {
+		expectStatus(t, f.call(t, "POST", "/api/admin/backups/check", f.operatorCookie, admin, c.input), 200)
+		if checked != c.want {
+			t.Fatalf("check %v used the wrong keys", c.input)
+		}
+	}
 	// Saving the backup without the field keeps the management key; removing
 	// it clears both the key and the cached balance.
 	expectStatus(t, f.call(t, "POST", "/api/admin/backups", f.operatorCookie, admin, map[string]any{"vendor": "zenmux", "enabled": true}), 200)
@@ -178,7 +224,7 @@ func TestBackupBalances(t *testing.T) {
 	if stored, _ := f.db.BackupManagementKey(f.ctx, "zenmux"); stored != "" {
 		t.Fatal("management key not removed")
 	}
-	if b := read(false); b.BalanceMicros != nil || b.ManagementKey || calls != 3 {
+	if b := read(false); b.BalanceMicros != nil || b.ManagementKey || calls != 4 {
 		t.Fatalf("balance after removal %+v calls %d", b, calls)
 	}
 }

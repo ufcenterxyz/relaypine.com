@@ -83,6 +83,7 @@ export function BackupForm({
   const revision = useRef(0);
   const pending = useRef<AbortController | null>(null);
   const errorElement = useRef<HTMLDivElement | null>(null);
+  const resultElement = useRef<HTMLElement | null>(null);
   const vendor = backupVendors.find((item) => item.id === values.vendor);
   const checked = !!result;
   const saving = phase === "save";
@@ -90,6 +91,11 @@ export function BackupForm({
   useEffect(() => {
     if (error) errorElement.current?.scrollIntoView({ block: "nearest" });
   }, [error]);
+  // A check started from the footer finishes above the fold when the
+  // advanced settings are open; bring its result into view.
+  useEffect(() => {
+    if (result) resultElement.current?.scrollIntoView({ block: "nearest" });
+  }, [result]);
   useEffect(
     () => () => {
       revision.current += 1;
@@ -157,6 +163,7 @@ export function BackupForm({
           vendor: values.vendor,
           secret: values.secret.trim(),
           management_key: values.remove_management_key ? "" : values.management_key.trim(),
+          remove_management_key: values.remove_management_key,
           proxy_id: values.proxy_id === "direct" ? "" : values.proxy_id,
         },
         "POST",
@@ -205,7 +212,7 @@ export function BackupForm({
   }
 
   const enabledModels = result?.models.filter((model) => model.enabled) ?? [];
-  const accountBalance = values.remove_management_key ? undefined : result?.balance.balance_micros;
+  const accountBalance = result?.balance.balance_micros;
   const managementSaved = !!backup?.endpoint.management_key;
   const covered = enabledModels.filter((model) => model.available).length;
 
@@ -287,7 +294,7 @@ export function BackupForm({
               errorMessage={errors.secret}
             />
             {result && (
-              <section aria-live="polite" className="rp-management-verified space-y-4">
+              <section ref={resultElement} aria-live="polite" className="rp-management-verified space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Chip
                     radius="sm"
@@ -332,7 +339,7 @@ export function BackupForm({
                     )}
                   </dl>
                 )}
-                {!values.remove_management_key && result.balance.error && (
+                {result.balance.error && (
                   <p role="alert" className="text-xs leading-5 text-warning-700 dark:text-warning-400">
                     {result.balance.error}
                   </p>

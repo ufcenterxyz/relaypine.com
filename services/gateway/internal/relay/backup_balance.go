@@ -14,8 +14,8 @@ import (
 // Amounts are micro-USD.
 type BackupBalance struct {
 	Vendor string `json:"vendor"`
-	// BalanceMicros is the account balance. Vendors expose it only to a
-	// management key, never to an inference key.
+	// BalanceMicros is the account balance. OpenRouter shows it to the API
+	// key itself; ZenMux shows it only to a management key.
 	BalanceMicros *int64 `json:"balance_micros,omitempty"`
 	// KeyLimitRemainingMicros is what the inference key's own credit cap
 	// still allows (OpenRouter). It is absent when the key has no cap.
@@ -59,14 +59,26 @@ func fetchBackupBalance(ctx context.Context, vendor domain.BackupVendor, secret,
 		}
 		result.KeyLimitRemainingMicros = check.Balance.KeyLimitRemainingMicros
 	}
-	if managementKey != "" {
-		accountBalance(ctx, vendor, managementKey, client, &result)
-	}
+	readAccountBalance(ctx, vendor, secret, managementKey, client, &result)
 	return result
 }
 
-// accountBalance reads the account balance with a vendor management key.
-func accountBalance(ctx context.Context, vendor domain.BackupVendor, key string, client *http.Client, result *BackupBalance) {
+// readAccountBalance reads the account balance with the management key when
+// one is saved. OpenRouter also shows the balance to the API key itself, so
+// without a management key that key is asked; if OpenRouter refuses, the
+// balance stays unknown until a management key is added.
+func readAccountBalance(ctx context.Context, vendor domain.BackupVendor, secret, managementKey string, client *http.Client, result *BackupBalance) {
+	switch {
+	case managementKey != "":
+		accountBalance(ctx, vendor, managementKey, true, client, result)
+	case vendor.ID == "openrouter" && secret != "":
+		accountBalance(ctx, vendor, secret, false, client, result)
+	}
+}
+
+// accountBalance reads the account balance with a management key, or with
+// an API key the vendor lets read it.
+func accountBalance(ctx context.Context, vendor domain.BackupVendor, key string, management bool, client *http.Client, result *BackupBalance) {
 	unavailable := vendor.Name + " did not return the account balance. Try again later."
 	var status int
 	var err error
@@ -104,7 +116,10 @@ func accountBalance(ctx context.Context, vendor domain.BackupVendor, key string,
 	case err != nil:
 		result.Error = problemMessage(err)
 	case status == 401 || status == 403:
-		result.Error = vendor.Name + " rejected the management key. Use a management key from the same account."
+		// A refused API key only means a management key is needed.
+		if management {
+			result.Error = vendor.Name + " rejected the management key. Use a management key from the same account."
+		}
 	case status == 422 || status == 429:
 		result.Error = vendor.Name + " rate-limited the balance check. Try again in a minute."
 	case !known:
