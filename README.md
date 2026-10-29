@@ -14,6 +14,7 @@ Route native API requests across multiple upstream keys, control their usage and
 - **Routing:** lowest load, highest remaining local budget, or a balanced strategy, with RPM, TPM, concurrency, and shared quota groups.
 - **Per-key egress:** direct connections or an assigned SOCKS5 proxy. A failed proxy does not silently fall back to a direct connection.
 - **Usage accounting:** integer micro-USD balances, price snapshots, reservations, settlement, and separate upstream cost budgets.
+- **Request inspection:** each request's details show the client's request body and the response it received, with conversations, tool calls, streamed output, and inline images rendered. Bodies are encrypted at rest and kept for 7 days by default (`REQUEST_BODY_RETENTION_DAYS`; `0` stops recording and deletes stored bodies). Customers see their own workspace. The administrator sees every workspace and, for failed requests, the provider's reply that was withheld from the client.
 - **Management UI:** English and Chinese, light and dark themes, email verification codes, isolated customer workspaces, and a separate administration domain.
 
 Customers sign in with an email code at [relaypine.com](https://relaypine.com). The administrator uses [admin.relaypine.com](https://admin.relaypine.com) with the same verification flow. Each verified customer receives an isolated workspace with zero initial balance. Only the configured administrator can manage upstreams, prices, and audited balance credits. Team roles and online payment processing are not implemented.

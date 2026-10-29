@@ -34,22 +34,29 @@ var (
 //go:embed schema.sql
 var schema string
 
-// Config contains instance-specific authorization policy. Every replica using
-// the same database must use the same administrator identity.
+// Config contains instance-specific policy. Every replica using the same
+// database must use the same administrator identity and body retention.
 type Config struct {
 	SuperAdminEmail string
+	// PayloadRetention is how long request and response bodies are kept.
+	// Zero disables body capture and removes bodies that are already stored.
+	PayloadRetention time.Duration
 }
 
 type Store struct {
-	DB              *sql.DB
-	aead            cipher.AEAD
-	superAdminEmail string
+	DB               *sql.DB
+	aead             cipher.AEAD
+	superAdminEmail  string
+	payloadRetention time.Duration
 }
 
 func Open(ctx context.Context, dsn, masterKey string, config Config) (*Store, error) {
 	adminEmail := NormalizeEmail(config.SuperAdminEmail)
 	if !ValidEmail(adminEmail) {
 		return nil, errors.New("SUPERADMIN_EMAIL must be a valid email address")
+	}
+	if config.PayloadRetention < 0 {
+		return nil, errors.New("request body retention cannot be negative")
 	}
 	key, err := base64.StdEncoding.DecodeString(masterKey)
 	if err != nil || len(key) != 32 {
@@ -82,7 +89,7 @@ func Open(ctx context.Context, dsn, masterKey string, config Config) (*Store, er
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxLifetime(5 * time.Minute)
-	s := &Store{DB: db, aead: aead, superAdminEmail: adminEmail}
+	s := &Store{DB: db, aead: aead, superAdminEmail: adminEmail, payloadRetention: config.PayloadRetention}
 	if err = db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("connect MySQL: %w", err)

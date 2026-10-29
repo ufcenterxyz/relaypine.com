@@ -162,6 +162,42 @@ type Request struct {
 	ErrorCode      string    `json:"error_code,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 }
+
+// RequestPayload is a bounded copy of one relayed exchange for inspection: the
+// client's original request and the response the client received. Credentials
+// and cookies are never captured.
+type RequestPayload struct {
+	Request  CapturedRequest  `json:"request"`
+	Response CapturedResponse `json:"response"`
+	// Upstream is the upstream reply when the client did not receive it
+	// unchanged, such as a provider error. Only the administrator can read it.
+	Upstream *CapturedResponse `json:"upstream,omitempty"`
+}
+
+// Bytes is the full body size; Body holds at most the capture limit of it.
+type CapturedRequest struct {
+	Method    string            `json:"method"`
+	Path      string            `json:"path"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Body      string            `json:"body"`
+	Bytes     int               `json:"bytes"`
+	Truncated bool              `json:"truncated,omitempty"`
+}
+type CapturedResponse struct {
+	Status      int    `json:"status"`
+	ContentType string `json:"content_type,omitempty"`
+	Body        string `json:"body"`
+	Bytes       int    `json:"bytes"`
+	Truncated   bool   `json:"truncated,omitempty"`
+}
+
+// RequestDetail has no payload when capture is off, the payload has expired,
+// the request predates capture, or the request is still running.
+type RequestDetail struct {
+	Request       Request         `json:"request"`
+	Payload       *RequestPayload `json:"payload,omitempty"`
+	RetentionDays int             `json:"retention_days"`
+}
 type LedgerEntry struct {
 	ID           string    `json:"id"`
 	TenantID     string    `json:"tenant_id"`

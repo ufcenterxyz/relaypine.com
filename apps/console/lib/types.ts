@@ -106,6 +106,32 @@ export interface RequestLog {
   error_code?: string;
   created_at: string;
 }
+export interface CapturedRequest {
+  method: string;
+  path: string;
+  headers?: Record<string, string>;
+  body: string;
+  bytes: number;
+  truncated?: boolean;
+}
+export interface CapturedResponse {
+  status: number;
+  content_type?: string;
+  body: string;
+  bytes: number;
+  truncated?: boolean;
+}
+export interface RequestPayload {
+  request: CapturedRequest;
+  response: CapturedResponse;
+  /** The provider's reply when the client did not receive it. Administrator only. */
+  upstream?: CapturedResponse;
+}
+export interface RequestDetail {
+  request: RequestLog;
+  payload?: RequestPayload;
+  retention_days: number;
+}
 export interface LedgerEntry {
   id: string;
   tenant_id: string;

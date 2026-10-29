@@ -27,6 +27,7 @@ type fakeRepo struct {
 	routing                 domain.RouteConfig
 	reservations            []domain.Reservation
 	settlements             []domain.Settlement
+	payloads                map[string]domain.RequestPayload
 	resources               map[string]domain.Resource
 	reserveError, saveError error
 }
@@ -57,6 +58,15 @@ func (f *fakeRepo) Settle(_ context.Context, _ string, v domain.Settlement) erro
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.settlements = append(f.settlements, v)
+	return nil
+}
+func (f *fakeRepo) SavePayload(_ context.Context, id string, v domain.RequestPayload) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.payloads == nil {
+		f.payloads = map[string]domain.RequestPayload{}
+	}
+	f.payloads[id] = v
 	return nil
 }
 func (f *fakeRepo) SaveResource(_ context.Context, v domain.Resource) error {
@@ -106,7 +116,7 @@ func (l *fakeLimiter) cool(context.Context, []limits, time.Duration) error { ret
 
 func fixture(provider, url string) (*Handler, *fakeRepo) {
 	f := &fakeRepo{key: domain.AccessKey{ID: "access", TenantID: "tenant", ProjectID: "project", Enabled: true, RPM: 60}, models: []domain.Model{{ID: "model", Name: "Test Model", UpstreamModel: "upstream-model", Provider: provider, Enabled: true, InputRate: 1000000, OutputRate: 2000000, CachedRate: 500000, CacheWriteRate: 1250000, CostInputRate: 500000, CostOutputRate: 1000000, CostCachedRate: 250000, CostCacheWriteRate: 625000, MaxOutputTokens: 128, Version: 1}}, endpoints: []domain.Endpoint{{ID: "endpoint", Provider: provider, BaseURL: url, Enabled: true}}, credentials: []domain.Credential{{ID: "credential", EndpointID: "endpoint", Secret: "upstream-secret", Enabled: true, RPM: 60, TPM: 100000, MaxConcurrency: 5, BudgetMicros: 100000000}}, resources: map[string]domain.Resource{}}
-	return &Handler{repo: f, limiter: &fakeLimiter{}, allowPrivate: true}, f
+	return &Handler{repo: f, limiter: &fakeLimiter{}, allowPrivate: true, capture: true}, f
 }
 func serve(h *Handler, path, body string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", path, strings.NewReader(body))

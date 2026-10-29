@@ -41,15 +41,18 @@ type Repository interface {
 	Settle(context.Context, string, domain.Settlement) error
 	SaveResource(context.Context, domain.Resource) error
 	Resource(context.Context, string, string, string) (domain.Resource, error)
+	SavePayload(context.Context, string, domain.RequestPayload) error
 }
 type Handler struct {
 	repo         Repository
 	limiter      routeLimiter
 	allowPrivate bool
+	capture      bool
 }
 
-func New(repo Repository, client *redis.Client, allowPrivate bool) *Handler {
-	return &Handler{repo: repo, limiter: &redisLimiter{client}, allowPrivate: allowPrivate}
+// capture records each request's body and the response for request inspection.
+func New(repo Repository, client *redis.Client, allowPrivate, capture bool) *Handler {
+	return &Handler{repo: repo, limiter: &redisLimiter{client}, allowPrivate: allowPrivate, capture: capture}
 }
 
 type candidate struct {
@@ -64,11 +67,12 @@ type plan struct {
 	key                       domain.AccessKey
 	model                     domain.Model
 	provider, path, requestID string
-	body                      []byte
-	anthropicBeta             string
-	input, output             int64
-	stream, count, resource   bool
-	binding                   *domain.Resource
+	// original is the client's body; body is the normalized upstream body.
+	original, body          []byte
+	anthropicBeta           string
+	input, output           int64
+	stream, count, resource bool
+	binding                 *domain.Resource
 }
 
 func requestID() string {
@@ -324,6 +328,7 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if len(body) > maxRequestBytes {
 		return errors.New("request body exceeds 2 MiB")
 	}
+	p.original = body
 	m := object(body)
 	if m == nil {
 		return errors.New("a JSON object is required")
@@ -526,11 +531,21 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c candidate) {
 	started := time.Now()
 	settlement := domain.Settlement{Status: "unknown"}
+	capture := &responseCapture{ResponseWriter: w}
+	if h.capture {
+		w = capture
+	}
+	var upstreamCopy *domain.CapturedResponse
 	defer func() {
 		settlement.LatencyMS = time.Since(started).Milliseconds()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
 		_ = h.repo.Settle(ctx, p.requestID, settlement)
+		cancel()
+		// Settlement is written first; a body that cannot be stored never
+		// affects accounting.
+		if h.capture {
+			h.savePayload(r, p, capture, upstreamCopy)
+		}
 	}()
 	tr, err := transport(c.proxyURL, h.allowPrivate)
 	if err != nil {
@@ -613,7 +628,8 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		if status == 429 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryDelay(response.Header.Get("Retry-After")).Seconds())))
 		}
-		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxCapturedUpstreamBytes+1))
+		upstreamCopy = upstreamReply(response, raw, maxCapturedUpstreamBytes)
 		fail(w, status, "upstream_error", "The selected upstream rejected or failed the request")
 		return
 	}
@@ -621,6 +637,8 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		if !strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
 			settlement.Status = "failed"
 			settlement.ErrorCode = "invalid_stream"
+			raw, _ := io.ReadAll(io.LimitReader(response.Body, maxCapturedUpstreamBytes+1))
+			upstreamCopy = upstreamReply(response, raw, maxCapturedUpstreamBytes)
 			fail(w, 502, "upstream_error", "Expected an SSE response")
 			return
 		}
@@ -628,9 +646,12 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	// Every rejection below returns a gateway error instead of this body.
+	rejected := func() { upstreamCopy = upstreamReply(response, body, maxCapturedUpstreamBytes) }
 	if err != nil || len(body) > maxResponseBytes {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "invalid_response"
+		rejected()
 		fail(w, 502, "upstream_error", "Unable to read bounded upstream response")
 		return
 	}
@@ -638,6 +659,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 	if obj == nil {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "invalid_response"
+		rejected()
 		fail(w, 502, "upstream_error", "Expected a JSON response")
 		return
 	}
@@ -646,6 +668,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.ErrorCode = "upstream_error"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
 		h.price(&settlement, p.model)
+		rejected()
 		fail(w, 502, "upstream_error", "The selected upstream returned an error")
 		return
 	}
@@ -654,6 +677,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.ErrorCode = "upstream_response_failed"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
 		h.price(&settlement, p.model)
+		rejected()
 		fail(w, 502, "upstream_error", "The upstream response did not complete")
 		return
 	}
@@ -661,12 +685,14 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		if status := str(obj["status"]); status == "queued" || status == "in_progress" {
 			settlement.Status = "failed"
 			settlement.ErrorCode = "background_unsupported"
+			rejected()
 			fail(w, 502, "upstream_error", "Background responses are unsupported")
 			return
 		}
 		if err = h.saveResource(r.Context(), p, c, str(obj["id"])); err != nil {
 			settlement.Status = "failed"
 			settlement.ErrorCode = "resource_binding_failed"
+			rejected()
 			fail(w, 503, "storage_error", "Unable to persist response ownership")
 			return
 		}
@@ -686,6 +712,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.ErrorCode = "client_disconnected"
 		// The upstream already returned a complete response with verified usage.
 		// A failed client write does not undo that completed inference work.
+		upstreamCopy = upstreamReply(response, body, maxCapturedResponseBytes)
 	}
 }
 

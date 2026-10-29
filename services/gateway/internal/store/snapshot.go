@@ -105,14 +105,48 @@ func (s *Store) listKeys(ctx context.Context, tenant string) ([]domain.AccessKey
 	}
 	return out, rows.Err()
 }
+
+const requestColumns = "r.id,r.tenant_id,r.project_id,r.access_key_id,r.credential_id,r.provider,r.model,r.status,r.usage_json,r.charge_micros,r.cost_micros,r.reserved_micros,r.latency_ms,r.error_code,r.created_at,r.price_snapshot,r.cost_hold_active"
+
+// scanRequest reads requestColumns, then any extra destinations. Billing state
+// comes from the request's immutable price snapshot. Customers never receive
+// the upstream credential or upstream cost.
+func scanRequest(row interface{ Scan(...any) error }, user domain.User, extra ...any) (domain.Request, error) {
+	var r domain.Request
+	var usageRaw, modelRaw []byte
+	var costHeld bool
+	dest := append([]any{&r.ID, &r.TenantID, &r.ProjectID, &r.AccessKeyID, &r.CredentialID, &r.Provider, &r.Model, &r.Status, &usageRaw, &r.ChargeMicros, &r.CostMicros, &r.ReservedMicros, &r.LatencyMS, &r.ErrorCode, &r.CreatedAt, &modelRaw, &costHeld}, extra...)
+	if err := row.Scan(dest...); err != nil {
+		return r, err
+	}
+	if err := json.Unmarshal(usageRaw, &r.Usage); err != nil {
+		return r, err
+	}
+	var model domain.Model
+	if err := json.Unmarshal(modelRaw, &model); err != nil {
+		return r, err
+	}
+	r.BillingMode = model.EffectiveBillingMode()
+	r.CostStatus = "pending"
+	if r.BillingMode == domain.BillingUsageOnly {
+		r.CostStatus = "untracked"
+	} else if r.BillingMode == domain.BillingMetered && !costHeld && r.Usage.Known {
+		r.CostStatus = "recorded"
+	}
+	if !user.Operator {
+		r.CredentialID = ""
+		r.CostMicros = 0
+	}
+	return r, nil
+}
 func (s *Store) listRequests(ctx context.Context, user domain.User) ([]domain.Request, error) {
-	query := "SELECT id,tenant_id,project_id,access_key_id,credential_id,provider,model,status,usage_json,charge_micros,cost_micros,reserved_micros,latency_ms,error_code,created_at,price_snapshot,cost_hold_active FROM requests"
+	query := "SELECT " + requestColumns + " FROM requests r"
 	args := []any{}
 	if !user.Operator {
-		query += " WHERE tenant_id=?"
+		query += " WHERE r.tenant_id=?"
 		args = append(args, user.TenantID)
 	}
-	query += " ORDER BY created_at DESC LIMIT 100"
+	query += " ORDER BY r.created_at DESC LIMIT 100"
 	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -120,30 +154,9 @@ func (s *Store) listRequests(ctx context.Context, user domain.User) ([]domain.Re
 	defer rows.Close()
 	out := []domain.Request{}
 	for rows.Next() {
-		var r domain.Request
-		var raw []byte
-		var modelRaw []byte
-		var costHeld bool
-		if err = rows.Scan(&r.ID, &r.TenantID, &r.ProjectID, &r.AccessKeyID, &r.CredentialID, &r.Provider, &r.Model, &r.Status, &raw, &r.ChargeMicros, &r.CostMicros, &r.ReservedMicros, &r.LatencyMS, &r.ErrorCode, &r.CreatedAt, &modelRaw, &costHeld); err != nil {
+		r, err := scanRequest(rows, user)
+		if err != nil {
 			return nil, err
-		}
-		if err = json.Unmarshal(raw, &r.Usage); err != nil {
-			return nil, err
-		}
-		var model domain.Model
-		if err = json.Unmarshal(modelRaw, &model); err != nil {
-			return nil, err
-		}
-		r.BillingMode = model.EffectiveBillingMode()
-		r.CostStatus = "pending"
-		if r.BillingMode == domain.BillingUsageOnly {
-			r.CostStatus = "untracked"
-		} else if r.BillingMode == domain.BillingMetered && !costHeld && r.Usage.Known {
-			r.CostStatus = "recorded"
-		}
-		if !user.Operator {
-			r.CredentialID = ""
-			r.CostMicros = 0
 		}
 		out = append(out, r)
 	}

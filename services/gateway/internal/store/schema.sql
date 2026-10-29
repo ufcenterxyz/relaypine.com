@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS attempts (
  created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL,
  FOREIGN KEY (request_id) REFERENCES requests(id), INDEX(request_id)
 ) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS request_payloads (
+ request_id VARCHAR(64) PRIMARY KEY, created_at DATETIME(6) NOT NULL, payload MEDIUMBLOB NOT NULL,
+ FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE, INDEX(created_at)
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS ledger_entries (
  id VARCHAR(64) PRIMARY KEY, tenant_id VARCHAR(64) NOT NULL, kind VARCHAR(32) NOT NULL, amount_micros BIGINT NOT NULL,
  reference VARCHAR(191) NOT NULL, reason VARCHAR(512) NOT NULL, created_at DATETIME(6) NOT NULL,

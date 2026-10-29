@@ -6,7 +6,9 @@
 
 Compose 数据卷属于 `relaypine`。停止依赖可用 `docker compose stop`；不要用 `down -v` 删除业务数据。
 
-Go 网关每 15 秒运行请求恢复。Stripe 客户端、支付收件箱处理、支付对账及相关 HTTP 入口已移除，环境不再需要 `STRIPE_*` 变量。历史支付数据保留，不再自动处理。
+请求详情需要的请求与响应正文保存在 `request_payloads` 表，gzip 压缩后用 `MASTER_KEY` 加密，与请求 ID 绑定。`REQUEST_BODY_RETENTION_DAYS` 控制保留天数（默认 7，范围 0–3650），所有副本必须使用相同取值；设为 `0` 会停止记录并在下一轮清理中删除已存正文。每个请求最多保存 2 MiB 请求和 4 MiB 响应，正文较大或流量较高时需相应评估数据库容量。备份数据库时同样包含这些加密正文，需配合 `MASTER_KEY` 才能读取。
+
+Go 网关每 15 秒运行请求恢复，并分批删除超过保留期的请求正文。Stripe 客户端、支付收件箱处理、支付对账及相关 HTTP 入口已移除，环境不再需要 `STRIPE_*` 变量。历史支付数据保留，不再自动处理。
 
 生产要求 `APP_ENV=production`、不同主机名的 HTTPS `APP_URL` 和 `ADMIN_APP_URL`，并关闭 `ALLOW_PRIVATE_UPSTREAMS`。反向代理将 `/api/*`、`/openai/*`、`/anthropic/*` 指向 Go，其余指向 Next.js。流式接口禁用代理缓冲并设置足够超时；单请求最长 5 分钟，发送后不自动重放。
 

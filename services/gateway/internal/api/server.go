@@ -194,6 +194,14 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			AppURL      string `json:"app_url"`
 			AdminAppURL string `json:"admin_app_url"`
 		}{snap, surface, s.AppURL, s.AdminAppURL})
+	case strings.HasPrefix(path, "/api/requests/") && r.Method == "GET":
+		// Customers read their own workspace; the administrator reads any request.
+		detail, e := s.Store.RequestDetail(r.Context(), user, strings.TrimPrefix(path, "/api/requests/"))
+		if e != nil {
+			s.report(w, e)
+			return
+		}
+		write(w, 200, detail)
 	case path == "/api/keys" && r.Method == "POST":
 		var v struct {
 			Name   string   `json:"name"`

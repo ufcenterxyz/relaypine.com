@@ -77,7 +77,7 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 	}
 	f.s.Redis = redisClient
 	f.s.AllowPrivate = true
-	f.s.Relay = relay.New(isolatedE2ERepository{Store: f.db, prefix: f.prefix}, redisClient, true)
+	f.s.Relay = relay.New(isolatedE2ERepository{Store: f.db, prefix: f.prefix}, redisClient, true, true)
 	f.h = f.s.Handler()
 	// Request rows must be removed before the base fixture removes users/keys.
 	t.Cleanup(func() {
@@ -298,6 +298,30 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 			}
 			if ledgerCount != 1 || ledgerAmount != -tc.charge || attemptCount != 1 || attemptCost != tc.cost {
 				t.Fatalf("ledger/attempt accounting: entries=%d charge=%d attempts=%d cost=%d", ledgerCount, ledgerAmount, attemptCount, attemptCost)
+			}
+			// The console shows the client's own request and the exact bytes it
+			// received, never the upstream model alias or any credential header.
+			w := f.call(t, "GET", "/api/requests/"+id, f.operatorCookie, f.s.AdminAppURL, nil)
+			expectStatus(t, w, 200)
+			detail := decodeResponse[domain.RequestDetail](t, w)
+			wantPath, wantModel := "/openai/v1/chat/completions", upstreams[0].model
+			if tc.provider == "anthropic" {
+				wantPath, wantModel = "/anthropic/v1/messages", upstreams[1].model
+			}
+			if detail.Payload == nil {
+				t.Fatal("captured exchange missing")
+			}
+			sent, got := detail.Payload.Request, detail.Payload.Response
+			if sent.Method != "POST" || sent.Path != wantPath || !strings.Contains(sent.Body, `"model":"`+wantModel+`"`) || !strings.Contains(sent.Body, `"probe":true`) || strings.Contains(sent.Body, "mock-"+tc.provider) || strings.Contains(sent.Body, "max_tokens") {
+				t.Fatalf("captured request %+v", sent)
+			}
+			for name := range sent.Headers {
+				if name != "content-type" && name != "anthropic-version" && name != "user-agent" {
+					t.Fatalf("unexpected captured header %q", name)
+				}
+			}
+			if got.Status != 200 || got.Body != tc.payload || got.Bytes != len(tc.payload) || got.Truncated || detail.Payload.Upstream != nil {
+				t.Fatalf("captured response %+v", got)
 			}
 			// Replay the settlement acknowledgment as after a worker retry. It must
 			// neither debit the customer nor add the supplier cost a second time.

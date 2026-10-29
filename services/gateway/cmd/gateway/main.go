@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -56,7 +57,13 @@ func main() {
 		slog.Error("MYSQL_DSN and MASTER_KEY are required")
 		os.Exit(1)
 	}
-	db, err := store.Open(ctx, os.Getenv("MYSQL_DSN"), os.Getenv("MASTER_KEY"), store.Config{SuperAdminEmail: adminEmail})
+	retentionDays, err := strconv.Atoi(env("REQUEST_BODY_RETENTION_DAYS", "7"))
+	if err != nil || retentionDays < 0 || retentionDays > 3650 {
+		slog.Error("REQUEST_BODY_RETENTION_DAYS must be a whole number of days from 0 to 3650")
+		os.Exit(1)
+	}
+	retention := time.Duration(retentionDays) * 24 * time.Hour
+	db, err := store.Open(ctx, os.Getenv("MYSQL_DSN"), os.Getenv("MASTER_KEY"), store.Config{SuperAdminEmail: adminEmail, PayloadRetention: retention})
 	if err != nil {
 		slog.Error("Database initialization failed")
 		os.Exit(1)
@@ -89,7 +96,7 @@ func main() {
 		slog.Error("Email authentication initialization failed")
 		os.Exit(1)
 	}
-	gateway := relay.New(db, redisClient, private)
+	gateway := relay.New(db, redisClient, private, retention > 0)
 	app := &api.Server{EmailAuth: emailAuth, Store: db, Redis: redisClient, Relay: gateway, AppURL: appURL, AdminAppURL: adminAppURL, AllowPrivate: private, TrustedProxyCIDRs: trustedProxies, CloudflareProxyCIDRs: cloudflareProxies}
 	server := &http.Server{Addr: env("GATEWAY_ADDR", "127.0.0.1:4811"), Handler: app.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 << 10}
 	go func() {
@@ -103,6 +110,9 @@ func main() {
 				work, cancel := context.WithTimeout(ctx, 40*time.Second)
 				if e := db.Recover(work); e != nil {
 					slog.Warn("Request recovery will retry")
+				}
+				if e := db.PrunePayloads(work); e != nil {
+					slog.Warn("Expired request body cleanup will retry")
 				}
 				cancel()
 			}

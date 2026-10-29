@@ -45,20 +45,7 @@ import {
 } from "./shared";
 import { ResourceForm, type Field } from "./resource-form";
 import { Integration } from "./marketing";
-const requestCharge = (request: RequestLog) =>
-  request.billing_mode === "usage_only"
-    ? t.noRelayCharge
-    : money(request.charge_micros, true);
-const requestCost = (request: RequestLog) =>
-  request.cost_status === "untracked" || request.billing_mode === "usage_only"
-    ? t.notPriced
-    : request.cost_status === "pending"
-      ? t.costPending
-      : request.cost_status === "recorded"
-        ? money(request.cost_micros ?? 0, true)
-        : request.cost_micros !== undefined
-          ? money(request.cost_micros, true)
-          : t.emptyValue;
+import { RequestDetailModal, RequestStatus, requestCharge } from "./request-detail";
 export function RequestTable({
   requests,
   short = false,
@@ -102,20 +89,7 @@ export function RequestTable({
                 )?.name || row.tenant_id,
               ]
             : []),
-          <Chip radius="sm"
-            key="status"
-            size="sm"
-            variant="flat"
-            color={
-              row.status === "completed" || row.status === "succeeded"
-                ? "success"
-                : row.error_code
-                  ? "danger"
-                  : "default"
-            }
-          >
-            {row.status}
-          </Chip>,
+          <RequestStatus key="status" request={row} />,
           <span key="tokens" className="tabular-nums">
             {row.usage.known
               ? count(row.usage.input_tokens + row.usage.output_tokens)
@@ -153,63 +127,11 @@ export function RequestTable({
         }
       />
       {detail && (
-        <Modal
-          isOpen
+        <RequestDetailModal
+          key={detail.id}
+          request={detail}
           onClose={() => setDetail(null)}
-          size="lg"
-          scrollBehavior="inside"
-          classNames={{ base: "rp-modal max-h-[85dvh]" }}
-        >
-          <ModalContent>
-            <ModalHeader>{t.requestDetail}</ModalHeader>
-            <ModalBody className="pb-6">
-              <dl className="space-y-4">
-                {[
-                  [t.requestID, detail.id],
-                  ...(isOperator ? [[t.customerID, detail.tenant_id]] : []),
-                  [t.model, detail.model],
-                  [t.provider, detail.provider],
-                  [t.status, detail.status],
-                  [
-                    t.modelBillingMode,
-                    detail.billing_mode === "usage_only"
-                      ? t.modelUsageOnly
-                      : t.modelMetered,
-                  ],
-                  [t.inputTokens, detail.usage.known ? count(detail.usage.input_tokens) : c.unknownUsage],
-                  [t.outputTokens, detail.usage.known ? count(detail.usage.output_tokens) : c.unknownUsage],
-                  [t.cachedTokens, detail.usage.known ? count(detail.usage.cached_tokens) : c.unknownUsage],
-                  [t.cacheWriteTokens, detail.usage.known ? count(detail.usage.cache_write_tokens) : c.unknownUsage],
-                  [t.usageKnown, detail.usage.known ? t.yes : t.no],
-                  [t.charge, requestCharge(detail)],
-                  ...(isOperator ? [[t.cost, requestCost(detail)]] : []),
-                  [t.held, money(detail.reserved_micros, true)],
-                  [t.latency, `${count(detail.latency_ms)} ms`],
-                  [t.key, detail.access_key_id],
-                  ...(isOperator ? [[t.credential, detail.credential_id]] : []),
-                  [t.errorCode, detail.error_code],
-                ]
-                  .filter(([, value]) => value !== undefined && value !== "")
-                  .map(([label, value]) => (
-                    <div
-                      key={label}
-                      className="flex justify-between gap-4 text-sm"
-                    >
-                      <dt className="shrink-0 text-default-500">{label}</dt>
-                      <dd className="break-all text-right font-mono text-xs">
-                        {value}
-                      </dd>
-                    </div>
-                  ))}
-              </dl>
-              {detail.billing_mode === "usage_only" && (
-                <p className="mt-4 text-xs leading-5 text-default-500">
-                  {t.modelUsageOnlyHelp}
-                </p>
-              )}
-            </ModalBody>
-          </ModalContent>
-        </Modal>
+        />
       )}
     </>
   );

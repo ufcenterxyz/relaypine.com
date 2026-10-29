@@ -57,7 +57,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	if master == "" {
 		master = base64.StdEncoding.EncodeToString(make([]byte, 32))
 	}
-	db, err := store.Open(ctx, dsn, master, store.Config{SuperAdminEmail: testAdminEmail})
+	db, err := store.Open(ctx, dsn, master, store.Config{SuperAdminEmail: testAdminEmail, PayloadRetention: 7 * 24 * time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}

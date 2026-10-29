@@ -111,7 +111,7 @@ func TestReferencePriceBackfillChargesWalletAndRejectsUnfundedCalls(t *testing.T
 		Secret string           `json:"secret"`
 	}](t, issuedResponse)
 	key, secret := issued.Key, issued.Secret
-	f.s.Relay = relay.New(isolatedE2ERepository{Store: f.db, prefix: f.prefix}, f.s.Redis, true)
+	f.s.Relay = relay.New(isolatedE2ERepository{Store: f.db, prefix: f.prefix}, f.s.Redis, true, true)
 	f.h = f.s.Handler()
 	t.Cleanup(func() {
 		for _, scope := range []string{"tenant:" + customer.TenantID, "access:" + key.ID, "credential:" + credentialID} {
