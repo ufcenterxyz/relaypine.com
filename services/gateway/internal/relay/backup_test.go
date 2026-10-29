@@ -468,3 +468,37 @@ func TestZenMuxCheckUsesSeparateMessagesCatalog(t *testing.T) {
 		t.Fatal("rejected ZenMux key passed the check")
 	}
 }
+
+// OpenAI reasoning models refuse max_tokens, so a chat limit the gateway fills
+// in is max_completion_tokens. Backups keep receiving that limit as max_tokens,
+// and a client's own field passes through unchanged.
+func TestChatOutputLimitField(t *testing.T) {
+	limits := func(c upstreamCall) string {
+		return "max_tokens=" + string(c.body["max_tokens"]) + " max_completion_tokens=" + string(c.body["max_completion_tokens"])
+	}
+	for _, tc := range []struct{ name, extra, official, backup string }{
+		{"filled in", "", "max_tokens= max_completion_tokens=128", "max_tokens=128 max_completion_tokens="},
+		{"client max_tokens", `,"max_tokens":64`, "max_tokens=64 max_completion_tokens=", "max_tokens=64 max_completion_tokens="},
+		{"client max_completion_tokens", `,"max_completion_tokens":64`, "max_tokens= max_completion_tokens=64", "max_tokens= max_completion_tokens=64"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			official := newRecorder(t, 503, "application/json", `{"error":{"message":"unavailable"}}`)
+			zenmux := newRecorder(t, 200, "application/json", chatReply)
+			h, _, _ := backupFixture(t, "openai", official.server.URL, map[string]*recorder{"zenmux": zenmux})
+			w := serve(h, "/openai/v1/chat/completions", `{"model":"model","messages":[{"role":"user","content":"hello"}]`+tc.extra+`}`)
+			if w.Code != 200 || official.count() != 1 || zenmux.count() != 1 {
+				t.Fatalf("response %d official=%d backup=%d %s", w.Code, official.count(), zenmux.count(), w.Body)
+			}
+			if got := limits(official.last()); got != tc.official {
+				t.Errorf("official %s, want %s", got, tc.official)
+			}
+			if got := limits(zenmux.last()); got != tc.backup {
+				t.Errorf("backup %s, want %s", got, tc.backup)
+			}
+		})
+	}
+	h, _ := fixture("openai", "http://127.0.0.1:1")
+	if w := serve(h, "/openai/v1/chat/completions", `{"model":"model","messages":[],"max_tokens":8,"max_completion_tokens":8}`); w.Code != 400 {
+		t.Fatalf("both limits: %d %s", w.Code, w.Body)
+	}
+}

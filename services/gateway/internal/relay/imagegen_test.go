@@ -343,3 +343,37 @@ func TestParseImageUsageBillsUnsplitTokensAtImageRates(t *testing.T) {
 		}
 	}
 }
+
+// GPT Image models have no text output price but are still published, and only
+// while an official credential can serve them: backups never carry images.
+func TestModelListIncludesImageModels(t *testing.T) {
+	h, f := imageFixture("https://api.openai.com/v1")
+	f.models[0].UpstreamModel = "gpt-5.4-mini"
+	list := func() string {
+		r := httptest.NewRequest("GET", "/openai/v1/models", nil)
+		r.Header.Set("Authorization", "Bearer rp_test")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		ids := []string{}
+		var body struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != 200 {
+			t.Fatalf("model list %d %s", w.Code, w.Body)
+		}
+		for _, m := range body.Data {
+			ids = append(ids, m.ID)
+		}
+		return strings.Join(ids, ",")
+	}
+	if got := list(); got != "model,image,image25" {
+		t.Fatalf("official models %s", got)
+	}
+	f.endpoints[0].Enabled = false
+	f.endpoints = append(f.endpoints, domain.Endpoint{ID: domain.BackupEndpointID("openrouter"), Name: "openrouter", Role: domain.RoleBackup, Vendor: "openrouter", Enabled: true})
+	if got := list(); got != "model" {
+		t.Fatalf("backup-only models %s", got)
+	}
+}

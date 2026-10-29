@@ -156,7 +156,7 @@ func TestNativeForwardingAndPricing(t *testing.T) {
 		}
 		b, _ := io.ReadAll(r.Body)
 		obj := object(b)
-		if str(obj["model"]) != "upstream-model" || string(obj["max_tokens"]) != "128" || string(obj["future_option"]) != "42" {
+		if str(obj["model"]) != "upstream-model" || string(obj["max_completion_tokens"]) != "128" || obj["max_tokens"] != nil || string(obj["future_option"]) != "42" {
 			t.Errorf("unexpected body %s", b)
 		}
 		w.Header().Set("Set-Cookie", "secret=bad")

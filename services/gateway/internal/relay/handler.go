@@ -81,9 +81,11 @@ type plan struct {
 	// original is the client's body; body is the normalized upstream body.
 	original, body []byte
 	// fields is body as an object, so a backup can substitute its model ID.
-	fields                  map[string]json.RawMessage
-	anthropicBeta           string
-	input, output           int64
+	fields        map[string]json.RawMessage
+	anthropicBeta string
+	input, output int64
+	// limitAdded marks a chat max_completion_tokens the gateway filled in.
+	limitAdded              bool
 	stream, count, resource bool
 	binding                 *domain.Resource
 	// image is set for Images API calls. input then includes imageInput, the
@@ -433,7 +435,13 @@ func (h *Handler) models(w http.ResponseWriter, p plan, models []domain.Model) {
 	}
 	items := []map[string]any{}
 	for _, m := range models {
-		if !m.Enabled || !validAccounting(m) || m.Provider != p.provider || !allowed(p.key.Models, m.ID) {
+		accounting := validAccounting(m)
+		if m.IsImage() {
+			// GPT Image models publish no text output price, so they have their
+			// own accounting check.
+			accounting = validImageAccounting(m)
+		}
+		if !m.Enabled || !accounting || m.Provider != p.provider || !allowed(p.key.Models, m.ID) {
 			continue
 		}
 		usable := false
@@ -442,7 +450,10 @@ func (h *Handler) models(w http.ResponseWriter, p plan, models []domain.Model) {
 				continue
 			}
 			if e.IsBackup() {
-				_, usable = BackupModel(e.Vendor, p.provider, m.UpstreamModel)
+				// Image models are served only through official credentials.
+				if !m.IsImage() {
+					_, usable = BackupModel(e.Vendor, p.provider, m.UpstreamModel)
+				}
 			} else {
 				usable = e.Provider == p.provider && (m.PricingReference == nil || pricing.OfficialEndpoint(e.Provider, e.BaseURL)) && (allowed(e.Models, m.ID) || allowed(e.Models, m.UpstreamModel))
 			}
@@ -532,9 +543,12 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 			field = "max_output_tokens"
 		}
 		if strings.HasSuffix(p.path, "/chat/completions") {
-			if _, ok := m["max_completion_tokens"]; ok {
-				field = "max_completion_tokens"
-				if _, both := m["max_tokens"]; both {
+			// OpenAI deprecated max_tokens and its reasoning models refuse it, so a
+			// request that names neither limit is given max_completion_tokens.
+			field = "max_completion_tokens"
+			if _, ok := m["max_tokens"]; ok {
+				field = "max_tokens"
+				if _, both := m["max_completion_tokens"]; both {
 					return errors.New("specify only one maximum output parameter")
 				}
 			}
@@ -546,6 +560,8 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 				return errors.New("maximum output tokens must be within the model limit")
 			}
 			p.output = n
+		} else if field == "max_completion_tokens" {
+			p.limitAdded = true
 		}
 		m[field] = json.RawMessage(strconv.FormatInt(p.output, 10))
 	}
@@ -584,6 +600,11 @@ func (p plan) upstreamBody(c candidate) ([]byte, error) {
 	}
 	fields["model"], _ = json.Marshal(c.model)
 	delete(fields, "service_tier")
+	if p.limitAdded {
+		// Backups have always received the gateway's own limit as max_tokens.
+		fields["max_tokens"] = fields["max_completion_tokens"]
+		delete(fields, "max_completion_tokens")
+	}
 	return json.Marshal(fields)
 }
 

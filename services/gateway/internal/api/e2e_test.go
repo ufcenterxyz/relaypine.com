@@ -131,7 +131,12 @@ func TestNativeProtocolsEndToEndWithDurableBilling(t *testing.T) {
 			}
 			var model string
 			_ = json.Unmarshal(body["model"], &model)
-			if model != "mock-"+u.provider || string(body["max_tokens"]) != "64" || string(body["probe"]) != "true" {
+			limit := "max_tokens"
+			if u.provider == "openai" {
+				// OpenAI reasoning models refuse max_tokens.
+				limit = "max_completion_tokens"
+			}
+			if model != "mock-"+u.provider || string(body[limit]) != "64" || (limit != "max_tokens" && body["max_tokens"] != nil) || string(body["probe"]) != "true" {
 				t.Errorf("upstream model/cap/unknown field not preserved: %s", u.provider)
 			}
 			w.Header().Set("Set-Cookie", "upstream-secret=must-not-be-forwarded")

@@ -83,6 +83,8 @@ export function Integration({
   const order = sdkOrder(available);
   const [provider, setProvider] = useState<SdkProvider>(order[0]);
   const listed = available?.[provider];
+  // The example calls a text endpoint, so it names a text model.
+  const example = listed?.find((model) => model.kind !== "image")?.id;
   return (
     <Modal
       isOpen
@@ -100,7 +102,7 @@ export function Integration({
         </ModalHeader>
         <ModalBody className="gap-4 pb-6">
           <p className="text-sm leading-6 text-default-500">
-            {listed?.length ? t.integrationBodyModels : t.integrationBody}
+            {example ? t.integrationBodyModels : t.integrationBody}
           </p>
           <Tabs
             role="group"
@@ -126,7 +128,7 @@ export function Integration({
           )}
           <CodeBlock
             label={m.codeFile}
-            code={sdkCode(provider, listed?.[0]?.id)}
+            code={sdkCode(provider, example)}
             tone="ink"
           />
         </ModalBody>
