@@ -76,6 +76,32 @@ and never introduces a monetary charge. `not_sent` is known zero usage. Snapshot
 responses expose `billing_mode` and `cost_status` (`untracked`, `pending`, or
 `recorded`) so consumers do not mistake unpriced usage for free upstream calls.
 
+## Reroutes and backup routes
+
+`Reroute` moves an in-flight metered request to another credential after its
+current attempt was refused before producing output. One transaction locks the
+request, then both credentials in ID order. It requires the request to still be
+`reserved`/`in_progress` on the stated credential with both holds active, closes
+the current attempt as `failed_over` with its error code and zero cost, releases
+that credential's upstream hold, reserves the next credential's budget, points
+the request at it and records a new `send_intent` attempt (`<request>_<n>`). The
+customer wallet hold and price snapshot are untouched, so settlement still
+charges once. Settlement and recovery update only attempts that are not
+`failed_over`. `attempts.error_code` is added to existing installations at
+startup.
+
+`SaveBackup` writes a vendor backup as one endpoint (`role=backup`, `vendor`, no
+provider, preset address) and one credential (`backup-<vendor>`, quota group
+`backup:<vendor>`) in a single transaction. `SaveEndpoint` and `SaveCredential`
+refuse backup roles, `backup-` IDs and backup endpoints with `ErrBackupManaged`.
+`Reserve` and `Reroute` accept a backup endpoint for either protocol.
+
+`backup_management_keys` holds at most one optional vendor management key per
+vendor, sealed with AES-GCM under `backup-management:<vendor>`. `SaveBackup`
+replaces, keeps or deletes it in the same transaction and records
+`management_key=true` on the backup endpoint while one exists. The key is used
+only to read the vendor account balance and is never returned.
+
 ## Historical payment tables
 
 `topup_orders`: `id VARCHAR(64) PRIMARY KEY`, `tenant_id VARCHAR(64)`,

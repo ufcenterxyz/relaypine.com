@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS endpoints (
 CREATE TABLE IF NOT EXISTS proxies (
  id VARCHAR(64) PRIMARY KEY, config JSON NOT NULL, encrypted_url BLOB NOT NULL
 ) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS backup_management_keys (
+ vendor VARCHAR(32) PRIMARY KEY, encrypted_key BLOB NOT NULL, updated_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS credentials (
  id VARCHAR(64) PRIMARY KEY, endpoint_id VARCHAR(64) NOT NULL, config JSON NOT NULL, encrypted_secret BLOB NOT NULL,
  budget_micros BIGINT NOT NULL DEFAULT 0, spent_micros BIGINT NOT NULL DEFAULT 0, held_micros BIGINT NOT NULL DEFAULT 0,
@@ -57,6 +60,7 @@ CREATE TABLE IF NOT EXISTS requests (
 CREATE TABLE IF NOT EXISTS attempts (
  id VARCHAR(80) PRIMARY KEY, request_id VARCHAR(64) NOT NULL, credential_id VARCHAR(64) NOT NULL,
  status VARCHAR(32) NOT NULL, reserved_micros BIGINT NOT NULL, cost_micros BIGINT NOT NULL DEFAULT 0,
+ error_code VARCHAR(128) NOT NULL DEFAULT '',
  created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL,
  FOREIGN KEY (request_id) REFERENCES requests(id), INDEX(request_id)
 ) ENGINE=InnoDB;

@@ -29,6 +29,7 @@ export interface AccessKey {
   models: string[];
   created_at: string;
 }
+export type BackupVendor = "openrouter" | "zenmux";
 export interface Endpoint {
   id: string;
   name: string;
@@ -37,6 +38,34 @@ export interface Endpoint {
   auth_mode: string;
   enabled: boolean;
   models: string[];
+  // Backup endpoints serve both protocols through a fixed vendor preset.
+  role?: "backup";
+  vendor?: BackupVendor;
+  // A backup has a saved management key for reading the account balance.
+  management_key?: boolean;
+}
+export interface BackupBalance {
+  vendor: BackupVendor;
+  balance_micros?: number;
+  key_limit_remaining_micros?: number;
+  management_key: boolean;
+  checked_at: string;
+  error?: string;
+}
+export interface BackupCoverage {
+  id: string;
+  name: string;
+  provider: string;
+  enabled: boolean;
+  backup_model?: string;
+  available: boolean;
+}
+export interface BackupCheck {
+  vendor: BackupVendor;
+  key_label?: string;
+  balance: BackupBalance;
+  models: BackupCoverage[];
+  checked_at: string;
 }
 export interface Credential {
   id: string;
@@ -105,6 +134,8 @@ export interface RequestLog {
   latency_ms: number;
   error_code?: string;
   created_at: string;
+  // Administrator only: every upstream tried when the request was rerouted.
+  attempts?: { credential_id: string; status: string; error_code?: string }[];
 }
 export interface CapturedRequest {
   method: string;

@@ -1,6 +1,7 @@
 // Package relay forwards a deliberately bounded text, function-tool and inline-image subset of
-// the native OpenAI and Anthropic protocols. Each request has at most one network
-// attempt: a failed or interrupted send is never replayed and charged twice.
+// the native OpenAI and Anthropic protocols. A request moves to another upstream
+// only after a definitive rejection that produced no output; a send whose
+// outcome is unknown is never replayed and charged twice.
 package relay
 
 import (
@@ -38,6 +39,7 @@ type Repository interface {
 	AuthenticateKey(context.Context, string) (domain.AccessKey, error)
 	Routing(context.Context) (domain.RouteConfig, error)
 	Reserve(context.Context, domain.Reservation) error
+	Reroute(context.Context, string, domain.Reroute) error
 	Settle(context.Context, string, domain.Settlement) error
 	SaveResource(context.Context, domain.Resource) error
 	Resource(context.Context, string, string, string) (domain.Resource, error)
@@ -48,6 +50,9 @@ type Handler struct {
 	limiter      routeLimiter
 	allowPrivate bool
 	capture      bool
+	// target overrides endpoint addressing; tests point vendor presets at
+	// local servers. Nil uses domain.Endpoint.Target.
+	target func(domain.Endpoint, string) (string, string)
 }
 
 // capture records each request's body and the response for request inspection.
@@ -59,21 +64,53 @@ type candidate struct {
 	credential domain.Credential
 	endpoint   domain.Endpoint
 	proxyURL   string
-	buckets    []limits
-	score      float64
-	balance    int64
+	// buckets are this route's own limits: the credential and its quota group.
+	// Tenant and access-key limits are shared by every attempt of a request.
+	buckets []limits
+	score   float64
+	balance int64
+	// backup routes are tried only after every primary route.
+	backup bool
+	// model is the ID sent upstream; base and authMode address the protocol.
+	model, base, authMode string
 }
 type plan struct {
 	key                       domain.AccessKey
 	model                     domain.Model
 	provider, path, requestID string
 	// original is the client's body; body is the normalized upstream body.
-	original, body          []byte
+	original, body []byte
+	// fields is body as an object, so a backup can substitute its model ID.
+	fields                  map[string]json.RawMessage
 	anthropicBeta           string
 	input, output           int64
 	stream, count, resource bool
 	binding                 *domain.Resource
 }
+
+// attempt is the outcome of one upstream call.
+type attempt struct {
+	settlement domain.Settlement
+	// retry marks a definitive rejection before any output: nothing was written
+	// to the client, so another route may still serve the request.
+	retry bool
+	// endpointWide marks a failure of the upstream service rather than one key.
+	endpointWide bool
+	// status, code, message and retryAfter describe the rejection to report
+	// when no other route accepts the request.
+	status                    int
+	code, message, retryAfter string
+	// upstream is a provider reply that the client did not receive unchanged.
+	upstream *domain.CapturedResponse
+}
+
+// maxUpstreamAttempts bounds one request: the first route plus at most two
+// reroutes after definitive rejections, such as an outage or a revoked key.
+const maxUpstreamAttempts = 3
+
+// failureCooldown keeps a key that failed at the service level out of routing
+// briefly, so later requests go straight to another route.
+const failureCooldown = 30 * time.Second
 
 func requestID() string {
 	var b [16]byte
@@ -219,53 +256,138 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var chosen *candidate
+	h.route(w, r, p, sharedLimits(p, config), candidates, reserved, costReserve)
+}
+
+// sharedLimits are the tenant and access-key limits. Every attempt of one
+// request holds them once; each route adds its own credential limits.
+func sharedLimits(p plan, config domain.RouteConfig) []limits {
+	return []limits{{"tenant:" + p.key.TenantID, config.TenantRPM, 0, config.TenantConcurrency}, {"access:" + p.key.ID, p.key.RPM, 0, 0}}
+}
+
+// route reserves the first admissible candidate and forwards the request. When
+// an upstream definitively rejects an attempt before any output (the request
+// never left, or HTTP 401/402/403/429/5xx), the request moves to the next
+// candidate. Candidates list every primary route before any backup, so a backup
+// serves a request only after no primary route could.
+func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared []limits, candidates []candidate, reserved, costReserve int64) {
+	ctx := r.Context()
+	capture := &responseCapture{ResponseWriter: w}
+	if h.capture {
+		w = capture
+	}
+	var current *candidate
+	var held []limits
+	var last attempt
 	var capacityErr error
 	var untrackedBudget bool
+	failedEndpoints := map[string]bool{}
+	attempts := 0
+	started := time.Now()
+	release := func(buckets []limits) error {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return h.limiter.release(cleanup, p.requestID, buckets)
+	}
+	// Deferred calls run in reverse: settle, store the inspection copy, and only
+	// then return the held capacity.
+	defer func() {
+		if current != nil {
+			_ = release(held)
+		}
+	}()
+	defer func() {
+		if current == nil {
+			return
+		}
+		last.settlement.LatencyMS = time.Since(started).Milliseconds()
+		settleCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = h.repo.Settle(settleCtx, p.requestID, last.settlement)
+		cancel()
+		// Settlement is written first; a body that cannot be stored never
+		// affects accounting.
+		if h.capture {
+			h.savePayload(r, p, capture, last.upstream)
+		}
+	}()
 	for i := range candidates {
+		if attempts >= maxUpstreamAttempts || ctx.Err() != nil {
+			break
+		}
 		c := &candidates[i]
+		if failedEndpoints[c.endpoint.ID] {
+			continue
+		}
 		// Cost is a hard eligibility condition, even when load is the ranking
 		// policy. Avoid consuming rate capacity for a predictably unfunded key.
 		if c.credential.BudgetMicros > 0 && c.balance < costReserve {
 			continue
 		}
-		err = h.limiter.acquire(ctx, p.requestID, c.buckets, p.input+p.output)
+		buckets := c.buckets
+		if current == nil {
+			buckets = append(append([]limits{}, shared...), c.buckets...)
+		} else if len(held) > len(shared) {
+			// The refused route no longer runs this request. Free its capacity
+			// before taking another route's, which may share its quota group.
+			_ = release(held[len(shared):])
+			held = shared
+		}
+		err := h.limiter.acquire(ctx, p.requestID, buckets, p.input+p.output)
 		if errors.Is(err, errCapacity) {
 			capacityErr = err
 			continue
 		}
 		if err != nil {
-			fail(w, 503, "limiter_unavailable", "Rate limiter unavailable")
-			return
-		}
-		reservation := domain.Reservation{Request: domain.Request{ID: p.requestID, TenantID: key.TenantID, ProjectID: key.ProjectID, AccessKeyID: key.ID, CredentialID: c.credential.ID, Provider: p.provider, Model: p.model.ID, Status: "reserved", ReservedMicros: reserved, CreatedAt: time.Now()}, Model: p.model, CredentialID: c.credential.ID, CostReserve: costReserve}
-		err = h.repo.Reserve(ctx, reservation)
-		if err == nil {
-			chosen = c
+			if current == nil {
+				fail(w, 503, "limiter_unavailable", "Rate limiter unavailable")
+				return
+			}
 			break
 		}
-		// No upstream call has been made, and a rejected money transaction has
-		// no wallet hold. Release this candidate before trying another budget.
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		releaseErr := h.limiter.release(cleanup, p.requestID, c.buckets)
-		cancel()
-		if releaseErr != nil {
-			fail(w, 503, "limiter_unavailable", "Unable to release route capacity")
+		if current == nil {
+			reservation := domain.Reservation{Request: domain.Request{ID: p.requestID, TenantID: p.key.TenantID, ProjectID: p.key.ProjectID, AccessKeyID: p.key.ID, CredentialID: c.credential.ID, Provider: p.provider, Model: p.model.ID, Status: "reserved", ReservedMicros: reserved, CreatedAt: time.Now()}, Model: p.model, CredentialID: c.credential.ID, CostReserve: costReserve}
+			err = h.repo.Reserve(ctx, reservation)
+		} else {
+			err = h.repo.Reroute(ctx, p.requestID, domain.Reroute{FromCredentialID: current.credential.ID, ToCredentialID: c.credential.ID, CostReserve: costReserve, ErrorCode: last.settlement.ErrorCode})
+		}
+		if err != nil {
+			// No upstream call has been made on this route, and a rejected money
+			// transaction holds nothing. Release it before trying another budget.
+			if releaseErr := release(buckets); releaseErr != nil && current == nil {
+				fail(w, 503, "limiter_unavailable", "Unable to release route capacity")
+				return
+			}
+			if errors.Is(err, store.ErrUntrackedCostBudget) {
+				untrackedBudget = true
+				continue
+			}
+			if errors.Is(err, store.ErrBudgetExceeded) {
+				continue
+			}
+			if current != nil {
+				// The earlier rejection still describes this request.
+				break
+			}
+			// Customer balance and storage failures cannot be solved by changing
+			// an upstream key. Only an atomic upstream-budget race retries routing.
+			fail(w, 402, "budget_unavailable", "Customer balance or upstream budget is insufficient, or its reservation is unavailable")
 			return
 		}
-		if errors.Is(err, store.ErrUntrackedCostBudget) {
-			untrackedBudget = true
-			continue
+		if current == nil {
+			started = time.Now()
 		}
-		if errors.Is(err, store.ErrBudgetExceeded) {
-			continue
+		current = c
+		held = append(append([]limits{}, shared...), c.buckets...)
+		attempts++
+		last = h.forward(w, r, p, *c)
+		if !last.retry {
+			return
 		}
-		// Customer balance and storage failures cannot be solved by changing
-		// an upstream key. Only an atomic upstream-budget race retries routing.
-		fail(w, 402, "budget_unavailable", "Customer balance or upstream budget is insufficient, or its reservation is unavailable")
-		return
+		if last.endpointWide {
+			failedEndpoints[c.endpoint.ID] = true
+		}
 	}
-	if chosen == nil {
+	if current == nil {
 		if capacityErr != nil {
 			w.Header().Set("Retry-After", "1")
 			fail(w, 429, "rate_limit_exceeded", "All eligible upstream capacity is in use")
@@ -276,12 +398,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = h.limiter.release(cleanup, p.requestID, chosen.buckets)
-	}()
-	h.forward(w, r, p, *chosen)
+	// No other route accepted the request; report the last rejection.
+	if last.retryAfter != "" {
+		w.Header().Set("Retry-After", last.retryAfter)
+	}
+	fail(w, last.status, last.code, last.message)
 }
 
 func (h *Handler) models(w http.ResponseWriter, p plan, models []domain.Model) {
@@ -297,8 +418,15 @@ func (h *Handler) models(w http.ResponseWriter, p plan, models []domain.Model) {
 		}
 		usable := false
 		for _, e := range endpoints {
-			if e.Enabled && e.Provider == p.provider && (m.PricingReference == nil || pricing.OfficialEndpoint(e.Provider, e.BaseURL)) && (allowed(e.Models, m.ID) || allowed(e.Models, m.UpstreamModel)) {
-				usable = true
+			if !e.Enabled {
+				continue
+			}
+			if e.IsBackup() {
+				_, usable = BackupModel(e.Vendor, p.provider, m.UpstreamModel)
+			} else {
+				usable = e.Provider == p.provider && (m.PricingReference == nil || pricing.OfficialEndpoint(e.Provider, e.BaseURL)) && (allowed(e.Models, m.ID) || allowed(e.Models, m.UpstreamModel))
+			}
+			if usable {
 				break
 			}
 		}
@@ -415,8 +543,25 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 		m["stream_options"], _ = json.Marshal(options)
 	}
 	m["model"], _ = json.Marshal(p.model.UpstreamModel)
+	p.fields = m
 	p.body, err = json.Marshal(m)
 	return err
+}
+
+// upstreamBody is the body for one route. A backup receives its own catalog ID
+// and no service tier: the forced standard tier only describes the official
+// price, and an aggregator applies its own processing tiers.
+func (p plan) upstreamBody(c candidate) ([]byte, error) {
+	if !c.backup {
+		return p.body, nil
+	}
+	fields := make(map[string]json.RawMessage, len(p.fields))
+	for k, v := range p.fields {
+		fields[k] = v
+	}
+	fields["model"], _ = json.Marshal(c.model)
+	delete(fields, "service_tier")
+	return json.Marshal(fields)
 }
 
 func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteConfig) ([]candidate, error) {
@@ -443,15 +588,32 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 		}
 		var endpoint domain.Endpoint
 		for _, e := range endpoints {
-			if e.ID == c.EndpointID && e.Enabled && e.Provider == p.provider && (p.model.PricingReference == nil || pricing.OfficialEndpoint(e.Provider, e.BaseURL)) && (allowed(e.Models, p.model.ID) || allowed(e.Models, p.model.UpstreamModel)) {
+			if e.ID == c.EndpointID {
 				endpoint = e
 				break
 			}
 		}
-		if endpoint.ID == "" || p.binding != nil && p.binding.EndpointID != endpoint.ID {
+		if endpoint.ID == "" || !endpoint.Enabled || p.binding != nil && p.binding.EndpointID != endpoint.ID {
 			continue
 		}
-		if _, err = upstreamURL(endpoint.BaseURL, p.path, h.allowPrivate); err != nil {
+		model := p.model.UpstreamModel
+		if endpoint.IsBackup() {
+			// A backup has no stored model allowlist: it carries the official
+			// model under the vendor's catalog name, and only for stateless calls.
+			// Official reference prices still apply to the customer.
+			id, ok := BackupModel(endpoint.Vendor, p.provider, p.model.UpstreamModel)
+			if !ok || p.binding != nil || p.resource || !backupPath(p.provider, p.path) {
+				continue
+			}
+			model = id
+		} else if endpoint.Provider != p.provider || p.model.PricingReference != nil && !pricing.OfficialEndpoint(endpoint.Provider, endpoint.BaseURL) || !allowed(endpoint.Models, p.model.ID) && !allowed(endpoint.Models, p.model.UpstreamModel) {
+			continue
+		}
+		base, authMode := endpoint.Target(p.provider)
+		if h.target != nil {
+			base, authMode = h.target(endpoint, p.provider)
+		}
+		if _, err = upstreamURL(base, p.path, h.allowPrivate); err != nil {
 			continue
 		}
 		proxyURL := ""
@@ -473,11 +635,11 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 		if c.BudgetMicros > 0 && (c.SpentMicros >= c.BudgetMicros || c.HeldMicros >= c.BudgetMicros-c.SpentMicros) {
 			continue
 		}
-		buckets := []limits{{"tenant:" + p.key.TenantID, config.TenantRPM, 0, config.TenantConcurrency}, {"access:" + p.key.ID, p.key.RPM, 0, 0}, {"credential:" + c.ID, c.RPM, c.TPM, c.MaxConcurrency}}
+		buckets := []limits{{"credential:" + c.ID, c.RPM, c.TPM, c.MaxConcurrency}}
 		if c.QuotaGroup != "" {
 			buckets = append(buckets, groupLimits(c, credentials))
 		}
-		load, err := h.limiter.load(ctx, buckets)
+		load, err := h.limiter.load(ctx, append(sharedLimits(p, config), buckets...))
 		if err != nil {
 			return nil, err
 		}
@@ -485,15 +647,25 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 		if c.BudgetMicros > 0 {
 			balance = c.BudgetMicros - c.SpentMicros - c.HeldMicros
 		}
-		result = append(result, candidate{c, endpoint, proxyURL, buckets, load, balance})
+		result = append(result, candidate{credential: c, endpoint: endpoint, proxyURL: proxyURL, buckets: buckets, score: load, balance: balance, backup: endpoint.IsBackup(), model: model, base: base, authMode: authMode})
 	}
 	if len(result) == 0 && untrackedBudget {
 		return nil, store.ErrUntrackedCostBudget
 	}
 	// Balanced strategy accounts for normalized load and the remaining budget
 	// fraction; priority is a stable tie-breaker, never an override of capacity.
+	// Backups always follow every primary route, in the operator's order.
 	sort.SliceStable(result, func(i, j int) bool {
 		a, b := result[i], result[j]
+		if a.backup != b.backup {
+			return !a.backup
+		}
+		if a.backup {
+			if a.credential.Priority != b.credential.Priority {
+				return a.credential.Priority > b.credential.Priority
+			}
+			return a.credential.ID < b.credential.ID
+		}
 		switch config.Strategy {
 		case "highest_balance":
 			if a.score >= 1 || b.score >= 1 {
@@ -528,43 +700,38 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 	return result, nil
 }
 
-func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c candidate) {
-	started := time.Now()
-	settlement := domain.Settlement{Status: "unknown"}
-	capture := &responseCapture{ResponseWriter: w}
-	if h.capture {
-		w = capture
+// forward makes one upstream attempt and writes the client response, except
+// for a definitive rejection that arrived before any output. That attempt is
+// returned unwritten with retry set, so the caller can try another route or
+// report it. The caller settles the request once, after its last attempt.
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c candidate) (result attempt) {
+	settlement := &result.settlement
+	settlement.Status = "unknown"
+	reject := func(status int, message string) attempt {
+		result.retry = true
+		result.status, result.code, result.message = status, "upstream_error", message
+		return result
 	}
-	var upstreamCopy *domain.CapturedResponse
-	defer func() {
-		settlement.LatencyMS = time.Since(started).Milliseconds()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_ = h.repo.Settle(ctx, p.requestID, settlement)
-		cancel()
-		// Settlement is written first; a body that cannot be stored never
-		// affects accounting.
-		if h.capture {
-			h.savePayload(r, p, capture, upstreamCopy)
-		}
-	}()
 	tr, err := transport(c.proxyURL, h.allowPrivate)
 	if err != nil {
-		settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "proxy_configuration"}
-		fail(w, 502, "upstream_unavailable", "Upstream proxy configuration unavailable")
-		return
+		*settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "proxy_configuration"}
+		return reject(502, "Upstream proxy configuration unavailable")
 	}
 	defer tr.CloseIdleConnections()
-	target, err := upstreamURL(c.endpoint.BaseURL, p.path, h.allowPrivate)
+	target, err := upstreamURL(c.base, p.path, h.allowPrivate)
 	if err != nil {
-		settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "upstream_configuration"}
-		fail(w, 502, "upstream_unavailable", "Upstream configuration unavailable")
-		return
+		*settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "upstream_configuration"}
+		return reject(502, "Upstream configuration unavailable")
 	}
+	body, err := p.upstreamBody(c)
+	var upstream *http.Request
 	var sent atomic.Bool
-	ctx := httptrace.WithClientTrace(r.Context(), &httptrace.ClientTrace{WroteHeaders: func() { sent.Store(true) }, WroteRequest: func(httptrace.WroteRequestInfo) { sent.Store(true) }})
-	upstream, err := http.NewRequestWithContext(ctx, r.Method, target, bytes.NewReader(p.body))
+	if err == nil {
+		ctx := httptrace.WithClientTrace(r.Context(), &httptrace.ClientTrace{WroteHeaders: func() { sent.Store(true) }, WroteRequest: func(httptrace.WroteRequestInfo) { sent.Store(true) }})
+		upstream, err = http.NewRequestWithContext(ctx, r.Method, target, bytes.NewReader(body))
+	}
 	if err != nil {
-		settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "invalid_upstream"}
+		*settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "invalid_upstream"}
 		fail(w, 502, "upstream_unavailable", "Invalid upstream request")
 		return
 	}
@@ -589,7 +756,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 			upstream.Header.Set("Anthropic-Beta", p.anthropicBeta)
 		}
 	}
-	if c.endpoint.AuthMode == "bearer" || p.provider == "openai" && c.endpoint.AuthMode != "x-api-key" {
+	if c.authMode == "bearer" || p.provider == "openai" && c.authMode != "x-api-key" {
 		upstream.Header.Set("Authorization", "Bearer "+c.credential.Secret)
 	} else {
 		upstream.Header.Set("X-Api-Key", c.credential.Secret)
@@ -602,35 +769,42 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		if !sent.Load() {
 			settlement.Status = "not_sent"
 			settlement.Usage.Known = true
+			if r.Context().Err() == nil {
+				// The request never reached this upstream, so another route can
+				// take it without any risk of a second inference run.
+				h.cool([]limits{{scope: "credential:" + c.credential.ID}}, failureCooldown)
+				return reject(502, "Upstream connection failed")
+			}
 		}
 		fail(w, 502, "upstream_error", "Upstream connection failed")
 		return
 	}
 	defer response.Body.Close()
-	if response.StatusCode == 429 || response.StatusCode == 401 || response.StatusCode == 403 {
-		d := retryDelay(response.Header.Get("Retry-After"))
-		if response.StatusCode != 429 {
-			d = 5 * time.Minute
-		}
-		cool := []limits{{scope: "credential:" + c.credential.ID}}
-		if c.credential.QuotaGroup != "" && response.StatusCode == 429 {
-			cool = append(cool, limits{scope: "group:" + c.credential.QuotaGroup})
-		}
-		_ = h.limiter.cool(r.Context(), cool, d)
-	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		settlement.Status = "failed"
-		settlement.ErrorCode = fmt.Sprintf("upstream_%d", response.StatusCode)
 		status := response.StatusCode
-		if status < 400 || status == 401 || status == 403 {
-			status = 502
+		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxCapturedUpstreamBytes+1))
+		result.upstream = upstreamReply(response, raw, maxCapturedUpstreamBytes)
+		h.coolRejected(c, response)
+		settlement.Status = "failed"
+		settlement.ErrorCode = fmt.Sprintf("upstream_%d", status)
+		clientStatus := status
+		if status < 400 || status == 401 || status == 402 || status == 403 {
+			clientStatus = 502
 		}
 		if status == 429 {
-			w.Header().Set("Retry-After", strconv.Itoa(int(retryDelay(response.Header.Get("Retry-After")).Seconds())))
+			result.retryAfter = strconv.Itoa(int(retryDelay(response.Header.Get("Retry-After")).Seconds()))
 		}
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxCapturedUpstreamBytes+1))
-		upstreamCopy = upstreamReply(response, raw, maxCapturedUpstreamBytes)
-		fail(w, status, "upstream_error", "The selected upstream rejected or failed the request")
+		if unavailableStatus(status) {
+			// The upstream refused the request outright, which runs no inference
+			// and has no upstream cost. Another route may still serve it.
+			settlement.Usage = domain.Usage{Known: true}
+			result.endpointWide = status >= 500
+			return reject(clientStatus, "The selected upstream rejected or failed the request")
+		}
+		if result.retryAfter != "" {
+			w.Header().Set("Retry-After", result.retryAfter)
+		}
+		fail(w, clientStatus, "upstream_error", "The selected upstream rejected or failed the request")
 		return
 	}
 	if p.stream {
@@ -638,16 +812,16 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 			settlement.Status = "failed"
 			settlement.ErrorCode = "invalid_stream"
 			raw, _ := io.ReadAll(io.LimitReader(response.Body, maxCapturedUpstreamBytes+1))
-			upstreamCopy = upstreamReply(response, raw, maxCapturedUpstreamBytes)
+			result.upstream = upstreamReply(response, raw, maxCapturedUpstreamBytes)
 			fail(w, 502, "upstream_error", "Expected an SSE response")
 			return
 		}
-		h.stream(w, r, response, p, c, &settlement)
+		h.stream(w, r, response, p, c, settlement)
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	body, err = io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	// Every rejection below returns a gateway error instead of this body.
-	rejected := func() { upstreamCopy = upstreamReply(response, body, maxCapturedUpstreamBytes) }
+	rejected := func() { result.upstream = upstreamReply(response, body, maxCapturedUpstreamBytes) }
 	if err != nil || len(body) > maxResponseBytes {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "invalid_response"
@@ -667,7 +841,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.Status = "failed"
 		settlement.ErrorCode = "upstream_error"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
-		h.price(&settlement, p.model)
+		h.price(settlement, p.model)
 		rejected()
 		fail(w, 502, "upstream_error", "The selected upstream returned an error")
 		return
@@ -676,7 +850,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.Status = "failed"
 		settlement.ErrorCode = "upstream_response_failed"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
-		h.price(&settlement, p.model)
+		h.price(settlement, p.model)
 		rejected()
 		fail(w, 502, "upstream_error", "The upstream response did not complete")
 		return
@@ -703,7 +877,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
 	}
 	settlement.Status = "completed"
-	h.price(&settlement, p.model)
+	h.price(settlement, p.model)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(30 * time.Second))
@@ -712,8 +886,9 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.ErrorCode = "client_disconnected"
 		// The upstream already returned a complete response with verified usage.
 		// A failed client write does not undo that completed inference work.
-		upstreamCopy = upstreamReply(response, body, maxCapturedResponseBytes)
+		result.upstream = upstreamReply(response, body, maxCapturedResponseBytes)
 	}
+	return
 }
 
 func (h *Handler) saveResource(ctx context.Context, p plan, c candidate, id string) error {
@@ -760,4 +935,47 @@ func retryDelay(value string) time.Duration {
 		}
 	}
 	return 30 * time.Second
+}
+
+// unavailableStatus reports an upstream refusal that says the route itself is
+// unusable right now (credentials, billing, permission, rate or service
+// failure) rather than that the request is invalid. Such a refusal runs no
+// inference, so another route may serve the same request.
+func unavailableStatus(status int) bool {
+	return status == 401 || status == 402 || status == 403 || status == 429 || status >= 500 && status <= 599
+}
+
+// coolRejected keeps a refused key out of routing for a while, so later
+// requests go straight to another route instead of meeting the same failure.
+func (h *Handler) coolRejected(c candidate, response *http.Response) {
+	status, retryAfter := response.StatusCode, response.Header.Get("Retry-After")
+	scopes := []limits{{scope: "credential:" + c.credential.ID}}
+	var d time.Duration
+	switch {
+	case status == 429:
+		d = retryDelay(retryAfter)
+		if c.credential.QuotaGroup != "" {
+			scopes = append(scopes, limits{scope: "group:" + c.credential.QuotaGroup})
+		}
+	case status == 401 || status == 403:
+		d = 5 * time.Minute
+	case status == 402:
+		d = 5 * time.Minute
+		if retryAfter != "" {
+			d = retryDelay(retryAfter)
+		}
+	case status >= 500:
+		d = min(retryDelay(retryAfter), 5*time.Minute)
+	default:
+		return
+	}
+	h.cool(scopes, d)
+}
+
+// cool is independent of the client: a disconnected caller must not keep a
+// failing upstream in rotation.
+func (h *Handler) cool(scopes []limits, d time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = h.limiter.cool(ctx, scopes, d)
 }

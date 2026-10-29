@@ -41,7 +41,8 @@ func TestRoutingBudgetEligibilityAndAtomicRaceFallback(t *testing.T) {
 		{name: "customer insufficient fails immediately", firstBudget: 100000000, secondBudget: 100000000, reserveErr: store.ErrInsufficientFunds, upstreamStatus: 200, wantStatus: 402, wantTries: 1, wantAcquired: 1},
 		{name: "all budgets too small consume no capacity", firstBudget: 1, secondBudget: 1, upstreamStatus: 200, wantStatus: 402},
 		{name: "funded candidate busy returns rate limit", firstBudget: 1, secondBudget: 100000000, secondBusy: true, upstreamStatus: 200, wantStatus: 429},
-		{name: "network error never replays another key", firstBudget: 100000000, secondBudget: 100000000, upstreamStatus: 503, wantStatus: 503, wantTries: 1, wantAcquired: 1, wantNetwork: 1, wantCredential: "credential"},
+		{name: "service failure skips other keys on the same upstream", firstBudget: 100000000, secondBudget: 100000000, upstreamStatus: 503, wantStatus: 503, wantTries: 1, wantAcquired: 1, wantNetwork: 1, wantCredential: "credential"},
+		{name: "request error is never sent to another key", firstBudget: 100000000, secondBudget: 100000000, upstreamStatus: 422, wantStatus: 422, wantTries: 1, wantAcquired: 1, wantNetwork: 1, wantCredential: "credential"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

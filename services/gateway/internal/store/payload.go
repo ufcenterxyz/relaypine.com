@@ -67,6 +67,13 @@ func (s *Store) RequestDetail(ctx context.Context, user domain.User, id string) 
 		return detail, dbError(err)
 	}
 	detail.Request = request
+	if user.Operator {
+		trail := []domain.Request{request}
+		if err = s.attachAttempts(ctx, trail); err != nil {
+			return detail, err
+		}
+		detail.Request = trail[0]
+	}
 	if len(sealed) == 0 || s.payloadRetention <= 0 {
 		return detail, nil
 	}

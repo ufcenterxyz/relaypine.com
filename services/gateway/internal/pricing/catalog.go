@@ -252,6 +252,17 @@ var aliases = map[string]string{
 	"claude-opus-4-5-20251101":   "claude-opus-4-5",
 }
 
+// CanonicalModel resolves only a documented dated alias to its standard model
+// ID; every other ID is returned unchanged.
+func CanonicalModel(provider, id string) string {
+	if provider == "anthropic" {
+		if canonical, ok := aliases[id]; ok {
+			return canonical
+		}
+	}
+	return id
+}
+
 func (c Catalog) Match(provider, id string) (Rate, bool) {
 	if r, ok := c.Rates[provider+":"+id]; ok {
 		return r, true

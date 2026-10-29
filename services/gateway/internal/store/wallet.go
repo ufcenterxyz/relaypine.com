@@ -108,7 +108,7 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 	if err = json.Unmarshal(endpointRaw, &endpoint); err != nil {
 		return err
 	}
-	if !endpoint.Enabled || endpoint.Provider != q.Provider {
+	if !endpoint.Enabled || !endpoint.Serves(q.Provider) {
 		return ErrUnauthorized
 	}
 	now := time.Now().UTC()
@@ -271,7 +271,8 @@ func (s *Store) Settle(ctx context.Context, requestID string, v domain.Settlemen
 	if !costHeld {
 		attemptStatus = "settled"
 	}
-	_, err = tx.ExecContext(ctx, "UPDATE attempts SET status=?,cost_micros=?,updated_at=? WHERE request_id=?", attemptStatus, cost, time.Now().UTC(), requestID)
+	// Attempts closed by a reroute keep their own final state.
+	_, err = tx.ExecContext(ctx, "UPDATE attempts SET status=?,cost_micros=?,error_code=?,updated_at=? WHERE request_id=? AND status<>?", attemptStatus, cost, v.ErrorCode, time.Now().UTC(), requestID, attemptFailedOver)
 	if err != nil {
 		return err
 	}
@@ -306,7 +307,7 @@ func settleUsageOnly(ctx context.Context, tx *sql.Tx, id, phase string, prior, v
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status=?,cost_micros=0,updated_at=? WHERE request_id=?", attemptStatus, time.Now().UTC(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status=?,cost_micros=0,updated_at=? WHERE request_id=? AND status<>?", attemptStatus, time.Now().UTC(), id, attemptFailedOver); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -427,7 +428,7 @@ func (s *Store) recoverRequest(ctx context.Context, id string, cutoff time.Time)
 		if err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status='usage_unavailable',updated_at=? WHERE request_id=?", time.Now().UTC(), id); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status='usage_unavailable',updated_at=? WHERE request_id=? AND status<>?", time.Now().UTC(), id, attemptFailedOver); err != nil {
 			return err
 		}
 		return tx.Commit()
@@ -461,7 +462,7 @@ func (s *Store) recoverRequest(ctx context.Context, id string, cutoff time.Time)
 		return err
 	}
 	if costActive {
-		if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status='pending_usage',updated_at=? WHERE request_id=?", time.Now().UTC(), id); err != nil {
+		if _, err = tx.ExecContext(ctx, "UPDATE attempts SET status='pending_usage',updated_at=? WHERE request_id=? AND status<>?", time.Now().UTC(), id, attemptFailedOver); err != nil {
 			return err
 		}
 	}

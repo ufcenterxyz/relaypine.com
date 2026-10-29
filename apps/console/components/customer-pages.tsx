@@ -46,6 +46,7 @@ import {
 import { ResourceForm, type Field } from "./resource-form";
 import { Integration } from "./marketing";
 import { RequestDetailModal, RequestStatus, requestCharge } from "./request-detail";
+import { RouteHint } from "./route-trail";
 export function RequestTable({
   requests,
   short = false,
@@ -81,6 +82,7 @@ export function RequestTable({
                 {t.modelUsageOnly}
               </p>
             )}
+            <RouteHint request={row} />
           </div>,
           ...(isOperator && !short
             ? [

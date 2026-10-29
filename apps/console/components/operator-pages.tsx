@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Button,
@@ -9,6 +9,7 @@ import {
   RadioGroup,
   Radio,
   Chip,
+  Skeleton,
   addToast,
 } from "@heroui/react";
 import {
@@ -18,6 +19,7 @@ import {
   Check,
   Edit3,
   GitBranch,
+  LifeBuoy,
   Network,
   Power,
   Plus,
@@ -31,9 +33,12 @@ import { pricingEn as p } from "@/i18n/pricing-en";
 import { safeReferenceURL } from "@/lib/pricing";
 import { ModelPriceUpdate } from "./model-price-update";
 import { consoleEn as c } from "@/i18n/console-en";
+import { backupEn as b } from "@/i18n/backup-en";
 import { api, count, dollars, errorMessage, money } from "@/lib/api";
-import type { Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
+import { backupRoutes, isBackup, type BackupRoute } from "@/lib/backups";
+import type { BackupBalance, Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
 import { useConsole } from "./console-provider";
+import { BackupForm } from "./backup-form";
 import { CredentialForm } from "./credential-form";
 import { ModelImport } from "./model-import";
 import {
@@ -79,7 +84,54 @@ export function Upstreams() {
     run: () => Promise<void>;
   } | null>(null);
   const [busy, setBusy] = useState("");
-  const needsModels = (state.credentials || []).some((credential) => {
+  const [backupDialog, setBackupDialog] = useState<{
+    backup?: BackupRoute;
+  } | null>(null);
+  // Backups have their own section; the generic tables list primary routes.
+  const backups = backupRoutes(state.endpoints, state.credentials);
+  const backupEndpointIDs = new Set(backups.map((route) => route.endpoint.id));
+  const endpoints = (state.endpoints ?? []).filter((endpoint) => !isBackup(endpoint));
+  const credentials = (state.credentials ?? []).filter(
+    (credential) => !backupEndpointIDs.has(credential.endpoint_id),
+  );
+  const [balances, setBalances] = useState<Record<string, BackupBalance>>({});
+  const [loadedSignature, setLoadedSignature] = useState("");
+  const [refreshingBalances, setRefreshingBalances] = useState(false);
+  const fetchBalances = useCallback(
+    (refresh: boolean) =>
+      api<{ balances: BackupBalance[] }>("/api/admin/backups/balances", { refresh }).then((data) =>
+        setBalances(Object.fromEntries(data.balances.map((balance) => [balance.vendor, balance]))),
+      ),
+    [],
+  );
+  // Read balances whenever a backup is added, removed or reconfigured.
+  const backupSignature = backups
+    .map((route) => `${route.vendor}:${route.credential?.masked_key}:${route.credential?.proxy_id}:${route.endpoint.management_key}`)
+    .join("|");
+  useEffect(() => {
+    if (!backupSignature) return;
+    let active = true;
+    fetchBalances(false)
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoadedSignature(backupSignature);
+      });
+    return () => {
+      active = false;
+    };
+  }, [backupSignature, fetchBalances]);
+  const balancesLoading = refreshingBalances || (!!backupSignature && loadedSignature !== backupSignature);
+  async function refreshBalances() {
+    setRefreshingBalances(true);
+    try {
+      await fetchBalances(true);
+    } catch (e) {
+      addToast({ title: errorMessage(e), color: "danger" });
+    } finally {
+      setRefreshingBalances(false);
+    }
+  }
+  const needsModels = credentials.some((credential) => {
     const endpoint = state.endpoints?.find(
       (host) => host.id === credential.endpoint_id,
     );
@@ -95,6 +147,24 @@ export function Upstreams() {
     await api(`/api/admin/${path}`, body);
     await refresh();
     addToast({ title: t.saved, color: "success" });
+  }
+  async function toggleBackup(route: BackupRoute) {
+    const enabled = !!route.credential?.enabled && route.endpoint.enabled;
+    // proxy_id is authoritative on the backup API, so resend the saved exit.
+    const run = () =>
+      save("backups", { vendor: route.vendor, enabled: !enabled, proxy_id: route.credential?.proxy_id ?? "" });
+    if (enabled) {
+      setDisable({ name: route.name, run });
+      return;
+    }
+    setBusy(route.endpoint.id);
+    try {
+      await run();
+    } catch (e) {
+      addToast({ title: errorMessage(e), color: "danger" });
+    } finally {
+      setBusy("");
+    }
   }
   function hostForm(endpoint?: Endpoint) {
     setForm({
@@ -196,8 +266,8 @@ export function Upstreams() {
       />
       <div className="rp-console-resource-summary">
         {[
-          { label: c.hostCount, value: state.endpoints?.length ?? 0 },
-          { label: c.credentialCount, value: state.credentials?.length ?? 0 },
+          { label: c.hostCount, value: endpoints.length },
+          { label: c.credentialCount, value: credentials.length },
           { label: c.proxyCount, value: state.proxies?.length ?? 0 },
         ].map((resource) => (
           <div key={resource.label}>
@@ -221,11 +291,11 @@ export function Upstreams() {
           </Button>
         </div>
       )}
-      <div className="rp-management-section-heading"><h2>{t.hosts}<span>{count(state.endpoints?.length ?? 0)}</span></h2></div>
+      <div className="rp-management-section-heading"><h2>{t.hosts}<span>{count(endpoints.length)}</span></h2></div>
       <DataTable
         caption={t.hosts}
         columns={[t.name, t.provider, t.baseURL, t.status, t.actions]}
-        rows={(state.endpoints ?? []).map((endpoint) => [
+        rows={endpoints.map((endpoint) => [
           endpoint.name,
           <span key="provider" className="rp-management-provider"><i aria-hidden="true" data-provider={endpoint.provider}>{endpoint.provider === "anthropic" ? "A" : "O"}</i>{endpoint.provider === "anthropic" ? t.anthropic : t.openai}</span>,
           <code key="url" className="text-xs">
@@ -258,7 +328,7 @@ export function Upstreams() {
         }
       />
       <div className="rp-management-section-heading rp-management-section-spaced">
-        <h2>{t.credentials}<span>{count(state.credentials?.length ?? 0)}</span></h2>
+        <h2>{t.credentials}<span>{count(credentials.length)}</span></h2>
         <IconButton label={t.addCredential} onPress={() => credentialForm()}>
           <Plus size={18} />
         </IconButton>
@@ -275,7 +345,7 @@ export function Upstreams() {
           t.status,
           t.actions,
         ]}
-        rows={(state.credentials ?? []).map((credential) => [
+        rows={credentials.map((credential) => [
           <div key="name">
             <p>{credential.name}</p>
             <p className="mt-1 text-xs text-default-500">
@@ -345,10 +415,85 @@ export function Upstreams() {
           />
         }
       />
+      <div className="rp-management-section-heading rp-management-section-spaced">
+        <h2>{b.section}<span>{count(backups.length)}</span></h2>
+        <div className="flex">
+          {backups.length > 0 && (
+            <IconButton label={b.refreshBalances} isLoading={refreshingBalances} onPress={() => void refreshBalances()}>
+              <RefreshCw size={16} />
+            </IconButton>
+          )}
+          {backups.length < 2 && (
+            <IconButton label={b.add} onPress={() => setBackupDialog({})}>
+              <Plus size={18} />
+            </IconButton>
+          )}
+        </div>
+      </div>
+      <p className="mb-4 max-w-3xl text-xs leading-6 text-default-500">{b.sectionHelp}</p>
+      <DataTable
+        caption={b.section}
+        columns={[t.provider, t.key, b.balance, b.order, t.rpm, t.proxy, t.status, t.actions]}
+        rows={backups.map((route, index) => [
+          <span key="vendor" className="font-medium">{route.name}</span>,
+          <code key="secret" className="text-xs">
+            {route.credential?.masked_key || t.emptyValue}
+          </code>,
+          <BackupBalanceCell key="balance" balance={balances[route.vendor]} loading={balancesLoading && !balances[route.vendor]} />,
+          <span key="order" className="tabular-nums">{index + 1}</span>,
+          count(route.credential?.rpm ?? 0),
+          state.proxies?.find((p) => p.id === route.credential?.proxy_id)?.name || t.direct,
+          <Status key="enabled" enabled={!!route.credential?.enabled && route.endpoint.enabled} />,
+          <div key="actions" className="flex">
+            <IconButton label={t.edit} onPress={() => setBackupDialog({ backup: route })}>
+              <Edit3 size={16} />
+            </IconButton>
+            <IconButton
+              label={route.credential?.enabled && route.endpoint.enabled ? t.disable : t.enable}
+              isLoading={busy === route.endpoint.id}
+              onPress={() => void toggleBackup(route)}
+            >
+              <Power size={16} />
+            </IconButton>
+          </div>,
+        ])}
+        empty={
+          <Empty
+            title={b.emptyTitle}
+            body={b.emptyBody}
+            action={
+              <Button variant="flat" onPress={() => setBackupDialog({})}>
+                {b.add}
+              </Button>
+            }
+          />
+        }
+      />
+      <div className="rp-console-inline-note">
+        <LifeBuoy size={19} strokeWidth={1.6} />
+        <div>
+          <h2>{b.noteTitle}</h2>
+          <p>{b.scopeNote} {b.spendNote}</p>
+        </div>
+      </div>
+      {backupDialog && (
+        <BackupForm
+          backup={backupDialog.backup}
+          configured={backups.map((route) => route.vendor)}
+          proxies={state.proxies || []}
+          onClose={() => setBackupDialog(null)}
+          onSave={async (body) => {
+            await api("/api/admin/backups", body);
+            await refresh();
+            void fetchBalances(false).catch(() => undefined);
+            addToast({ title: b.savedToast, color: "success" });
+          }}
+        />
+      )}
       {credentialDialog && (
         <CredentialForm
           credential={credentialDialog.credential}
-          endpoints={state.endpoints || []}
+          endpoints={endpoints}
           proxies={state.proxies || []}
           onClose={() => setCredentialDialog(null)}
           onSave={(body) => save("credentials", body)}
@@ -369,6 +514,35 @@ export function Upstreams() {
         />
       )}
     </>
+  );
+}
+// The latest vendor balance of one backup: the account balance when a
+// management key is saved, and an OpenRouter key's own remaining cap.
+function BackupBalanceCell({ balance, loading }: { balance?: BackupBalance; loading: boolean }) {
+  if (loading) return <Skeleton className="h-4 w-20 rounded-sm" />;
+  if (!balance) return <span className="text-default-400">{t.emptyValue}</span>;
+  const updated = b.balanceUpdated.replace(
+    "{time}",
+    new Date(balance.checked_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+  );
+  const keyLimit =
+    balance.key_limit_remaining_micros !== undefined
+      ? b.keyLimitLeft.replace("{amount}", money(balance.key_limit_remaining_micros))
+      : "";
+  if (balance.error)
+    return <p className="w-56 whitespace-normal text-xs leading-5 text-warning-700 dark:text-warning-400">{balance.error}</p>;
+  if (balance.balance_micros === undefined)
+    return (
+      <div className="w-56 whitespace-normal text-xs leading-5 text-default-500">
+        {keyLimit && <p className="text-sm text-foreground tabular-nums">{keyLimit}</p>}
+        <p>{b.balanceNeedsKey}</p>
+      </div>
+    );
+  return (
+    <div className="tabular-nums">
+      <p>{money(balance.balance_micros)}</p>
+      <p className="mt-1 text-xs text-default-500">{keyLimit || updated}</p>
+    </div>
   );
 }
 export function Proxies() {
@@ -849,8 +1023,8 @@ export function Models() {
       {updatingPrices && <ModelPriceUpdate onClose={() => setUpdatingPrices(false)} onUpdated={() => refresh({ throwOnError: true })} />}
       {importing && (
         <ModelImport
-          credentials={state.credentials || []}
-          endpoints={state.endpoints || []}
+          credentials={(state.credentials || []).filter((credential) => !isBackup(state.endpoints?.find((endpoint) => endpoint.id === credential.endpoint_id)))}
+          endpoints={(state.endpoints || []).filter((endpoint) => !isBackup(endpoint))}
           models={state.models}
           onClose={() => setImporting(false)}
           onCredentialSaved={refresh}
@@ -1033,6 +1207,10 @@ export function Routing() {
           <div className="rp-console-routing-note">
             <Network size={16} strokeWidth={1.6} />
             <p>{t.routingNote}</p>
+          </div>
+          <div className="rp-console-routing-note mt-4">
+            <LifeBuoy size={16} strokeWidth={1.6} />
+            <p>{b.routingBody}</p>
           </div>
         </aside>
         <div className="rp-console-routing-submit">

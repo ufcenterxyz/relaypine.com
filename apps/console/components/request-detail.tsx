@@ -36,6 +36,7 @@ import type {
   RequestPayload,
 } from "@/lib/types";
 import { useConsole } from "./console-provider";
+import { RouteTrail } from "./route-trail";
 import { CopyButton, Empty, ErrorBox } from "./shared";
 
 export const requestCharge = (request: RequestLog) =>
@@ -296,6 +297,7 @@ function OverviewPanel({
           )}
         </section>
       </div>
+      <RouteTrail request={request} />
     </>
   );
 }

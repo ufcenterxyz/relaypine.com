@@ -18,12 +18,15 @@ import (
 	"github.com/redis/go-redis/v9"
 	"relaypine.com/gateway/internal/domain"
 	"relaypine.com/gateway/internal/pricing"
+	"relaypine.com/gateway/internal/relay"
 	"relaypine.com/gateway/internal/store"
 )
 
 type Server struct {
-	EmailAuth            *EmailAuth
-	PricingFetcher       func(context.Context, []string) pricing.Catalog
+	EmailAuth      *EmailAuth
+	PricingFetcher func(context.Context, []string) pricing.Catalog
+	// BackupBalanceFetcher replaces vendor balance reads in tests.
+	BackupBalanceFetcher func(ctx context.Context, vendor, secret, managementKey, proxyURL string) relay.BackupBalance
 	Store                *store.Store
 	Redis                *redis.Client
 	Relay                http.Handler
@@ -96,6 +99,8 @@ func (s *Server) report(w http.ResponseWriter, err error) {
 		fail(w, 409, "conflict", "This operation conflicts with the current state.")
 	case errors.Is(err, store.ErrInvalidWorkspaceID):
 		fail(w, 400, "invalid_workspace_id", "Use a workspace ID beginning with wrkspc_ followed by letters or digits, up to 128 characters total. Leave it empty for a workspace-scoped API key.")
+	case errors.Is(err, store.ErrBackupManaged):
+		fail(w, 400, "backup_managed", "OpenRouter and ZenMux backups are managed in the Backup routes section of Upstreams.")
 	case errors.Is(err, store.ErrWorkspaceProviderMismatch):
 		fail(w, 400, "workspace_provider_mismatch", "Workspace IDs are supported only for Anthropic endpoints. Clear the workspace ID or choose an Anthropic endpoint.")
 	default:
@@ -280,6 +285,12 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 		write(w, 200, value)
 	case "/api/admin/credentials/discover":
 		s.discoverCredential(w, r, user)
+	case "/api/admin/backups":
+		s.saveBackup(w, r)
+	case "/api/admin/backups/check":
+		s.checkBackup(w, r, user)
+	case "/api/admin/backups/balances":
+		s.backupBalances(w, r, user)
 	case "/api/admin/credentials":
 		var input credentialInput
 		if read(r, &input) != nil || input.EndpointID == "" || len(input.SecretValue) > 4096 || strings.ContainsAny(input.SecretValue, "\r\n\x00") {

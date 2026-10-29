@@ -130,6 +130,19 @@ func Open(ctx context.Context, dsn, masterKey string, config Config) (*Store, er
 			return nil, err
 		}
 	}
+	// Attempts record why an upstream refused a request that then moved to
+	// another route. Older single-attempt rows keep an empty code.
+	var attemptErrorColumn int
+	if err = conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='attempts' AND column_name='error_code'").Scan(&attemptErrorColumn); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if attemptErrorColumn == 0 {
+		if _, err = conn.ExecContext(ctx, "ALTER TABLE attempts ADD COLUMN error_code VARCHAR(128) NOT NULL DEFAULT '' AFTER cost_micros"); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	defaults := []domain.Endpoint{{ID: "openai-official", Name: "OpenAI official", Provider: "openai", BaseURL: "https://api.openai.com", AuthMode: "bearer", Enabled: true, Models: []string{}}, {ID: "anthropic-official", Name: "Anthropic official", Provider: "anthropic", BaseURL: "https://api.anthropic.com", AuthMode: "x-api-key", Enabled: true, Models: []string{}}}
 	for _, endpoint := range defaults {
 		raw, _ := json.Marshal(endpoint)

@@ -59,6 +59,12 @@ func (s *Server) previewModelPrices(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "credential_unavailable", "Choose an enabled saved credential and upstream.")
 			return
 		}
+		if chosen.IsBackup() {
+			// A backup serves existing models under its own catalog names; the
+			// catalog itself comes from official or compatible upstreams.
+			fail(w, 400, "credential_unavailable", "Import models from an official or compatible upstream. Backup routes serve models that already exist.")
+			return
+		}
 		endpoints = []domain.Endpoint{chosen}
 		seen := map[string]bool{}
 		for i := range models {

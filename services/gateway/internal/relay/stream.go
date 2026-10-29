@@ -15,6 +15,9 @@ import (
 
 const maxFrameBytes = 1 << 20
 
+// Anthropic stream usage fields that only grow during a message.
+var cumulativeTokens = map[string]bool{"input_tokens": true, "output_tokens": true, "cache_read_input_tokens": true, "cache_creation_input_tokens": true}
+
 type streamTracker struct {
 	usage             domain.Usage
 	anthropic         map[string]json.RawMessage
@@ -57,6 +60,16 @@ func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
 			t.anthropic = map[string]json.RawMessage{}
 		}
 		for k, v := range u {
+			// Later events carry cumulative totals. Compatible providers repeat
+			// every count in message_delta, so a zero placeholder there must not
+			// erase the input already reported by message_start.
+			if cumulativeTokens[k] {
+				previous, known := integer(t.anthropic[k])
+				next, valid := integer(v)
+				if known && valid && next < previous {
+					continue
+				}
+			}
 			t.anthropic[k] = v
 		}
 		raw, _ := json.Marshal(t.anthropic)

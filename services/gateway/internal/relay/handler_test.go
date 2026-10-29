@@ -30,6 +30,8 @@ type fakeRepo struct {
 	payloads                map[string]domain.RequestPayload
 	resources               map[string]domain.Resource
 	reserveError, saveError error
+	reroutes                []domain.Reroute
+	rerouteErrors           map[string]error
 }
 
 func (f *fakeRepo) ListEndpoints(context.Context) ([]domain.Endpoint, error) { return f.endpoints, nil }
@@ -52,6 +54,15 @@ func (f *fakeRepo) Reserve(_ context.Context, v domain.Reservation) error {
 		return f.reserveError
 	}
 	f.reservations = append(f.reservations, v)
+	return nil
+}
+func (f *fakeRepo) Reroute(_ context.Context, _ string, v domain.Reroute) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.rerouteErrors[v.ToCredentialID]; err != nil {
+		return err
+	}
+	f.reroutes = append(f.reroutes, v)
 	return nil
 }
 func (f *fakeRepo) Settle(_ context.Context, _ string, v domain.Settlement) error {
@@ -92,6 +103,7 @@ type fakeLimiter struct {
 	loads              map[string]float64
 	denied             map[string]bool
 	acquired, released int
+	cooled             map[string]time.Duration
 }
 
 func (l *fakeLimiter) load(_ context.Context, b []limits) (float64, error) {
@@ -111,8 +123,16 @@ func (l *fakeLimiter) acquire(_ context.Context, _ string, b []limits, _ int64) 
 	l.acquired++
 	return nil
 }
-func (l *fakeLimiter) release(context.Context, string, []limits) error     { l.released++; return nil }
-func (l *fakeLimiter) cool(context.Context, []limits, time.Duration) error { return nil }
+func (l *fakeLimiter) release(context.Context, string, []limits) error { l.released++; return nil }
+func (l *fakeLimiter) cool(_ context.Context, b []limits, d time.Duration) error {
+	if l.cooled == nil {
+		l.cooled = map[string]time.Duration{}
+	}
+	for _, v := range b {
+		l.cooled[v.scope] = d
+	}
+	return nil
+}
 
 func fixture(provider, url string) (*Handler, *fakeRepo) {
 	f := &fakeRepo{key: domain.AccessKey{ID: "access", TenantID: "tenant", ProjectID: "project", Enabled: true, RPM: 60}, models: []domain.Model{{ID: "model", Name: "Test Model", UpstreamModel: "upstream-model", Provider: provider, Enabled: true, InputRate: 1000000, OutputRate: 2000000, CachedRate: 500000, CacheWriteRate: 1250000, CostInputRate: 500000, CostOutputRate: 1000000, CostCachedRate: 250000, CostCacheWriteRate: 625000, MaxOutputTokens: 128, Version: 1}}, endpoints: []domain.Endpoint{{ID: "endpoint", Provider: provider, BaseURL: url, Enabled: true}}, credentials: []domain.Credential{{ID: "credential", EndpointID: "endpoint", Secret: "upstream-secret", Enabled: true, RPM: 60, TPM: 100000, MaxConcurrency: 5, BudgetMicros: 100000000}}, resources: map[string]domain.Resource{}}

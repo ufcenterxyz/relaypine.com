@@ -160,7 +160,29 @@ func (s *Store) listRequests(ctx context.Context, user domain.User) ([]domain.Re
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err = rows.Err(); err != nil || !user.Operator {
+		return out, err
+	}
+	return out, s.attachAttempts(ctx, out)
+}
+
+// attachAttempts adds the upstream trail to administrator views of requests
+// that were rerouted. Customers never see which upstreams were tried.
+func (s *Store) attachAttempts(ctx context.Context, requests []domain.Request) error {
+	ids := make([]string, len(requests))
+	for i, r := range requests {
+		ids[i] = r.ID
+	}
+	trails, err := s.listAttempts(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for i := range requests {
+		if trail := trails[requests[i].ID]; len(trail) > 1 {
+			requests[i].Attempts = trail
+		}
+	}
+	return nil
 }
 func (s *Store) listLedger(ctx context.Context, tenant string) ([]domain.LedgerEntry, error) {
 	rows, err := s.DB.QueryContext(ctx, "SELECT id,tenant_id,kind,amount_micros,reference,reason,created_at FROM ledger_entries WHERE tenant_id=? ORDER BY created_at DESC LIMIT 100", tenant)

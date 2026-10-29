@@ -51,6 +51,12 @@ type Endpoint struct {
 	AuthMode string   `json:"auth_mode"`
 	Enabled  bool     `json:"enabled"`
 	Models   []string `json:"models"`
+	// Role is empty for primary endpoints and RoleBackup for a vendor backup.
+	Role   string `json:"role,omitempty"`
+	Vendor string `json:"vendor,omitempty"`
+	// ManagementKey reports that a backup has a saved vendor management key,
+	// used only to read the account balance. The key itself is never exposed.
+	ManagementKey bool `json:"management_key,omitempty"`
 }
 type Credential struct {
 	ID             string `json:"id"`
@@ -161,6 +167,26 @@ type Request struct {
 	LatencyMS      int64     `json:"latency_ms"`
 	ErrorCode      string    `json:"error_code,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
+	// Attempts lists every upstream tried, oldest first. It is returned only to
+	// the administrator, and only when the request was rerouted.
+	Attempts []Attempt `json:"attempts,omitempty"`
+}
+
+// Attempt is one upstream call made for a request.
+type Attempt struct {
+	CredentialID string `json:"credential_id"`
+	Status       string `json:"status"`
+	ErrorCode    string `json:"error_code,omitempty"`
+}
+
+// Reroute moves an in-flight request to another upstream after its current
+// attempt was definitively rejected before producing output. The rejected
+// attempt carries no upstream cost; the customer reservation is unchanged.
+type Reroute struct {
+	FromCredentialID string
+	ToCredentialID   string
+	CostReserve      int64
+	ErrorCode        string
 }
 
 // RequestPayload is a bounded copy of one relayed exchange for inspection: the

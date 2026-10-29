@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"relaypine.com/gateway/internal/domain"
 	"relaypine.com/gateway/internal/pricing"
@@ -18,7 +19,13 @@ var (
 	ErrInvalidWorkspaceID        = errors.New("invalid Anthropic workspace ID")
 	ErrWorkspaceProviderMismatch = errors.New("workspace selection requires an Anthropic endpoint")
 	ErrInvalidModelBatch         = errors.New("invalid model import batch")
+	// ErrBackupManaged keeps generic endpoint and credential edits away from
+	// vendor backups, whose addresses and routing role are fixed presets.
+	ErrBackupManaged = errors.New("backup routes are managed in the backup settings")
 )
+
+// Backup endpoint and credential IDs are reserved for SaveBackup.
+const backupIDPrefix = "backup-"
 
 const MaxModelImportItems = 400
 
@@ -121,6 +128,9 @@ func (s *Store) SaveEndpoint(ctx context.Context, e domain.Endpoint) (domain.End
 	if e.ID == "" {
 		e.ID = newID("end_")
 	}
+	if e.Role != "" || e.Vendor != "" || strings.HasPrefix(e.ID, backupIDPrefix) {
+		return e, ErrBackupManaged
+	}
 	if e.Provider != "openai" && e.Provider != "anthropic" {
 		return e, errors.New("unsupported provider")
 	}
@@ -160,28 +170,128 @@ func (s *Store) SaveEndpoint(ctx context.Context, e domain.Endpoint) (domain.End
 	return e, dbError(err)
 }
 func (s *Store) SaveCredential(ctx context.Context, c domain.Credential) (domain.Credential, error) {
-	c.WorkspaceID = strings.TrimSpace(c.WorkspaceID)
-	if !domain.ValidAnthropicWorkspaceID(c.WorkspaceID) {
-		return c, ErrInvalidWorkspaceID
-	}
 	if c.ID == "" {
 		c.ID = newID("cred_")
 	}
-	if !validID(c.ID) || !validID(c.EndpointID) || !validName(c.Name) || len(c.Secret) > 8192 || c.RPM < 1 || c.RPM > 1000000 || c.TPM < 0 || c.TPM > 1000000000 || c.MaxConcurrency < 1 || c.MaxConcurrency > 10000 || c.BudgetMicros < 0 || c.BudgetMicros > 9000000000000000 || len(c.QuotaGroup) > 128 {
-		return c, errors.New("invalid credential configuration")
+	if strings.HasPrefix(c.ID, backupIDPrefix) {
+		return c, ErrBackupManaged
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return c, err
 	}
 	defer tx.Rollback()
+	if c, err = s.saveCredentialTx(ctx, tx, c, false); err != nil {
+		return c, err
+	}
+	return c, tx.Commit()
+}
+
+// SaveBackup creates or updates a vendor's backup route, one endpoint and one
+// credential, in a single transaction. The endpoint address, routing role,
+// name and quota group come from the vendor preset. An empty secret keeps the
+// stored key; enabled applies to both rows. management changes the optional
+// vendor management key used only to read the account balance: nil keeps it,
+// an empty value removes it.
+func (s *Store) SaveBackup(ctx context.Context, vendorID string, c domain.Credential, enabled bool, management *string) (domain.Credential, error) {
+	vendor, ok := domain.FindBackupVendor(vendorID)
+	if !ok {
+		return c, errors.New("unsupported backup vendor")
+	}
+	if management != nil && (len(*management) > 4096 || strings.ContainsAny(*management, "\r\n\x00")) {
+		return c, errors.New("invalid management key")
+	}
+	e := domain.Endpoint{ID: domain.BackupEndpointID(vendor.ID), Name: vendor.Name, BaseURL: vendor.OpenAIBaseURL, AuthMode: "bearer", Enabled: enabled, Models: []string{}, Role: domain.RoleBackup, Vendor: vendor.ID}
+	c.ID, c.EndpointID, c.Name, c.QuotaGroup = domain.BackupCredentialID(vendor.ID), e.ID, vendor.Name+" backup", "backup:"+vendor.ID
+	c.WorkspaceID, c.Enabled = "", enabled
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return c, err
+	}
+	defer tx.Rollback()
+	var oldRaw []byte
+	err = tx.QueryRowContext(ctx, "SELECT config FROM endpoints WHERE id=? FOR UPDATE", e.ID).Scan(&oldRaw)
+	if err == nil {
+		var old domain.Endpoint
+		if err = json.Unmarshal(oldRaw, &old); err != nil {
+			return c, err
+		}
+		if !old.IsBackup() || old.Vendor != vendor.ID {
+			return c, ErrConflict
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return c, err
+	}
+	if management != nil && *management == "" {
+		if _, err = tx.ExecContext(ctx, "DELETE FROM backup_management_keys WHERE vendor=?", vendor.ID); err != nil {
+			return c, err
+		}
+	} else if management != nil {
+		sealed, err := s.encrypt(*management, managementScope+vendor.ID)
+		if err != nil {
+			return c, err
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO backup_management_keys(vendor,encrypted_key,updated_at) VALUES(?,?,?) ON DUPLICATE KEY UPDATE encrypted_key=VALUES(encrypted_key),updated_at=VALUES(updated_at)", vendor.ID, sealed, time.Now().UTC()); err != nil {
+			return c, err
+		}
+	}
+	var keys int
+	if err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM backup_management_keys WHERE vendor=?", vendor.ID).Scan(&keys); err != nil {
+		return c, err
+	}
+	e.ManagementKey = keys > 0
+	raw, err := json.Marshal(e)
+	if err != nil {
+		return c, err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO endpoints(id,config) VALUES(?,?) ON DUPLICATE KEY UPDATE config=VALUES(config)", e.ID, raw); err != nil {
+		return c, dbError(err)
+	}
+	if c, err = s.saveCredentialTx(ctx, tx, c, true); err != nil {
+		return c, err
+	}
+	return c, tx.Commit()
+}
+
+// Management keys are sealed under their vendor, so a row copied to another
+// vendor cannot be opened.
+const managementScope = "backup-management:"
+
+// BackupManagementKey returns a vendor's saved management key, or an empty
+// string when none is saved.
+func (s *Store) BackupManagementKey(ctx context.Context, vendor string) (string, error) {
+	var sealed []byte
+	err := s.DB.QueryRowContext(ctx, "SELECT encrypted_key FROM backup_management_keys WHERE vendor=?", vendor).Scan(&sealed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return s.decrypt(sealed, managementScope+vendor)
+}
+
+// saveCredentialTx validates and upserts a credential. backup states which kind
+// of endpoint the credential must belong to.
+func (s *Store) saveCredentialTx(ctx context.Context, tx *sql.Tx, c domain.Credential, backup bool) (domain.Credential, error) {
+	c.WorkspaceID = strings.TrimSpace(c.WorkspaceID)
+	if !domain.ValidAnthropicWorkspaceID(c.WorkspaceID) {
+		return c, ErrInvalidWorkspaceID
+	}
+	if !validID(c.ID) || !validID(c.EndpointID) || !validName(c.Name) || len(c.Secret) > 8192 || c.RPM < 1 || c.RPM > 1000000 || c.TPM < 0 || c.TPM > 1000000000 || c.MaxConcurrency < 1 || c.MaxConcurrency > 10000 || c.BudgetMicros < 0 || c.BudgetMicros > 9000000000000000 || len(c.QuotaGroup) > 128 {
+		return c, errors.New("invalid credential configuration")
+	}
 	var endpointRaw []byte
-	if err = tx.QueryRowContext(ctx, "SELECT config FROM endpoints WHERE id=? FOR SHARE", c.EndpointID).Scan(&endpointRaw); err != nil {
+	err := tx.QueryRowContext(ctx, "SELECT config FROM endpoints WHERE id=? FOR SHARE", c.EndpointID).Scan(&endpointRaw)
+	if err != nil {
 		return c, dbError(err)
 	}
 	var endpoint domain.Endpoint
 	if err = json.Unmarshal(endpointRaw, &endpoint); err != nil {
 		return c, err
+	}
+	if endpoint.IsBackup() != backup {
+		return c, ErrBackupManaged
 	}
 	if c.WorkspaceID != "" && endpoint.Provider != "anthropic" {
 		return c, ErrWorkspaceProviderMismatch
@@ -228,7 +338,7 @@ func (s *Store) SaveCredential(ctx context.Context, c domain.Credential) (domain
 	if err != nil {
 		return c, dbError(err)
 	}
-	return c, tx.Commit()
+	return c, nil
 }
 func maskSecret(value string) string {
 	if len(value) <= 8 {
