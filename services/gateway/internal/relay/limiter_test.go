@@ -86,7 +86,7 @@ func TestRedisAtomicSharedCapacity(t *testing.T) {
 			if i%2 == 0 {
 				credential.scope = prefix + ":b"
 			}
-			err := l.acquire(ctx, id, []limits{tenant, credential, group}, 100)
+			_, err := l.acquire(ctx, id, []limits{tenant, credential, group}, 100)
 			if err == nil {
 				accepted.Add(1)
 				lock.Lock()
@@ -122,21 +122,21 @@ func TestRedisAtomicSharedCapacity(t *testing.T) {
 	if err := l.cool(ctx, []limits{group}, time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.acquire(ctx, requestID(), []limits{group}, 1); !errors.Is(err, errCapacity) {
+	if _, err := l.acquire(ctx, requestID(), []limits{group}, 1); !errors.Is(err, errCapacity) {
 		t.Fatalf("cooldown ignored: %v", err)
 	}
 	tokens := limits{scope: prefix + ":tokens", tpm: 20}
-	if err := l.acquire(ctx, requestID(), []limits{tokens}, 13); err != nil {
+	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 13); err != nil {
 		t.Fatal(err)
 	}
-	if err := l.acquire(ctx, requestID(), []limits{tokens}, 8); !errors.Is(err, errCapacity) {
+	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 8); !errors.Is(err, errCapacity) {
 		t.Fatalf("TPM limit ignored: %v", err)
 	}
 	// Expired process leases are removed before admission; crashed gateways cannot
 	// permanently lock the shared group.
 	_ = client.Del(ctx, keys[3]).Err()
 	_ = client.ZAdd(ctx, keys[2], redis.Z{Score: float64(time.Now().Add(-time.Second).UnixMilli()), Member: "expired"}).Err()
-	if err := l.acquire(ctx, requestID(), []limits{group}, 1); err != nil {
+	if _, err := l.acquire(ctx, requestID(), []limits{group}, 1); err != nil {
 		t.Fatalf("stale lease blocked admission: %v", err)
 	}
 }

@@ -21,8 +21,13 @@ type limits struct {
 }
 type routeLimiter interface {
 	load(context.Context, []limits) (float64, error)
-	acquire(context.Context, string, []limits, int64) error
+	// acquire admits a request in every bucket and returns the one-minute
+	// window its estimated tokens were charged to.
+	acquire(context.Context, string, []limits, int64) (int64, error)
 	release(context.Context, string, []limits) error
+	// adjust moves the tokens charged to a window by delta, never below zero,
+	// so an estimate becomes the tokens a request actually used.
+	adjust(context.Context, []limits, int64, int64) error
 	cool(context.Context, []limits, time.Duration) error
 }
 type redisLimiter struct{ client *redis.Client }
@@ -31,9 +36,15 @@ func redisKey(scope string) string {
 	h := sha256.Sum256([]byte(scope))
 	return "relay:" + hex.EncodeToString(h[:16])
 }
+func window(now time.Time) int64 { return now.Unix() / 60 }
+
+func tpmKey(scope string, w int64) string {
+	return redisKey(scope) + ":tpm:" + strconv.FormatInt(w, 10)
+}
+
 func bucketKeys(scope string, now time.Time) []string {
 	k := redisKey(scope)
-	minute := strconv.FormatInt(now.Unix()/60, 10)
+	minute := strconv.FormatInt(window(now), 10)
 	return []string{k + ":rpm:" + minute, k + ":tpm:" + minute, k + ":active", k + ":cool"}
 }
 
@@ -57,9 +68,9 @@ for i=1,#KEYS,4 do
 end
 return 1`)
 
-func (l *redisLimiter) acquire(ctx context.Context, id string, buckets []limits, tokens int64) error {
+func (l *redisLimiter) acquire(ctx context.Context, id string, buckets []limits, tokens int64) (int64, error) {
 	if l.client == nil {
-		return errors.New("limiter unavailable")
+		return 0, errors.New("limiter unavailable")
 	}
 	now := time.Now()
 	keys := []string{}
@@ -70,12 +81,40 @@ func (l *redisLimiter) acquire(ctx context.Context, id string, buckets []limits,
 	}
 	n, err := acquireScript.Run(ctx, l.client, keys, args...).Int()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if n != 1 {
-		return errCapacity
+		return 0, errCapacity
 	}
-	return nil
+	return window(now), nil
+}
+
+// A window whose counter has expired is left alone: its minute is over and no
+// later admission reads it. A refund never takes a counter below zero.
+var adjustScript = redis.NewScript(`
+local delta=tonumber(ARGV[1])
+for i=1,#KEYS do
+  local value=redis.call('GET',KEYS[i])
+  if value then
+    local next=tonumber(value)+delta
+    if next<0 then next=0 end
+    redis.call('SET',KEYS[i],next,'KEEPTTL')
+  end
+end
+return 1`)
+
+func (l *redisLimiter) adjust(ctx context.Context, buckets []limits, w, delta int64) error {
+	if l.client == nil {
+		return errors.New("limiter unavailable")
+	}
+	if delta == 0 || len(buckets) == 0 {
+		return nil
+	}
+	keys := make([]string, len(buckets))
+	for i, b := range buckets {
+		keys[i] = tpmKey(b.scope, w)
+	}
+	return adjustScript.Run(ctx, l.client, keys, delta).Err()
 }
 func (l *redisLimiter) release(ctx context.Context, id string, buckets []limits) error {
 	if l.client == nil {

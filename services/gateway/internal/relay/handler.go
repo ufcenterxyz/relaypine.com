@@ -297,6 +297,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // sharedLimits are the tenant and access-key limits. Every attempt of one
 // request holds them once; each route adds its own credential limits.
+// tokenHold is where an estimate was charged: a set of buckets in one window.
+type tokenHold struct {
+	buckets []limits
+	window  int64
+}
+
+// adjustTokens moves an estimate charged to a hold by delta.
+func (h *Handler) adjustTokens(hold tokenHold, delta int64) {
+	if len(hold.buckets) == 0 || delta == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = h.limiter.adjust(ctx, hold.buckets, hold.window, delta)
+}
+
+// usedTokens are the tokens a request consumed, in the units of its estimate:
+// cache reads and writes count, and an image tool's tokens belong to the image
+// model rather than to this request's estimate.
+func usedTokens(p plan, u domain.Usage) int64 {
+	n := u.InputTokens + u.CachedTokens + u.CacheWriteTokens + u.OutputTokens
+	if p.imageTool == nil {
+		n += u.ImageInputTokens + u.ImageOutputTokens + u.ImageTextTokens
+	}
+	return n
+}
+
 func sharedLimits(p plan, config domain.RouteConfig) []limits {
 	return []limits{{"tenant:" + p.key.TenantID, config.TenantRPM, 0, config.TenantConcurrency}, {"access:" + p.key.ID, p.key.RPM, 0, 0}}
 }
@@ -315,6 +342,10 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 	var current *candidate
 	var held []limits
 	var last attempt
+	// The estimate is charged to the shared buckets once and to each route
+	// that admits the request; settlement turns it into the tokens used.
+	estimate := p.input + p.output
+	var sharedTokens, routeTokens tokenHold
 	var capacityErr error
 	var untrackedBudget bool
 	failedEndpoints := map[string]bool{}
@@ -330,6 +361,12 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 	defer func() {
 		if current != nil {
 			_ = release(held)
+			// An unknown total keeps the estimate, which is an upper bound.
+			if u := last.settlement.Usage; u.Known {
+				delta := usedTokens(p, u) - estimate
+				h.adjustTokens(sharedTokens, delta)
+				h.adjustTokens(routeTokens, delta)
+			}
 		}
 	}()
 	defer func() {
@@ -368,7 +405,7 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 			_ = release(held[len(shared):])
 			held = shared
 		}
-		err := h.limiter.acquire(ctx, p.requestID, buckets, p.input+p.output)
+		charged, err := h.limiter.acquire(ctx, p.requestID, buckets, estimate)
 		if errors.Is(err, errCapacity) {
 			capacityErr = err
 			continue
@@ -388,7 +425,9 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 		}
 		if err != nil {
 			// No upstream call has been made on this route, and a rejected money
-			// transaction holds nothing. Release it before trying another budget.
+			// transaction holds nothing. Release it, and the tokens it was charged,
+			// before trying another budget.
+			h.adjustTokens(tokenHold{buckets, charged}, -estimate)
 			if releaseErr := release(buckets); releaseErr != nil && current == nil {
 				fail(w, 503, "limiter_unavailable", "Unable to release route capacity")
 				return
@@ -411,7 +450,9 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 		}
 		if current == nil {
 			started = time.Now()
+			sharedTokens = tokenHold{shared, charged}
 		}
+		routeTokens = tokenHold{c.buckets, charged}
 		current = c
 		held = append(append([]limits{}, shared...), c.buckets...)
 		attempts++
@@ -419,6 +460,9 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 		if !last.retry {
 			return
 		}
+		// The refused route ran no inference: return its whole estimate.
+		h.adjustTokens(routeTokens, -estimate)
+		routeTokens = tokenHold{}
 		if last.endpointWide {
 			failedEndpoints[c.endpoint.ID] = true
 		}

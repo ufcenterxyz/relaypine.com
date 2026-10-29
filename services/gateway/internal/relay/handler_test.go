@@ -104,6 +104,9 @@ type fakeLimiter struct {
 	denied             map[string]bool
 	acquired, released int
 	cooled             map[string]time.Duration
+	// charged and adjusted record token estimates and their corrections by
+	// bucket scope; every acquisition charges window 42.
+	charged, adjusted map[string]int64
 }
 
 func (l *fakeLimiter) load(_ context.Context, b []limits) (float64, error) {
@@ -114,14 +117,41 @@ func (l *fakeLimiter) load(_ context.Context, b []limits) (float64, error) {
 	}
 	return 0, nil
 }
-func (l *fakeLimiter) acquire(_ context.Context, _ string, b []limits, _ int64) error {
+func (l *fakeLimiter) acquire(_ context.Context, _ string, b []limits, tokens int64) (int64, error) {
 	for _, v := range b {
 		if l.denied[v.scope] {
-			return errCapacity
+			return 0, errCapacity
 		}
 	}
 	l.acquired++
+	if l.charged == nil {
+		l.charged = map[string]int64{}
+	}
+	for _, v := range b {
+		l.charged[v.scope] += tokens
+	}
+	return 42, nil
+}
+func (l *fakeLimiter) adjust(_ context.Context, b []limits, window, delta int64) error {
+	if window != 42 {
+		panic("adjusted a window that was never charged")
+	}
+	if l.adjusted == nil {
+		l.adjusted = map[string]int64{}
+	}
+	for _, v := range b {
+		l.adjusted[v.scope] += delta
+	}
 	return nil
+}
+
+// netTokens is what each bucket holds after settlement.
+func (l *fakeLimiter) netTokens() map[string]int64 {
+	net := map[string]int64{}
+	for scope, tokens := range l.charged {
+		net[scope] = tokens + l.adjusted[scope]
+	}
+	return net
 }
 func (l *fakeLimiter) release(context.Context, string, []limits) error { l.released++; return nil }
 func (l *fakeLimiter) cool(_ context.Context, b []limits, d time.Duration) error {
