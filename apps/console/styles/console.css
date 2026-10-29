@@ -605,6 +605,12 @@
   font-size: 12px;
   font-weight: 500;
 }
+.rp-console-endpoint small {
+  margin-left: 8px;
+  font-size: inherit;
+  font-weight: 400;
+  color: var(--rp-muted);
+}
 .rp-console-endpoint button {
   width: 34px;
   height: 34px;

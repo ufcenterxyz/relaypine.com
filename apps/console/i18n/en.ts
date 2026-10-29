@@ -121,6 +121,12 @@ export const en = {
   integrationTitle: "Connect with native SDKs",
   integrationBody:
     "Set RELAYPINE_API_KEY to a key created in the console. Replace MODEL_ID with an enabled model ID from Models & rates.",
+  integrationBodyModels:
+    "Set RELAYPINE_API_KEY to a key created in the console. The example uses one of your enabled models; Models & rates lists them all.",
+  integrationModels: "{models} available on this API.",
+  integrationNoModels: "No models are available on this API yet.",
+  modelCountOne: "1 model",
+  modelCount: "{count} models",
   integrationCode: "Integration example",
   openai: "OpenAI",
   anthropic: "Anthropic",

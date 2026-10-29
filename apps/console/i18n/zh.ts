@@ -117,6 +117,12 @@ export const zh: Copy = {
   integrationTitle: "使用原生 SDK 接入",
   integrationBody:
     "将 RELAYPINE_API_KEY 设为控制台创建的密钥，将 MODEL_ID 替换为“模型与费率”中的已启用模型 ID。",
+  integrationBodyModels:
+    "将 RELAYPINE_API_KEY 设为控制台创建的密钥。示例用的是一个已启用的模型，全部模型见“模型与费率”。",
+  integrationModels: "这个 API 有 {models}可用。",
+  integrationNoModels: "这个 API 暂时没有可用模型。",
+  modelCountOne: "1 个模型",
+  modelCount: "{count} 个模型",
   integrationCode: "接入示例",
   openai: "OpenAI",
   anthropic: "Anthropic",

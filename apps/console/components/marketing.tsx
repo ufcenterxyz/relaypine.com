@@ -25,18 +25,64 @@ import { en as t } from "@/i18n/en";
 import { marketing as m } from "@/i18n/marketing-en";
 import { authEn as w } from "@/i18n/auth-en";
 import { GITHUB_REPOSITORY_URL } from "@/config/links";
+import { count } from "@/lib/api";
+import type { Model } from "@/lib/types";
 import { RoutingDemo } from "./routing-demo";
 import { AuthModal } from "./auth-modal";
 import { Brand, ThemeToggle, CodeBlock } from "./shared";
 
-export function sdkCode(provider: string) {
+export function sdkCode(provider: string, model = "MODEL_ID") {
   return provider === "openai"
-    ? `import OpenAI from "openai";\n\nconst client = new OpenAI({\n  apiKey: process.env.RELAYPINE_API_KEY,\n  baseURL: "https://relaypine.com/openai/v1",\n});\n\nconst response = await client.responses.create({\n  model: "MODEL_ID",\n  input: "Hello from RelayPine",\n});`
-    : `import Anthropic from "@anthropic-ai/sdk";\n\nconst client = new Anthropic({\n  apiKey: process.env.RELAYPINE_API_KEY,\n  baseURL: "https://relaypine.com/anthropic",\n});\n\nconst response = await client.messages.create({\n  model: "MODEL_ID",\n  max_tokens: 1024,\n  messages: [{ role: "user", content: "Hello" }],\n});`;
+    ? `import OpenAI from "openai";\n\nconst client = new OpenAI({\n  apiKey: process.env.RELAYPINE_API_KEY,\n  baseURL: "https://relaypine.com/openai/v1",\n});\n\nconst response = await client.responses.create({\n  model: "${model}",\n  input: "Hello from RelayPine",\n});`
+    : `import Anthropic from "@anthropic-ai/sdk";\n\nconst client = new Anthropic({\n  apiKey: process.env.RELAYPINE_API_KEY,\n  baseURL: "https://relaypine.com/anthropic",\n});\n\nconst response = await client.messages.create({\n  model: "${model}",\n  max_tokens: 1024,\n  messages: [{ role: "user", content: "Hello" }],\n});`;
 }
 
-export function Integration({ onClose }: { onClose: () => void }) {
-  const [provider, setProvider] = useState("openai");
+const sdkProviders = ["openai", "anthropic"] as const;
+export type SdkProvider = (typeof sdkProviders)[number];
+
+export function sdkLabel(provider: SdkProvider) {
+  return provider === "openai" ? t.openai : t.anthropic;
+}
+
+export function sdkBaseURL(appURL: string, provider: SdkProvider) {
+  return `${appURL}/${provider === "openai" ? "openai/v1" : "anthropic"}`;
+}
+
+// Each SDK base URL serves only its own provider's enabled models.
+export function sdkModels(models: Model[]): Record<SdkProvider, Model[]> {
+  const enabled = models.filter((model) => model.enabled);
+  return {
+    openai: enabled.filter((model) => model.provider === "openai"),
+    anthropic: enabled.filter((model) => model.provider === "anthropic"),
+  };
+}
+
+// APIs with models come first, so examples never start on an empty one.
+export function sdkOrder(
+  available?: Record<SdkProvider, Model[]>,
+): SdkProvider[] {
+  if (!available) return [...sdkProviders];
+  return [...sdkProviders].sort(
+    (a, b) => Number(available[b].length > 0) - Number(available[a].length > 0),
+  );
+}
+
+export function modelCount(n: number) {
+  return n === 1 ? t.modelCountOne : t.modelCount.replace("{count}", count(n));
+}
+
+// Signed-in pages pass the workspace's models so the example runs as shown.
+export function Integration({
+  onClose,
+  models,
+}: {
+  onClose: () => void;
+  models?: Model[];
+}) {
+  const available = models && sdkModels(models);
+  const order = sdkOrder(available);
+  const [provider, setProvider] = useState<SdkProvider>(order[0]);
+  const listed = available?.[provider];
   return (
     <Modal
       isOpen
@@ -54,20 +100,35 @@ export function Integration({ onClose }: { onClose: () => void }) {
         </ModalHeader>
         <ModalBody className="gap-4 pb-6">
           <p className="text-sm leading-6 text-default-500">
-            {t.integrationBody}
+            {listed?.length ? t.integrationBodyModels : t.integrationBody}
           </p>
           <Tabs
             role="group"
             aria-label={t.provider}
             selectedKey={provider}
-            onSelectionChange={(key) => setProvider(String(key))}
+            onSelectionChange={(key) => setProvider(key as SdkProvider)}
             variant="underlined"
             color="primary"
           >
-            <Tab key="openai" title={t.openai} />
-            <Tab key="anthropic" title={t.anthropic} />
+            {order.map((item) => (
+              <Tab key={item} title={sdkLabel(item)} />
+            ))}
           </Tabs>
-          <CodeBlock label={m.codeFile} code={sdkCode(provider)} tone="ink" />
+          {listed && (
+            <p className="text-sm text-default-500">
+              {listed.length
+                ? t.integrationModels.replace(
+                    "{models}",
+                    modelCount(listed.length),
+                  )
+                : t.integrationNoModels}
+            </p>
+          )}
+          <CodeBlock
+            label={m.codeFile}
+            code={sdkCode(provider, listed?.[0]?.id)}
+            tone="ink"
+          />
         </ModalBody>
       </ModalContent>
     </Modal>

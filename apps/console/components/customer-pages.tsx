@@ -44,7 +44,14 @@ import {
   CodeBlock,
 } from "./shared";
 import { ResourceForm, type Field } from "./resource-form";
-import { Integration } from "./marketing";
+import {
+  Integration,
+  modelCount,
+  sdkBaseURL,
+  sdkLabel,
+  sdkModels,
+  sdkOrder,
+} from "./marketing";
 import { RequestDetailModal, RequestStatus, requestCharge } from "./request-detail";
 import { RouteHint } from "./route-trail";
 export function RequestTable({
@@ -145,6 +152,7 @@ export function Overview() {
   const activeKeys = state.keys.filter((key) => key.enabled).length;
   const available = state.wallet.balance_micros - state.wallet.held_micros;
   const enabledModels = state.models.filter((model) => model.enabled).length;
+  const byApi = sdkModels(state.models);
   const [docs, setDocs] = useState(false);
   const baseURL = state.app_url.replace(/\/$/, "");
   const steps = isOperator
@@ -388,16 +396,16 @@ export function Overview() {
           <h2>{c.endpointTitle}</h2>
           <p className="rp-console-panel-description">{c.endpointBody}</p>
           <div className="rp-console-endpoint-list">
-            {[
-              { label: t.openai, value: `${baseURL}/openai/v1` },
-              { label: t.anthropic, value: `${baseURL}/anthropic` },
-            ].map((endpoint) => (
-              <div className="rp-console-endpoint" key={endpoint.label}>
+            {sdkOrder(byApi).map((provider) => (
+              <div className="rp-console-endpoint" key={provider}>
                 <div>
-                  <span>{endpoint.label}</span>
-                  <CopyButton value={endpoint.value} />
+                  <span>
+                    {sdkLabel(provider)}
+                    <small>{modelCount(byApi[provider].length)}</small>
+                  </span>
+                  <CopyButton value={sdkBaseURL(baseURL, provider)} />
                 </div>
-                <code>{endpoint.value}</code>
+                <code>{sdkBaseURL(baseURL, provider)}</code>
               </div>
             ))}
           </div>
@@ -479,7 +487,9 @@ export function Overview() {
         </div>
         <RequestTable requests={state.requests.slice(0, 6)} short />
       </section>
-      {docs && <Integration onClose={() => setDocs(false)} />}
+      {docs && (
+        <Integration models={state.models} onClose={() => setDocs(false)} />
+      )}
     </>
   );
 }
@@ -490,6 +500,7 @@ export function Keys() {
   const [revoke, setRevoke] = useState<AccessKey | null>(null);
   const [docs, setDocs] = useState(false);
   const baseURL = state.app_url.replace(/\/$/, "");
+  const byApi = sdkModels(state.models);
   const fields: Field[] = [
     {
       key: "name",
@@ -597,8 +608,13 @@ export function Keys() {
           </Button>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
-          <CodeBlock label={t.openai} code={`${baseURL}/openai/v1`} />
-          <CodeBlock label={t.anthropic} code={`${baseURL}/anthropic`} />
+          {sdkOrder(byApi).map((provider) => (
+            <CodeBlock
+              key={provider}
+              label={`${sdkLabel(provider)} · ${modelCount(byApi[provider].length)}`}
+              code={sdkBaseURL(baseURL, provider)}
+            />
+          ))}
         </div>
       </section>
       {adding && (
@@ -667,7 +683,9 @@ export function Keys() {
           }}
         />
       )}
-      {docs && <Integration onClose={() => setDocs(false)} />}
+      {docs && (
+        <Integration models={state.models} onClose={() => setDocs(false)} />
+      )}
     </>
   );
 }
