@@ -44,6 +44,8 @@ func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot
 			m.CostOutputRate = 0
 			m.CostCachedRate = 0
 			m.CostCacheWriteRate = 0
+			m.CostImageInputRate = 0
+			m.CostImageOutputRate = 0
 			m.UpstreamModel = ""
 			m.PricingReference = nil
 			m.PricingNote = ""

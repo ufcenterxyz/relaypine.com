@@ -30,7 +30,8 @@ export function validPricePreview(value: unknown): value is PricePreview {
     preview.items.every((item) => item && typeof item.id === "string" &&
       ["matched", "unmatched", "manual"].includes(item.status) &&
       item.before && item.after && item.before.id === item.id && item.after.id === item.id &&
-      [item.after.input_rate, item.after.output_rate, item.after.cached_rate, item.after.cache_write_rate]
+      [item.after.input_rate, item.after.output_rate, item.after.cached_rate, item.after.cache_write_rate,
+        item.after.image_input_rate ?? 0, item.after.image_output_rate ?? 0]
         .every((rate) => Number.isSafeInteger(rate) && rate >= 0)) &&
     new Set(preview.items.map((item) => item.id)).size === preview.items.length;
 }

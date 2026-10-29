@@ -34,6 +34,8 @@ import { safeReferenceURL } from "@/lib/pricing";
 import { ModelPriceUpdate } from "./model-price-update";
 import { consoleEn as c } from "@/i18n/console-en";
 import { backupEn as b } from "@/i18n/backup-en";
+import { imageEn as im } from "@/i18n/image-en";
+import { isImageUpstream, isPriced } from "@/lib/images";
 import { api, count, dollars, errorMessage, money } from "@/lib/api";
 import { backupRoutes, isBackup, type BackupRoute } from "@/lib/backups";
 import type { BackupBalance, Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
@@ -699,6 +701,38 @@ const rateLabels = [
   t.costCachedRate,
   t.costCacheWriteRate,
 ];
+const imageRateFields = ["image_input_rate", "image_output_rate", "cost_image_input_rate", "cost_image_output_rate"];
+const imageRateLabels = [im.imageInputRate, im.imageOutputRate, im.costImageInputRate, im.costImageOutputRate];
+const routesImages = (values: Record<string, unknown>) =>
+  isImageUpstream(String(values.provider ?? ""), String(values.upstream_model ?? ""));
+// The rates an enabled model needs. Image models publish no text output price.
+const requiredRates = (values: Record<string, unknown>) =>
+  routesImages(values)
+    ? ["input_rate", "cost_input_rate", ...imageRateFields]
+    : ["input_rate", "output_rate", "cost_input_rate", "cost_output_rate"];
+
+// The models table keeps one set of columns. An image model shows its text and
+// image prices together: input, output, cached input, and no cache writes.
+function modelRateCells(model: Model) {
+  if (!isPriced(model))
+    return [0, 1, 2, 3].map((i) => <span key={i} className="rp-management-rate">{t.notPriced}</span>);
+  if (model.kind !== "image")
+    return [model.input_rate, model.output_rate, model.cached_rate, model.cache_write_rate].map((rate, i) => (
+      <span key={i} className="rp-management-rate">{money(rate, true)}</span>
+    ));
+  const line = (rate: number, label: string) => (
+    <span key={label} className="flex items-baseline gap-1.5">
+      <span>{money(rate, true)}</span>
+      <small className="text-xs text-default-500">{label}</small>
+    </span>
+  );
+  return [
+    <span key="input" className="rp-management-rate flex flex-col gap-0.5">{line(model.input_rate, im.text)}{line(model.image_input_rate ?? 0, im.image)}</span>,
+    <span key="output" className="rp-management-rate flex flex-col gap-0.5">{model.output_rate > 0 && line(model.output_rate, im.text)}{line(model.image_output_rate ?? 0, im.image)}</span>,
+    <span key="cached" className="rp-management-rate">{money(model.cached_rate, true)}</span>,
+    <span key="write" className="rp-management-rate text-default-400">{im.notApplicable}</span>,
+  ];
+}
 export function Models() {
   const { state, refresh } = useConsole();
   const operator = state.surface === "admin" && state.user.operator;
@@ -713,7 +747,7 @@ export function Models() {
   async function save(body: Model | Record<string, unknown>) {
     if (
       body.enabled &&
-      ["input_rate", "output_rate", "cost_input_rate", "cost_output_rate"].some(
+      requiredRates(body as Record<string, unknown>).some(
         (key) =>
           !Number.isFinite(Number(body[key as keyof typeof body])) ||
           Number(body[key as keyof typeof body]) <= 0,
@@ -766,16 +800,24 @@ export function Models() {
             description: i === 0 ? t.modelExplicitCacheRates : undefined,
             validate: (value, values) =>
               values.enabled &&
-              [
-                "input_rate",
-                "output_rate",
-                "cost_input_rate",
-                "cost_output_rate",
-              ].includes(key) &&
+              requiredRates(values).includes(key) &&
               (!Number.isFinite(Number(value)) || dollars(value) <= 0)
                 ? t.modelPositiveRate
                 : undefined,
             section: i === 0 ? t.salesRates : i === 4 ? t.costRates : undefined,
+          }),
+        ),
+        ...imageRateFields.map(
+          (key, i): Field => ({
+            key,
+            label: imageRateLabels[i],
+            type: "number",
+            required: true,
+            visibleWhen: (values) => routesImages(values) && (!model?.pricing_reference || !!values.manual_pricing),
+            description: i === 0 ? im.imageRatesHelp : undefined,
+            validate: (value, values) =>
+              values.enabled && (!Number.isFinite(Number(value)) || dollars(value) <= 0) ? t.modelPositiveRate : undefined,
+            section: i === 0 ? im.imageRates : undefined,
           }),
         ),
         {
@@ -809,6 +851,9 @@ export function Models() {
                 (model[key as keyof Model] as number) / 1e6,
               ]),
             ),
+            ...Object.fromEntries(
+              imageRateFields.map((key) => [key, ((model[key as keyof Model] as number | undefined) ?? 0) / 1e6]),
+            ),
           }
         : {
             id: "",
@@ -820,6 +865,7 @@ export function Models() {
             manual_pricing: true,
             max_output_tokens: 4096,
             ...Object.fromEntries(rateFields.map((key) => [key, ""])),
+            ...Object.fromEntries(imageRateFields.map((key) => [key, ""])),
           },
       onSubmit: async (values) => {
         if (model && values.id !== model.id)
@@ -844,6 +890,9 @@ export function Models() {
               dollars(values[key]),
             ]),
           ),
+          ...Object.fromEntries(
+            imageRateFields.map((key) => [key, routesImages(values) ? dollars(values[key]) : 0]),
+          ),
           max_output_tokens: Number(values.max_output_tokens),
         });
       },
@@ -857,7 +906,7 @@ export function Models() {
   );
   const enabledCount = state.models.filter((model) => model.enabled).length;
   const referenceCount = state.models.filter((model) => !!model.pricing_reference).length;
-  const missingPriceCount = state.models.filter((model) => model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate).length;
+  const missingPriceCount = state.models.filter((model) => !isPriced(model)).length;
   const hasFilters = !!search || provider !== "all" || status !== "all";
   return (
     <div className="rp-management-models">
@@ -882,7 +931,7 @@ export function Models() {
         {[
           { label: p.enabledModels, value: enabledCount, total: state.models.length, tone: "active" },
           { label: p.referenceModels, value: referenceCount, total: null, tone: "reference" },
-          { label: missingPriceCount ? p.needsPricing : p.customModels, value: missingPriceCount || state.models.filter((model) => !model.pricing_reference && model.input_rate > 0 && model.output_rate > 0 && model.billing_mode !== "usage_only").length, total: null, tone: missingPriceCount ? "attention" : "custom" },
+          { label: missingPriceCount ? p.needsPricing : p.customModels, value: missingPriceCount || state.models.filter((model) => !model.pricing_reference && isPriced(model)).length, total: null, tone: missingPriceCount ? "attention" : "custom" },
         ].map((metric) => (
           <div key={metric.label} className="rp-management-metric" data-tone={metric.tone}>
             <span className="rp-management-metric-label"><i aria-hidden="true" />{metric.label}</span>
@@ -945,9 +994,14 @@ export function Models() {
             <p className="mt-1 font-mono text-xs text-default-500">
               {model.id}
             </p>
-            {(model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate) && (
+            {!isPriced(model) && (
               <Chip radius="sm" size="sm" variant="flat" className="mt-2">
                 {p.legacy}
+              </Chip>
+            )}
+            {model.kind === "image" && (
+              <Chip radius="sm" size="sm" variant="flat" className="mt-2">
+                {im.imageModel}
               </Chip>
             )}
             {operator && model.pricing_reference && safeReferenceURL(model.pricing_reference.source_url) && (
@@ -957,16 +1011,7 @@ export function Models() {
             )}
           </div>,
           <span key="provider" className="rp-management-provider"><i aria-hidden="true" data-provider={model.provider}>{model.provider === "anthropic" ? "A" : "O"}</i>{model.provider === "anthropic" ? t.anthropic : t.openai}</span>,
-          ...[
-            model.input_rate,
-            model.output_rate,
-            model.cached_rate,
-            model.cache_write_rate,
-          ].map((rate, i) => (
-            <span key={i} className="rp-management-rate">
-              {model.billing_mode === "usage_only" || !model.input_rate || !model.output_rate ? t.notPriced : money(rate, true)}
-            </span>
-          )),
+          ...modelRateCells(model),
           <Status key="enabled" enabled={model.enabled} />,
           ...(operator
             ? [

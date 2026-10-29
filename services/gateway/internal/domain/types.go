@@ -130,7 +130,21 @@ type Model struct {
 	CostCacheWriteRate int64           `json:"cost_cache_write_rate"`
 	MaxOutputTokens    int             `json:"max_output_tokens"`
 	Version            int             `json:"version"`
+	// Kind is ModelKindImage for image generation models, which only the
+	// Images API serves. The text rates above then price text input and text
+	// output; the image rates price input images and generated image tokens.
+	Kind                string `json:"kind,omitempty"`
+	ImageInputRate      int64  `json:"image_input_rate,omitempty"`
+	ImageOutputRate     int64  `json:"image_output_rate,omitempty"`
+	CostImageInputRate  int64  `json:"cost_image_input_rate,omitempty"`
+	CostImageOutputRate int64  `json:"cost_image_output_rate,omitempty"`
 }
+
+// ModelKindImage marks an image generation model.
+const ModelKindImage = "image"
+
+// IsImage reports whether the model generates images through the Images API.
+func (m Model) IsImage() bool { return m.Kind == ModelKindImage }
 
 // EffectiveBillingMode preserves the monetary policy of models and immutable
 // request snapshots written before explicit billing modes were introduced.
@@ -147,7 +161,11 @@ type Usage struct {
 	OutputTokens     int64 `json:"output_tokens"`
 	CachedTokens     int64 `json:"cached_tokens"`
 	CacheWriteTokens int64 `json:"cache_write_tokens"`
-	Known            bool  `json:"known"`
+	// Image tokens are counted apart from text tokens because image models
+	// price them separately. InputTokens and OutputTokens stay text-only.
+	ImageInputTokens  int64 `json:"image_input_tokens,omitempty"`
+	ImageOutputTokens int64 `json:"image_output_tokens,omitempty"`
+	Known             bool  `json:"known"`
 }
 type Request struct {
 	ID             string    `json:"id"`

@@ -69,6 +69,9 @@ func (s *Store) ListModels(ctx context.Context) ([]domain.Model, error) {
 	models, err := listConfig[domain.Model](ctx, s.DB, "models")
 	for i := range models {
 		models[i].BillingMode = models[i].EffectiveBillingMode()
+		// Models saved before image support carry no kind; derive it from
+		// where they route, as every save does.
+		models[i].Kind = domain.ModelKindFor(models[i].Provider, models[i].UpstreamModel)
 	}
 	return models, err
 }
@@ -405,6 +408,7 @@ func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly, manua
 		m.ID = newID("model_")
 	}
 	m.BillingMode = m.EffectiveBillingMode()
+	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
 	if err := validateModel(m); err != nil {
 		return m, err
 	}
@@ -459,7 +463,9 @@ func validateModel(m domain.Model) error {
 	if mode != domain.BillingMetered && mode != domain.BillingUsageOnly {
 		return errors.New("unsupported model billing mode")
 	}
-	for _, rate := range []int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate} {
+	// The kind follows from where the model routes and is never taken as given.
+	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
+	for _, rate := range append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...) {
 		if rate < 0 || rate > 1000000000000 {
 			return errors.New("model rates outside supported range")
 		}
@@ -467,8 +473,22 @@ func validateModel(m domain.Model) error {
 			return errors.New("usage-only models require all sales and upstream cost rates to be zero")
 		}
 	}
-	if mode == domain.BillingMetered && m.Enabled && (m.InputRate <= 0 || m.OutputRate <= 0 || m.CostInputRate <= 0 || m.CostOutputRate <= 0) {
-		return errors.New("enabled metered models require positive sales and upstream input/output rates")
+	if !m.IsImage() {
+		for _, rate := range m.ImageRates() {
+			if rate != 0 {
+				return errors.New("only image models have image rates")
+			}
+		}
+	}
+	if mode == domain.BillingMetered && m.Enabled {
+		if m.IsImage() {
+			// GPT Image 2 and 2.5 publish no text output price.
+			if m.InputRate <= 0 || m.ImageInputRate <= 0 || m.ImageOutputRate <= 0 || m.CostInputRate <= 0 || m.CostImageInputRate <= 0 || m.CostImageOutputRate <= 0 {
+				return errors.New("enabled image models require positive sales and upstream text input, image input and image output rates")
+			}
+		} else if m.InputRate <= 0 || m.OutputRate <= 0 || m.CostInputRate <= 0 || m.CostOutputRate <= 0 {
+			return errors.New("enabled metered models require positive sales and upstream input/output rates")
+		}
 	}
 	return nil
 }
@@ -495,6 +515,7 @@ func (s *Store) CreateModels(ctx context.Context, models []domain.Model) (ModelI
 		}
 		seen[m.ID] = true
 		m.BillingMode = m.EffectiveBillingMode()
+		m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
 		if err := validateModel(m); err != nil {
 			return ModelImportResult{}, fmt.Errorf("%w: item %d: %v", ErrInvalidModelBatch, i, err)
 		}

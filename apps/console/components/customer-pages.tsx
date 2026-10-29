@@ -54,6 +54,7 @@ import {
 } from "./marketing";
 import { RequestDetailModal, RequestStatus, requestCharge } from "./request-detail";
 import { RouteHint } from "./route-trail";
+import { totalTokens as requestTokens } from "@/lib/images";
 export function RequestTable({
   requests,
   short = false,
@@ -101,7 +102,7 @@ export function RequestTable({
           <RequestStatus key="status" request={row} />,
           <span key="tokens" className="tabular-nums">
             {row.usage.known
-              ? count(row.usage.input_tokens + row.usage.output_tokens)
+              ? count(requestTokens(row.usage))
               : c.unknownUsage}
           </span>,
           <span key="charge" className="font-mono text-xs">
@@ -202,16 +203,12 @@ export function Overview() {
     1,
     ...recent
       .filter((request) => request.usage.known)
-      .map(
-        (request) => request.usage.input_tokens + request.usage.output_tokens,
-      ),
+      .map((request) => requestTokens(request.usage)),
   );
   const totalTokens = state.requests.reduce(
     (n, request) =>
       n +
-      (request.usage.known
-        ? request.usage.input_tokens + request.usage.output_tokens
-        : 0),
+      (request.usage.known ? requestTokens(request.usage) : 0),
     0,
   );
   const unknownUsage = state.requests.filter(
@@ -335,8 +332,7 @@ export function Overview() {
                 </div>
                 <div className="rp-console-chart-bars">
                   {recent.map((request) => {
-                    const tokens =
-                      request.usage.input_tokens + request.usage.output_tokens;
+                    const tokens = requestTokens(request.usage);
                     return (
                       <div
                         key={request.id}

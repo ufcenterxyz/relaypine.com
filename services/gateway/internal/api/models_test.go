@@ -62,3 +62,19 @@ func TestModelInputBillingModesAndPublicBounds(t *testing.T) {
 		t.Fatal("draft bypassed public price upper bound")
 	}
 }
+
+func TestImageModelInputDerivesKindAndRates(t *testing.T) {
+	m := domain.Model{ID: "image", Name: "GPT Image 2", Provider: "openai", UpstreamModel: "gpt-image-2-2026-04-21", Enabled: true, MaxOutputTokens: 1, Kind: "",
+		InputRate: 5_000_000, ImageInputRate: 8_000_000, ImageOutputRate: 30_000_000, CostInputRate: 5_000_000, CostImageInputRate: 8_000_000, CostImageOutputRate: 30_000_000}
+	if problem := validateModelInput(&m); problem != nil || !m.IsImage() {
+		t.Fatalf("image model rejected or not marked: %+v %q", problem, m.Kind)
+	}
+	m.ImageOutputRate = 0
+	if problem := validateModelInput(&m); problem == nil || problem.Code != "invalid_price" {
+		t.Fatal("enabled image model without an image output rate accepted")
+	}
+	text := domain.Model{ID: "text", Name: "Text", Provider: "openai", UpstreamModel: "gpt-5.5", Kind: domain.ModelKindImage, MaxOutputTokens: 100, ImageOutputRate: 9}
+	if problem := validateModelInput(&text); problem != nil || text.IsImage() || text.ImageOutputRate != 0 {
+		t.Fatalf("client kind or image rate kept on a text model: %+v %+v", problem, text)
+	}
+}

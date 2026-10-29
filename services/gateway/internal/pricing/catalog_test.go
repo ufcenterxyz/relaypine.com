@@ -150,3 +150,53 @@ func TestLivePricingCatalog(t *testing.T) {
 	}
 	t.Logf("Verified %d public reference prices", len(c.Rates))
 }
+
+// The Standard image table yields text and image rates for supported GPT Image
+// models only; the Batch table and retiring models are ignored, and a dated
+// snapshot matches its model's price.
+func TestOpenAIImagePrices(t *testing.T) {
+	images, err := os.ReadFile("testdata/openai-images.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := fixture(t, "openai") + "\n" + string(images)
+	rates, err := Parse("openai", document, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+		r := rates[id]
+		if !r.Image || r.Input != 5_000_000 || r.Output != 0 || r.Cached != 1_250_000 || r.ImageInput != 8_000_000 || r.ImageOutput != 30_000_000 || r.Reference.Scope != "standard_image" {
+			t.Fatalf("%s rate %+v", id, r)
+		}
+	}
+	for _, id := range []string{"gpt-image-1.5", "gpt-image-1-mini", "chatgpt-image-latest"} {
+		if _, ok := rates[id]; ok {
+			t.Fatalf("retiring model %s priced", id)
+		}
+	}
+	c := Catalog{Rates: map[string]Rate{}}
+	for id, r := range rates {
+		c.Rates["openai:"+id] = r
+	}
+	rate, ok := c.Match("openai", "gpt-image-2-2026-04-21")
+	if !ok || rate.Reference.Model != "gpt-image-2" {
+		t.Fatalf("snapshot match %v %+v", ok, rate.Reference)
+	}
+	if _, ok := c.Match("openai", "gpt-image-2-preview"); ok {
+		t.Fatal("an undated variant matched")
+	}
+	m := ApplyRate(domain.Model{ID: "image", Provider: "openai", UpstreamModel: "gpt-image-2-2026-04-21"}, rate)
+	if !m.IsImage() || m.ImageOutputRate != 30_000_000 || m.CostImageInputRate != 8_000_000 || !HasRates(m) {
+		t.Fatalf("applied image rate %+v", m)
+	}
+	// A changed image table removes image prices, never text prices.
+	changed := strings.Replace(document, "| Model | Modality | Input | Output | Cached input |", "| Model | Modality | Input | Output |", 1)
+	rates, err = Parse("openai", changed, time.Now())
+	if err != nil || len(rates) < 3 {
+		t.Fatalf("text prices lost: %v", err)
+	}
+	if _, ok := rates["gpt-image-2"]; ok {
+		t.Fatal("changed image table still priced")
+	}
+}

@@ -57,10 +57,10 @@ make console  # 终端二
 
 | 协议 | 本地 base URL | 支持接口 |
 | --- | --- | --- |
-| OpenAI | `http://127.0.0.1:4811/openai/v1` | Chat Completions、Responses 创建/查询/删除、Models |
+| OpenAI | `http://127.0.0.1:4811/openai/v1` | Chat Completions、Responses 创建/查询/删除、Images 生成与编辑、Models |
 | Anthropic | `http://127.0.0.1:4811/anthropic` | Messages、Count tokens、Models |
 
-使用 `Authorization: Bearer rp_live_...` 或 Anthropic 的 `x-api-key`。上游秘密只存于服务端。保留 JSON / SSE 原生字段，不做 Claude 与 OpenAI 跨协议转换。支持文本及客户端执行的函数工具；Anthropic Messages 和 Count tokens 还支持 user content 中的内联 base64 PNG/JPEG，包括 user 消息内的 `tool_result.content`。OpenAI 图片输入、图片 URL、文件输入及引用、其他图片格式、音频、托管工具及后台生成仍不支持。Responses 续接按租户和项目校验并固定原上游凭据。只有上游在产生任何输出之前明确拒绝（请求没有发出，或返回 HTTP 401、402、403、429、5xx），请求才会换到下一条通道；每个请求最多尝试三条通道，官方通道优先。结果未知的请求（例如请求发出后连接中断）不会重放。Responses 和 Token 计数不会使用备用通道，因为其他服务商无法接续它们保存的状态。
+使用 `Authorization: Bearer rp_live_...` 或 Anthropic 的 `x-api-key`。上游秘密只存于服务端。保留 JSON / SSE 原生字段，不做 Claude 与 OpenAI 跨协议转换。支持文本及客户端执行的函数工具；Anthropic Messages 和 Count tokens 还支持 user content 中的内联 base64 PNG/JPEG，包括 user 消息内的 `tool_result.content`。Chat Completions 与 Responses 中的 OpenAI 图片输入、图片 URL、文件输入及引用、其他图片格式、音频、托管工具（包括 Responses 内的图像生成）及后台生成仍不支持。图像生成通过 OpenAI Images API（`/openai/v1/images/generations`、`/openai/v1/images/edits`）使用 GPT Image 2 或 2.5 模型，按 OpenAI 返回的用量计费：文本输入、输入图像和生成图像的 Token 分别按公布价格计价；每个请求先按尺寸、质量和张数预留最坏情况，再按实际金额结算。编辑接口接受上传的 PNG、JPEG、WebP 图片和 base64 data URL，不接受文件 ID 或远程 URL。Responses 续接按租户和项目校验并固定原上游凭据。只有上游在产生任何输出之前明确拒绝（请求没有发出，或返回 HTTP 401、402、403、429、5xx），请求才会换到下一条通道；每个请求最多尝试三条通道，官方通道优先。结果未知的请求（例如请求发出后连接中断）不会重放。Responses 和 Token 计数不会使用备用通道，因为其他服务商无法接续它们保存的状态。
 
 已配置且支持视觉的模型可使用原生 SDK：
 

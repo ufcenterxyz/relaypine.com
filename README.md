@@ -8,7 +8,7 @@ Route native API requests across multiple upstream keys, control their usage and
 
 ## What it does
 
-- **Native protocols:** OpenAI Chat Completions and Responses; Anthropic Messages and token counting; JSON and SSE streaming.
+- **Native protocols:** OpenAI Chat Completions, Responses and Images (GPT Image 2 and 2.5); Anthropic Messages and token counting; JSON and SSE streaming.
 - **Multiple upstreams:** official hosts by default, plus configurable compatible hosts and authentication modes.
 - **Key discovery and batch import:** verify credentials, discover models, and import a selection with matched official reference prices. Workspaces and rate limits are imported when the provider exposes them. Discovery does not run paid inference.
 - **Routing:** lowest load, highest remaining local budget, or a balanced strategy, with RPM, TPM, concurrency, and shared quota groups.
@@ -75,12 +75,29 @@ Keep your native SDK and replace its base URL and API key:
 
 | Protocol | Local base URL | Supported endpoints |
 | --- | --- | --- |
-| OpenAI | `http://127.0.0.1:4811/openai/v1` | Chat Completions; Responses create, retrieve, delete; Models |
+| OpenAI | `http://127.0.0.1:4811/openai/v1` | Chat Completions; Responses create, retrieve, delete; Images generate and edit; Models |
 | Anthropic | `http://127.0.0.1:4811/anthropic` | Messages; Count tokens; Models |
 
 Authenticate with your RelayPine `rp_live_…` access key using `Authorization: Bearer …`, or Anthropic's `x-api-key`. Upstream API keys remain on the server. Behind the hosted domain, the base URLs are `https://relaypine.com/openai/v1` and `https://relaypine.com/anthropic`.
 
-RelayPine preserves each provider's protocol and does not convert between OpenAI and Anthropic. It supports text and client-executed function tools. Anthropic Messages and Count tokens also accept inline base64 PNG/JPEG images in user content, including a user message's `tool_result.content`. OpenAI image inputs, image URLs, file inputs/references, other image formats, audio, hosted tools, and background generation remain unsupported. A request moves to another route only after an upstream refused it before producing output: the request never left, or the upstream answered HTTP 401, 402, 403, 429, or 5xx. Each request tries at most three routes, official ones first. A request whose outcome is unknown, such as a connection that drops after the request was sent, is never replayed. Responses API calls and token counting never use a backup, because another provider cannot continue their stored state.
+RelayPine preserves each provider's protocol and does not convert between OpenAI and Anthropic. It supports text and client-executed function tools. Anthropic Messages and Count tokens also accept inline base64 PNG/JPEG images in user content, including a user message's `tool_result.content`. OpenAI image inputs to Chat Completions and Responses, image URLs, file inputs/references, other image formats, audio, hosted tools (including image generation inside Responses), and background generation remain unsupported. A request moves to another route only after an upstream refused it before producing output: the request never left, or the upstream answered HTTP 401, 402, 403, 429, or 5xx. Each request tries at most three routes, official ones first. A request whose outcome is unknown, such as a connection that drops after the request was sent, is never replayed. Responses API calls and token counting never use a backup, because another provider cannot continue their stored state.
+
+Image generation uses the OpenAI Images API with GPT Image 2 or 2.5 models (`gpt-image-2`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`):
+
+```ts
+import OpenAI from "openai";
+
+const client = new OpenAI({ baseURL: "https://relaypine.com/openai/v1", apiKey: process.env.RELAYPINE_API_KEY });
+const result = await client.images.generate({
+  model: "gpt-image-2",
+  prompt: "A lighthouse at dusk, watercolor",
+  size: "1024x1024",
+  quality: "medium",
+});
+const png = Buffer.from(result.data![0].b64_json!, "base64");
+```
+
+Image requests are billed per token from the usage OpenAI reports: text input, input images and generated image tokens at their published rates. Each request first holds the worst case for its size, quality and image count, and settles at the actual amount. Edits accept uploaded PNG, JPEG or WebP images and base64 data URLs, not file IDs or remote URLs.
 
 For a configured model that supports vision:
 

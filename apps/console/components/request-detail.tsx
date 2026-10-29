@@ -37,6 +37,8 @@ import type {
 } from "@/lib/types";
 import { useConsole } from "./console-provider";
 import { RouteTrail } from "./route-trail";
+import { imageEn as im } from "@/i18n/image-en";
+import { usageTokens } from "@/lib/images";
 import { CopyButton, Empty, ErrorBox } from "./shared";
 
 export const requestCharge = (request: RequestLog) =>
@@ -266,13 +268,14 @@ function OverviewPanel({
 }) {
   const usage = request.usage;
   const tokens = (n: number) => (usage.known ? count(n) : c.unknownUsage);
+  const totals = usageTokens(usage);
   const streamed = payload?.response.content_type?.includes("text/event-stream");
   return (
     <>
       <div className="rp-request-summary">
         {[
-          [t.inputTokens, tokens(usage.input_tokens)],
-          [t.outputTokens, tokens(usage.output_tokens)],
+          [t.inputTokens, tokens(totals.input)],
+          [t.outputTokens, tokens(totals.output)],
           [t.charge, requestCharge(request)],
           [t.latency, `${count(request.latency_ms)} ms`],
         ].map(([label, value]) => (
@@ -310,6 +313,12 @@ function OverviewPanel({
             rows={[
               [t.cachedTokens, tokens(usage.cached_tokens)],
               [t.cacheWriteTokens, tokens(usage.cache_write_tokens)],
+              ...((usage.image_input_tokens || usage.image_output_tokens)
+                ? ([
+                    [im.imageInputTokens, tokens(usage.image_input_tokens ?? 0)],
+                    [im.imageOutputTokens, tokens(usage.image_output_tokens ?? 0)],
+                  ] as [string, ReactNode][])
+                : []),
               [t.usageKnown, usage.known ? t.yes : t.no],
               [t.modelBillingMode, request.billing_mode === "usage_only" ? t.modelUsageOnly : t.modelMetered],
               [t.held, money(request.reserved_micros, true)],

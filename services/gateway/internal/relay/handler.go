@@ -86,6 +86,14 @@ type plan struct {
 	input, output           int64
 	stream, count, resource bool
 	binding                 *domain.Resource
+	// image is set for Images API calls. input then includes imageInput, the
+	// bound on image input tokens, which is priced separately.
+	image      *imageRequest
+	imageInput int64
+	// contentType is the upstream body type; empty means JSON.
+	contentType string
+	// originalBytes is the client's body size when original is a summary.
+	originalBytes int
 }
 
 // attempt is the outcome of one upstream call.
@@ -197,7 +205,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isCreate := p.provider == "openai" && (p.path == "/v1/chat/completions" || p.path == "/v1/responses") || p.provider == "anthropic" && (p.path == "/v1/messages" || p.path == "/v1/messages/count_tokens")
-	if isCreate && r.Method == http.MethodPost {
+	isImage := p.provider == "openai" && (p.path == imageGenerationsPath || p.path == imageEditsPath)
+	if isImage && r.Method == http.MethodPost {
+		if err = h.prepareImage(r, &p, models); err != nil {
+			fail(w, 400, "invalid_request_error", err.Error())
+			return
+		}
+	} else if isCreate && r.Method == http.MethodPost {
 		p.count = strings.HasSuffix(p.path, "/count_tokens")
 		if err = h.prepare(r, &p, models); err != nil {
 			fail(w, 400, "invalid_request_error", err.Error())
@@ -249,7 +263,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reserved, costReserve := int64(0), int64(0)
-	if !p.count && !p.resource {
+	if p.image != nil {
+		reserved, costReserve, err = estimateImage(p.input-p.imageInput, p.imageInput, p.output, p.model)
+		if err != nil {
+			fail(w, 400, "invalid_price", "Unable to reserve this request")
+			return
+		}
+	} else if !p.count && !p.resource {
 		reserved, costReserve, err = estimate(p.input, p.output, p.model)
 		if err != nil {
 			fail(w, 400, "invalid_price", "Unable to reserve this request")
@@ -471,6 +491,9 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if p.model.ID == "" {
 		return errors.New("model is unavailable or not allowed for this key")
 	}
+	if p.model.IsImage() {
+		return errors.New("image models are served by the Images API: /v1/images/generations and /v1/images/edits")
+	}
 	if !validAccounting(p.model) || p.model.MaxOutputTokens <= 0 {
 		return errors.New("model has no complete price and output limit configuration")
 	}
@@ -552,7 +575,7 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 // and no service tier: the forced standard tier only describes the official
 // price, and an aggregator applies its own processing tiers.
 func (p plan) upstreamBody(c candidate) ([]byte, error) {
-	if !c.backup {
+	if !c.backup || p.image != nil {
 		return p.body, nil
 	}
 	fields := make(map[string]json.RawMessage, len(p.fields))
@@ -735,7 +758,11 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		fail(w, 502, "upstream_unavailable", "Invalid upstream request")
 		return
 	}
-	upstream.Header.Set("Content-Type", "application/json")
+	contentType := p.contentType
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	upstream.Header.Set("Content-Type", contentType)
 	upstream.Header.Set("Accept", "application/json")
 	if p.stream {
 		upstream.Header.Set("Accept", "text/event-stream")
@@ -817,6 +844,10 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 			return
 		}
 		h.stream(w, r, response, p, c, settlement)
+		return
+	}
+	if p.image != nil {
+		h.relayImage(w, r, response, p, settlement)
 		return
 	}
 	body, err = io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))

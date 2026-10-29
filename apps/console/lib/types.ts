@@ -91,7 +91,7 @@ export interface Proxy {
   enabled: boolean;
 }
 export interface Model {
-  pricing_reference?: { provider: string; model: string; source_url: string; source_name: string; checked_at: string; hash: string; scope: "standard_text"; max_input_tokens?: number };
+  pricing_reference?: { provider: string; model: string; source_url: string; source_name: string; checked_at: string; hash: string; scope: "standard_text" | "standard_image"; max_input_tokens?: number };
   pricing_note?: string;
   id: string;
   name: string;
@@ -109,6 +109,12 @@ export interface Model {
   cost_cache_write_rate: number;
   max_output_tokens: number;
   version: number;
+  // Image generation models. Text rates then price text input and output.
+  kind?: "image";
+  image_input_rate?: number;
+  image_output_rate?: number;
+  cost_image_input_rate?: number;
+  cost_image_output_rate?: number;
 }
 export interface RequestLog {
   id: string;
@@ -126,6 +132,8 @@ export interface RequestLog {
     output_tokens: number;
     cached_tokens: number;
     cache_write_tokens: number;
+    image_input_tokens?: number;
+    image_output_tokens?: number;
     known: boolean;
   };
   charge_micros: number;

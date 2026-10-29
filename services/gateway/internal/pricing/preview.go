@@ -27,10 +27,20 @@ type Preview struct {
 }
 
 func SameRates(a, b domain.Model) bool {
-	return a.EffectiveBillingMode() == b.EffectiveBillingMode() && a.InputRate == b.InputRate && a.OutputRate == b.OutputRate && a.CachedRate == b.CachedRate && a.CacheWriteRate == b.CacheWriteRate && a.CostInputRate == b.CostInputRate && a.CostOutputRate == b.CostOutputRate && a.CostCachedRate == b.CostCachedRate && a.CostCacheWriteRate == b.CostCacheWriteRate
+	return a.EffectiveBillingMode() == b.EffectiveBillingMode() && a.InputRate == b.InputRate && a.OutputRate == b.OutputRate && a.CachedRate == b.CachedRate && a.CacheWriteRate == b.CacheWriteRate && a.CostInputRate == b.CostInputRate && a.CostOutputRate == b.CostOutputRate && a.CostCachedRate == b.CostCachedRate && a.CostCacheWriteRate == b.CostCacheWriteRate &&
+		a.ImageInputRate == b.ImageInputRate && a.ImageOutputRate == b.ImageOutputRate && a.CostImageInputRate == b.CostImageInputRate && a.CostImageOutputRate == b.CostImageOutputRate
 }
+
+// HasRates reports a complete metered price. Image models publish no text
+// output price, so they need text input and image input/output rates instead.
 func HasRates(m domain.Model) bool {
-	return m.EffectiveBillingMode() == domain.BillingMetered && m.InputRate > 0 && m.OutputRate > 0 && m.CostInputRate > 0 && m.CostOutputRate > 0
+	if m.EffectiveBillingMode() != domain.BillingMetered {
+		return false
+	}
+	if m.IsImage() {
+		return m.InputRate > 0 && m.ImageInputRate > 0 && m.ImageOutputRate > 0 && m.CostInputRate > 0 && m.CostImageInputRate > 0 && m.CostImageOutputRate > 0
+	}
+	return m.InputRate > 0 && m.OutputRate > 0 && m.CostInputRate > 0 && m.CostOutputRate > 0
 }
 
 // Build keeps disabled entries disabled, and never changes a manually priced
@@ -39,6 +49,7 @@ func Build(catalog Catalog, models []domain.Model, endpoints []domain.Endpoint, 
 	now := time.Now().UTC()
 	p := Preview{Kind: kind, CheckedAt: now, ExpiresAt: now.Add(15 * time.Minute), Sources: catalog.Sources, Items: []Item{}}
 	for _, m := range models {
+		m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
 		item := Item{ID: m.ID, Name: m.Name, Version: m.Version, Before: m, After: m, Status: "unmatched"}
 		var eligible bool
 		for _, e := range endpoints {
@@ -52,7 +63,7 @@ func Build(catalog Catalog, models []domain.Model, endpoints []domain.Endpoint, 
 		case !eligible:
 			item.Reason = "Official reference prices require an enabled official upstream. Set manual sales and upstream cost rates for compatible third-party hosts."
 		case !found:
-			item.Reason = "No verified standard text price was found for this exact upstream model. Set manual rates before enabling it."
+			item.Reason = "No verified standard price was found for this exact upstream model. Set manual rates before enabling it."
 			for _, source := range catalog.Sources {
 				if source.Provider == m.Provider && source.Error != "" {
 					item.Reason = source.Error

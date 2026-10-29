@@ -3,6 +3,8 @@
 import { Button, Checkbox, Chip, Link } from "@heroui/react";
 import { ArrowUpRight, Clock3, ShieldCheck } from "lucide-react";
 import { pricingEn as p } from "@/i18n/pricing-en";
+import { imageEn as im } from "@/i18n/image-en";
+import { isPriced } from "@/lib/images";
 import { count, date, money } from "@/lib/api";
 import { safeReferenceURL, type PricePreview } from "@/lib/pricing";
 
@@ -12,9 +14,17 @@ export function ModelPricePreview({ preview, selected, onSelection, disabled = f
   onSelection?: (ids: string[]) => void;
   disabled?: boolean;
 }) {
-  const rateFields = ["input_rate", "output_rate", "cached_rate", "cache_write_rate"] as const;
-  const costFields = ["cost_input_rate", "cost_output_rate", "cost_cached_rate", "cost_cache_write_rate"] as const;
-  const labels = [p.input, p.output, p.cached, p.cacheWrite];
+  // Image models show text input, image input, image output and cached input.
+  const textPrices = {
+    rates: ["input_rate", "output_rate", "cached_rate", "cache_write_rate"],
+    costs: ["cost_input_rate", "cost_output_rate", "cost_cached_rate", "cost_cache_write_rate"],
+    labels: [p.input, p.output, p.cached, p.cacheWrite],
+  } as const;
+  const imagePrices = {
+    rates: ["input_rate", "image_input_rate", "image_output_rate", "cached_rate"],
+    costs: ["cost_input_rate", "cost_image_input_rate", "cost_image_output_rate", "cost_cached_rate"],
+    labels: [im.textInput, im.imageInput, im.imageOutput, p.cached],
+  } as const;
   const importMode = preview.kind === "import";
   return (
     <div className="rp-management-price-preview">
@@ -34,7 +44,8 @@ export function ModelPricePreview({ preview, selected, onSelection, disabled = f
       <div className="rp-management-price-items" role="group" aria-label={p.prices}>
         {preview.items.map((item) => {
           const available = item.status !== "unmatched";
-          const unchanged = !available && item.after.input_rate > 0 && item.after.output_rate > 0;
+          const unchanged = !available && isPriced(item.after);
+          const prices = item.after.kind === "image" ? imagePrices : textPrices;
           const sourceURL = safeReferenceURL(item.source_url);
           return (
             <section key={item.id} className="rp-management-price-item" data-selected={selected.includes(item.id)}>
@@ -55,12 +66,12 @@ export function ModelPricePreview({ preview, selected, onSelection, disabled = f
               </div>
               {available ? (
                 <div className="rp-management-price-grid">
-                  {rateFields.map((field, index) => (
+                  {prices.rates.map((field, index) => (
                     <div key={field} className="rp-management-price-cell">
-                      <span className="rp-management-price-label">{labels[index]}</span>
-                      <strong className="rp-management-new-price">{money(item.after[field], true)}</strong>
-                      {!importMode && <span className="rp-management-old-price">{p.before}: {item.before.billing_mode === "usage_only" ? p.noPrice : money(item.before[field], true)}</span>}
-                      {!importMode && <span className="rp-management-old-price">{p.currentCost}: {item.before.billing_mode === "usage_only" ? p.noPrice : money(item.before[costFields[index]], true)}</span>}
+                      <span className="rp-management-price-label">{prices.labels[index]}</span>
+                      <strong className="rp-management-new-price">{money(item.after[field] ?? 0, true)}</strong>
+                      {!importMode && <span className="rp-management-old-price">{p.before}: {item.before.billing_mode === "usage_only" ? p.noPrice : money(item.before[field] ?? 0, true)}</span>}
+                      {!importMode && <span className="rp-management-old-price">{p.currentCost}: {item.before.billing_mode === "usage_only" ? p.noPrice : money(item.before[prices.costs[index]] ?? 0, true)}</span>}
                     </div>
                   ))}
                 </div>

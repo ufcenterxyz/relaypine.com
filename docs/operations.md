@@ -46,6 +46,7 @@ Go 网关每 15 秒运行请求恢复；另一个后台任务每 15 秒删除超
 - 配置代理不可用时拒绝相应路线；不允许静默绕过代理。
 - 内部额度调整需填写原因，保留操作者及唯一业务参考。
 - 备用通道（OpenRouter / ZenMux）在 Upstreams 配置，使用 **Check key** 确认 Key 和模型覆盖范围；Key 检查不发起付费推理。备用通道只在官方路线全部不可用时承接 Chat Completions 和 Messages，消费上限需在服务商账户设置。管理员请求记录中带多次尝试的请求即发生过换路，可按尝试的 `error_code` 判断官方故障类型。被拒绝的 Key 会暂时冷却（401/402/403 五分钟，429 按 Retry-After，5xx 与未发出请求 30 秒），冷却期间请求直接走下一条路线。
+- 图像生成：在 Models & rates 导入或添加上游模型 `gpt-image-2`、`gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`（或其带日期的快照）。配置了启用的官方 OpenAI 上游时，“更新参考价格”会套用 OpenAI 价格页中的图像价格；手动添加时填写文本输入、图像输入和图像输出价格，文本输出填 0。图像请求只走官方 OpenAI 通道，不会改走备用通道。
 - 备用通道余额：OpenRouter 直接用推理 API Key 读取账户余额（`GET /api/v1/credits`，2026-10-29 已用真实 Key 验证），无需管理 Key；只有 OpenRouter 拒绝时才需要 Management Key，它还能创建和删除 API Key，权限较大，不建议保存。ZenMux 余额需要 Management API Key。管理 Key 只用于读取余额，按服务商加密保存，不参与转发，也不会返回给浏览器；不需要时可在编辑弹框中删除。余额每分钟最多读取一次，点击刷新会重新读取。
 - 备用通道兼容性实测：在 `services/gateway` 运行 `RELAYPINE_LIVE_OPENROUTER_KEY=... RELAYPINE_LIVE_ZENMUX_KEY=... go test -run TestLiveBackupCompatibility -v ./internal/relay`。测试让本地官方上游返回 529，经真实故障切换路径向服务商发送 Chat、流式 Chat、工具调用、长提示缓存、Messages、流式 Messages、带 beta 头的工具流式请求、提示缓存写入与读取以及扩展思考，并核对每次结算的 Token 与服务商返回的用量完全一致。总成本约两美分，未设置 Key 时自动跳过。本机代理若使用 fake-IP DNS（解析到 198.18.0.0/15），网关的私网保护会拒绝连接，本地检查 Key 需使用允许私网的开发配置；线上解析为公网地址，不受影响。
 

@@ -27,7 +27,7 @@ export const pricingZh: PricingCopy = {
   currentCost: "当前成本",
   before: "当前",
   after: "参考价",
-  perMillion: "美元 / 百万 Token · 标准文本请求",
+  perMillion: "美元 / 百万 Token · 标准请求",
   prices: "模型价格",
   selectAll: "选择已匹配参考价",
   selected: "已选 {count} 项",

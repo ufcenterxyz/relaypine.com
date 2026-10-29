@@ -26,7 +26,35 @@ type streamTracker struct {
 	finalFailedUsage  bool
 }
 
+// inspectImage follows an Images API stream: partial images, then one
+// completed event that carries the usage.
+func (t *streamTracker) inspectImage(data []byte) error {
+	if string(data) == "[DONE]" {
+		return nil
+	}
+	obj := object(data)
+	if obj == nil {
+		return errors.New("invalid SSE JSON")
+	}
+	switch str(obj["type"]) {
+	case "image_generation.completed", "image_edit.completed":
+		// A completed image without a readable usage keeps the reservation
+		// for reconciliation instead of settling at zero.
+		t.usage, _ = parseImageUsage(obj["usage"])
+		t.completed = true
+	case "error":
+		t.failed = true
+	}
+	if raw, ok := obj["error"]; ok && string(raw) != "null" {
+		t.failed = true
+	}
+	return nil
+}
+
 func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
+	if p.image != nil {
+		return "", t.inspectImage(data)
+	}
 	if string(data) == "[DONE]" {
 		if p.provider != "openai" || strings.HasSuffix(p.path, "/responses") {
 			return "", errors.New("unexpected terminal event")
@@ -125,8 +153,17 @@ func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
 }
 
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.Response, p plan, c candidate, s *domain.Settlement) {
+	frameLimit := maxFrameBytes
+	// Request inspection keeps image events without their base64 images.
+	capture, _ := w.(*responseCapture)
+	if p.image != nil {
+		frameLimit = maxImageFrameBytes
+		if capture != nil {
+			capture.summarize(nil)
+		}
+	}
 	scanner := bufio.NewScanner(response.Body)
-	scanner.Buffer(make([]byte, 64<<10), maxFrameBytes)
+	scanner.Buffer(make([]byte, 64<<10), frameLimit)
 	tracker := streamTracker{}
 	frame := []byte{}
 	committed := false
@@ -160,6 +197,9 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 			if err != nil {
 				return err
 			}
+			if p.image != nil && capture != nil {
+				capture.addSummary(append(append([]byte("data: "), summarizeImageEvent(data)...), '\n', '\n'))
+			}
 			if resource != "" {
 				if err = h.saveResource(r.Context(), p, c, resource); err != nil {
 					bindingFailed = true
@@ -183,7 +223,7 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 	var streamErr error
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		if len(frame)+len(line)+1 > maxFrameBytes {
+		if len(frame)+len(line)+1 > frameLimit {
 			streamErr = errors.New("SSE frame exceeds limit")
 			break
 		}

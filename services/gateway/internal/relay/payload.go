@@ -31,6 +31,23 @@ type responseCapture struct {
 	body      []byte
 	size      int
 	truncated bool
+	// A summarized reply keeps a summary instead of its body: generated images
+	// are not stored for inspection.
+	summarized bool
+	summary    []byte
+}
+
+// summarize stops keeping the body and records summary in its place.
+func (c *responseCapture) summarize(summary []byte) {
+	c.summarized, c.body, c.truncated = true, nil, false
+	c.summary = summary
+}
+
+// addSummary extends the summary of a streamed reply, within the usual limit.
+func (c *responseCapture) addSummary(part []byte) {
+	if len(c.summary)+len(part) <= maxCapturedResponseBytes {
+		c.summary = append(c.summary, part...)
+	}
 }
 
 func (c *responseCapture) WriteHeader(status int) {
@@ -46,6 +63,9 @@ func (c *responseCapture) Write(b []byte) (int, error) {
 	}
 	n, err := c.ResponseWriter.Write(b)
 	c.size += n
+	if c.summarized {
+		return n, err
+	}
 	if room := maxCapturedResponseBytes - len(c.body); room > 0 {
 		c.body = append(c.body, b[:min(n, room)]...)
 	}
@@ -57,19 +77,25 @@ func (c *responseCapture) Write(b []byte) (int, error) {
 func (c *responseCapture) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
 func (c *responseCapture) captured() domain.CapturedResponse {
+	if c.summarized {
+		return domain.CapturedResponse{Status: c.status, ContentType: c.Header().Get("Content-Type"), Body: string(c.summary), Bytes: c.size}
+	}
 	return domain.CapturedResponse{Status: c.status, ContentType: c.Header().Get("Content-Type"), Body: string(c.body), Bytes: c.size, Truncated: c.truncated}
 }
 
 // The original client body, before model aliasing and limit normalization,
 // so customers never see the upstream model ID through their own request.
-func capturedRequest(r *http.Request, body []byte) domain.CapturedRequest {
+func capturedRequest(r *http.Request, body []byte, size int) domain.CapturedRequest {
 	headers := map[string]string{}
 	for _, name := range capturedHeaders {
 		if value := strings.Join(r.Header.Values(name), ", "); value != "" {
 			headers[strings.ToLower(name)] = value[:min(len(value), maxCapturedHeaderBytes)]
 		}
 	}
-	return domain.CapturedRequest{Method: r.Method, Path: r.URL.Path, Headers: headers, Body: string(body), Bytes: len(body)}
+	if size < len(body) {
+		size = len(body)
+	}
+	return domain.CapturedRequest{Method: r.Method, Path: r.URL.Path, Headers: headers, Body: string(body), Bytes: size}
 }
 
 // upstreamReply records a provider reply that the client did not receive
@@ -84,7 +110,7 @@ func upstreamReply(response *http.Response, body []byte, limit int) *domain.Capt
 }
 
 func (h *Handler) savePayload(r *http.Request, p plan, capture *responseCapture, upstream *domain.CapturedResponse) {
-	payload := domain.RequestPayload{Request: capturedRequest(r, p.original), Response: capture.captured(), Upstream: upstream}
+	payload := domain.RequestPayload{Request: capturedRequest(r, p.original, p.originalBytes), Response: capture.captured(), Upstream: upstream}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := h.repo.SavePayload(ctx, p.requestID, payload); err != nil {

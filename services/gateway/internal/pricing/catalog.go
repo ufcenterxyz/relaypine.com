@@ -26,7 +26,11 @@ const OpenAIURL = "https://developers.openai.com/api/docs/pricing"
 
 type Rate struct {
 	Input, Output, Cached, CacheWrite int64
-	Reference                         domain.PriceReference
+	// Image rates are set for image generation models only; the text rates
+	// then price text input and text output.
+	Image                   bool
+	ImageInput, ImageOutput int64
+	Reference               domain.PriceReference
 }
 type Source struct {
 	Provider  string    `json:"provider"`
@@ -241,6 +245,104 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 	if len(out) < 3 {
 		return nil, errors.New("incomplete standard prices")
 	}
+	if provider == "openai" {
+		// A changed image section removes image prices only. Image models then
+		// stay unmatched instead of falling back to a guessed rate.
+		if images, err := parseImageRates(document, checked); err == nil {
+			for id, rate := range images {
+				if _, exists := out[id]; exists {
+					return nil, errors.New("ambiguous standard price")
+				}
+				out[id] = rate
+			}
+		}
+	}
+	return out, nil
+}
+
+var imageModelName = regexp.MustCompile(`^(?:gpt-image-[a-z0-9.-]+|chatgpt-image-latest)$`)
+
+// parseImageRates reads the Standard table of the "Image generation models"
+// section: one Image and one Text row per model, with input, output and
+// cached input prices per 1M tokens. Only supported image families are kept.
+func parseImageRates(document string, checked time.Time) (map[string]Rate, error) {
+	a := strings.Index(document, "Image generation models")
+	if a < 0 {
+		return nil, errors.New("missing image pricing section")
+	}
+	section := document[a:]
+	table := strings.Index(section, "### Grouped Pricing Table data")
+	standard := strings.Index(section, "Standard")
+	batch := strings.Index(section, "Batch")
+	if table < 0 || standard < 0 || standard > table || batch >= 0 && batch < table {
+		return nil, errors.New("changed image pricing section")
+	}
+	section = section[table:]
+	if batch = strings.Index(section, "Batch"); batch >= 0 {
+		section = section[:batch]
+	}
+	sum := sha256.Sum256([]byte(section))
+	hash := hex.EncodeToString(sum[:])
+	type row struct{ input, output, cached int64 }
+	rows := map[string]map[string]row{}
+	header := false
+	for _, line := range strings.Split(section, "\n") {
+		c := cells(line)
+		if len(c) == 0 {
+			if header && len(rows) > 0 {
+				break
+			}
+			continue
+		}
+		if c[0] == "Model" {
+			if len(c) != 5 || c[1] != "Modality" || c[2] != "Input" || c[3] != "Output" || c[4] != "Cached input" {
+				return nil, errors.New("changed image table headers")
+			}
+			header = true
+			continue
+		}
+		if strings.HasPrefix(c[0], "-") || strings.HasPrefix(c[0], ":") {
+			continue
+		}
+		if !header || len(c) != 5 || !imageModelName.MatchString(c[0]) || c[1] != "Image" && c[1] != "Text" {
+			return nil, errors.New("changed image price table")
+		}
+		input, err := price(c[2], false)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s price: %w", c[0], err)
+		}
+		output, err := price(c[3], true)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s price: %w", c[0], err)
+		}
+		cached, err := price(c[4], true)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s price: %w", c[0], err)
+		}
+		if rows[c[0]] == nil {
+			rows[c[0]] = map[string]row{}
+		}
+		if _, exists := rows[c[0]][c[1]]; exists {
+			return nil, errors.New("ambiguous image price")
+		}
+		rows[c[0]][c[1]] = row{input, output, cached}
+	}
+	out := map[string]Rate{}
+	for id, modalities := range rows {
+		image, hasImage := modalities["Image"]
+		text, hasText := modalities["Text"]
+		if !hasImage || !hasText {
+			return nil, errors.New("incomplete image price for " + id)
+		}
+		if domain.ImageFamily(id) == "" || image.output <= 0 {
+			continue
+		}
+		out[id] = Rate{Input: text.input, Output: text.output, Cached: text.cached, Image: true, ImageInput: image.input, ImageOutput: image.output,
+			Reference: domain.PriceReference{Provider: "openai", Model: id, SourceURL: OpenAIURL, SourceName: "OpenAI official reference", CheckedAt: checked, Hash: hash, Scope: "standard_image"}}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no supported image prices")
+	}
 	return out, nil
 }
 
@@ -266,6 +368,13 @@ func CanonicalModel(provider, id string) string {
 func (c Catalog) Match(provider, id string) (Rate, bool) {
 	if r, ok := c.Rates[provider+":"+id]; ok {
 		return r, true
+	}
+	// A dated GPT Image snapshot shares its model's published price.
+	if provider == "openai" {
+		if canonical := domain.ImagePriceModel(id); canonical != id {
+			r, found := c.Rates[provider+":"+canonical]
+			return r, found
+		}
 	}
 	if provider == "anthropic" {
 		if canonical, ok := aliases[id]; ok {
@@ -301,6 +410,12 @@ func ApplyRate(m domain.Model, rate Rate) domain.Model {
 	m.BillingMode = domain.BillingMetered
 	m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate = rate.Input, rate.Output, rate.Cached, rate.CacheWrite
 	m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate = rate.Input, rate.Output, rate.Cached, rate.CacheWrite
+	m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = 0, 0, 0, 0
+	if rate.Image {
+		m.ImageInputRate, m.ImageOutputRate = rate.ImageInput, rate.ImageOutput
+		m.CostImageInputRate, m.CostImageOutputRate = rate.ImageInput, rate.ImageOutput
+	}
+	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
 	ref := rate.Reference
 	m.PricingReference = &ref
 	m.PricingNote = ""

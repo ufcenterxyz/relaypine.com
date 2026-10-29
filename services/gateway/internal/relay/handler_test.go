@@ -431,10 +431,10 @@ func TestUsageMath(t *testing.T) {
 	if ok || u.Known {
 		t.Fatal("invalid cached total accepted")
 	}
-	if _, err := amount(domain.Usage{InputTokens: 1 << 62, Known: true}, 1<<62, 0, 0, 0); err == nil {
+	if _, err := amount(domain.Usage{InputTokens: 1 << 62, Known: true}, rateCard{input: 1 << 62}); err == nil {
 		t.Fatal("overflow accepted")
 	}
-	n, err := amount(domain.Usage{InputTokens: 1, Known: true}, 1, 0, 0, 0)
+	n, err := amount(domain.Usage{InputTokens: 1, Known: true}, rateCard{input: 1})
 	if err != nil || n != 1 {
 		t.Fatal("fractional micro-USD was truncated")
 	}

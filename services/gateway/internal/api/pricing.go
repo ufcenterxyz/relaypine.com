@@ -82,6 +82,7 @@ func (s *Server) previewModelPrices(w http.ResponseWriter, r *http.Request) {
 			m.BillingMode = domain.BillingMetered
 			m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate = 0, 0, 0, 0
 			m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate = 0, 0, 0, 0
+			m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = 0, 0, 0, 0
 			draft := *m
 			draft.Enabled = false
 			if problem := validateModelInput(&draft); problem != nil {

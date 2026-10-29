@@ -37,7 +37,7 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 		return errors.New("usage-only requests cannot reserve money")
 	}
 	if usageOnly {
-		for _, rate := range []int64{r.Model.InputRate, r.Model.OutputRate, r.Model.CachedRate, r.Model.CacheWriteRate, r.Model.CostInputRate, r.Model.CostOutputRate, r.Model.CostCachedRate, r.Model.CostCacheWriteRate} {
+		for _, rate := range append([]int64{r.Model.InputRate, r.Model.OutputRate, r.Model.CachedRate, r.Model.CacheWriteRate, r.Model.CostInputRate, r.Model.CostOutputRate, r.Model.CostCachedRate, r.Model.CostCacheWriteRate}, r.Model.ImageRates()...) {
 			if rate != 0 {
 				return errors.New("usage-only request snapshots cannot contain prices")
 			}
@@ -163,7 +163,7 @@ func customerCharge(reserved, charge int64, status string) int64 {
 }
 
 func (s *Store) Settle(ctx context.Context, requestID string, v domain.Settlement) error {
-	if v.ChargeMicros < 0 || v.ChargeMicros > maxAmount || v.CostMicros < 0 || v.CostMicros > maxAmount || v.Usage.InputTokens < 0 || v.Usage.OutputTokens < 0 || v.Usage.CachedTokens < 0 || v.Usage.CacheWriteTokens < 0 || v.LatencyMS < 0 || len(v.ErrorCode) > 128 {
+	if v.ChargeMicros < 0 || v.ChargeMicros > maxAmount || v.CostMicros < 0 || v.CostMicros > maxAmount || v.Usage.InputTokens < 0 || v.Usage.OutputTokens < 0 || v.Usage.CachedTokens < 0 || v.Usage.CacheWriteTokens < 0 || v.Usage.ImageInputTokens < 0 || v.Usage.ImageOutputTokens < 0 || v.LatencyMS < 0 || len(v.ErrorCode) > 128 {
 		return errors.New("invalid settlement")
 	}
 	switch v.Status {

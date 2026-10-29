@@ -26,7 +26,7 @@ export const pricingEn = {
   currentCost: "Current cost",
   before: "Current",
   after: "Reference",
-  perMillion: "USD per 1M tokens · Standard text requests",
+  perMillion: "USD per 1M tokens · Standard requests",
   prices: "Model prices",
   selectAll: "Select reference matches",
   selected: "{count} selected",

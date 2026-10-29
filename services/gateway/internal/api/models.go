@@ -18,13 +18,17 @@ type modelInputProblem struct {
 // bounds. Missing billing mode is always metered for existing API clients.
 func validateModelInput(m *domain.Model) *modelInputProblem {
 	m.BillingMode = m.EffectiveBillingMode()
+	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
 	if !nameOK(m.ID) || len(m.ID) > 64 || !nameOK(m.Name) || !validProvider(m.Provider) || !nameOK(m.UpstreamModel) || m.MaxOutputTokens < 1 || m.MaxOutputTokens > 65536 {
 		return &modelInputProblem{"invalid_model", "Enter a model ID, provider and output cap between 1 and 65,536."}
 	}
 	if m.BillingMode != domain.BillingMetered && m.BillingMode != domain.BillingUsageOnly {
 		return &modelInputProblem{"invalid_billing_mode", "Choose metered or usage-only billing for this model."}
 	}
-	for _, rate := range []int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate} {
+	if !m.IsImage() {
+		m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = 0, 0, 0, 0
+	}
+	for _, rate := range append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...) {
 		if rate < 0 || rate > 1000000000 {
 			return &modelInputProblem{"invalid_price", "Rates must be between 0 and $1,000 per million tokens."}
 		}
@@ -32,7 +36,10 @@ func validateModelInput(m *domain.Model) *modelInputProblem {
 			return &modelInputProblem{"invalid_price", "Usage-only models must have zero sales and upstream cost rates."}
 		}
 	}
-	if m.BillingMode == domain.BillingMetered && m.Enabled && (m.InputRate == 0 || m.OutputRate == 0 || m.CostInputRate == 0 || m.CostOutputRate == 0) {
+	if m.BillingMode == domain.BillingMetered && m.Enabled && m.IsImage() && (m.InputRate == 0 || m.ImageInputRate == 0 || m.ImageOutputRate == 0 || m.CostInputRate == 0 || m.CostImageInputRate == 0 || m.CostImageOutputRate == 0) {
+		return &modelInputProblem{"invalid_price", "Enabled image models require positive text input, image input and image output rates for both sales and upstream cost."}
+	}
+	if m.BillingMode == domain.BillingMetered && m.Enabled && !m.IsImage() && (m.InputRate == 0 || m.OutputRate == 0 || m.CostInputRate == 0 || m.CostOutputRate == 0) {
 		return &modelInputProblem{"invalid_price", "Enabled metered models require positive input and output rates for both sales and upstream cost."}
 	}
 	if m.Enabled && m.BillingMode == domain.BillingUsageOnly {

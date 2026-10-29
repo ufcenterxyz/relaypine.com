@@ -57,8 +57,10 @@ func (s *Store) UpdateModelPrices(ctx context.Context, edits []ModelPriceUpdate)
 		// change. Publication names, routing aliases and limits remain untouched.
 		m := current
 		m.BillingMode = e.Model.EffectiveBillingMode()
+		m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
 		m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate = e.Model.InputRate, e.Model.OutputRate, e.Model.CachedRate, e.Model.CacheWriteRate
 		m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate = e.Model.CostInputRate, e.Model.CostOutputRate, e.Model.CostCachedRate, e.Model.CostCacheWriteRate
+		m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = e.Model.ImageInputRate, e.Model.ImageOutputRate, e.Model.CostImageInputRate, e.Model.CostImageOutputRate
 		m.PricingReference, m.PricingNote = e.Model.PricingReference, e.Model.PricingNote
 		m.Enabled = current.Enabled && e.Model.Enabled
 		m.Version = version + 1

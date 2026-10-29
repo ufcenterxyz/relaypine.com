@@ -9,12 +9,22 @@ import (
 	"relaypine.com/gateway/internal/domain"
 )
 
-func amount(u domain.Usage, input, output, cached, write int64) (int64, error) {
+// rateCard holds micro-USD per one million tokens for each kind of token.
+type rateCard struct{ input, output, cached, write, imageInput, imageOutput int64 }
+
+func sales(m domain.Model) rateCard {
+	return rateCard{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.ImageInputRate, m.ImageOutputRate}
+}
+func costs(m domain.Model) rateCard {
+	return rateCard{m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate, m.CostImageInputRate, m.CostImageOutputRate}
+}
+
+func amount(u domain.Usage, r rateCard) (int64, error) {
 	if !u.Known {
 		return 0, errors.New("usage unknown")
 	}
 	sum := new(big.Int)
-	for _, p := range [][2]int64{{u.InputTokens, input}, {u.OutputTokens, output}, {u.CachedTokens, cached}, {u.CacheWriteTokens, write}} {
+	for _, p := range [][2]int64{{u.InputTokens, r.input}, {u.OutputTokens, r.output}, {u.CachedTokens, r.cached}, {u.CacheWriteTokens, r.write}, {u.ImageInputTokens, r.imageInput}, {u.ImageOutputTokens, r.imageOutput}} {
 		if p[0] < 0 || p[1] < 0 {
 			return 0, errors.New("negative price or usage")
 		}
@@ -31,28 +41,50 @@ func charges(u domain.Usage, m domain.Model) (int64, int64, error) {
 	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
 		return 0, 0, nil
 	}
-	sell, err := amount(u, m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate)
+	sell, err := amount(u, sales(m))
 	if err != nil {
 		return 0, 0, err
 	}
-	cost, err := amount(u, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate)
+	cost, err := amount(u, costs(m))
 	return sell, cost, err
 }
+
+// estimate reserves for a text request: every input token at the highest
+// input-side rate and the output cap at the output rate.
 func estimate(input, output int64, m domain.Model) (int64, int64, error) {
 	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
 		return 0, 0, nil
 	}
 	u := domain.Usage{InputTokens: input, OutputTokens: output, Known: true}
-	sell, err := amount(u, max(m.InputRate, m.CachedRate, m.CacheWriteRate), m.OutputRate, 0, 0)
+	sell, err := amount(u, rateCard{input: max(m.InputRate, m.CachedRate, m.CacheWriteRate), output: m.OutputRate})
 	if err != nil {
 		return 0, 0, err
 	}
-	cost, err := amount(u, max(m.CostInputRate, m.CostCachedRate, m.CostCacheWriteRate), m.CostOutputRate, 0, 0)
+	cost, err := amount(u, rateCard{input: max(m.CostInputRate, m.CostCachedRate, m.CostCacheWriteRate), output: m.CostOutputRate})
+	return sell, cost, err
+}
+
+// estimateImage reserves for an image request. Every output token is priced
+// at the higher of the image and text output rates, because a streamed
+// completion does not say how its output splits between the two.
+func estimateImage(textInput, imageInput, output int64, m domain.Model) (int64, int64, error) {
+	u := domain.Usage{InputTokens: textInput, ImageInputTokens: imageInput, ImageOutputTokens: output, Known: true}
+	sell, err := amount(u, rateCard{input: max(m.InputRate, m.CachedRate), imageInput: m.ImageInputRate, imageOutput: max(m.ImageOutputRate, m.OutputRate)})
+	if err != nil {
+		return 0, 0, err
+	}
+	cost, err := amount(u, rateCard{input: max(m.CostInputRate, m.CostCachedRate), imageInput: m.CostImageInputRate, imageOutput: max(m.CostImageOutputRate, m.CostOutputRate)})
 	return sell, cost, err
 }
 
 func validAccounting(m domain.Model) bool {
 	return m.EffectiveBillingMode() == domain.BillingMetered && m.InputRate > 0 && m.OutputRate > 0 && m.CostInputRate > 0 && m.CostOutputRate > 0 && m.CachedRate >= 0 && m.CacheWriteRate >= 0 && m.CostCachedRate >= 0 && m.CostCacheWriteRate >= 0
+}
+
+// validImageAccounting needs positive text input and image input/output rates.
+// GPT Image 2 and 2.5 publish no text output price, so that rate may be zero.
+func validImageAccounting(m domain.Model) bool {
+	return m.IsImage() && m.EffectiveBillingMode() == domain.BillingMetered && m.InputRate > 0 && m.ImageInputRate > 0 && m.ImageOutputRate > 0 && m.CostInputRate > 0 && m.CostImageInputRate > 0 && m.CostImageOutputRate > 0 && m.OutputRate >= 0 && m.CachedRate >= 0 && m.CostOutputRate >= 0 && m.CostCachedRate >= 0
 }
 func integer(raw json.RawMessage) (int64, bool) {
 	var n int64
