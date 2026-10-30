@@ -60,10 +60,7 @@ func sharedBucket(b limits, shared []limits) bool {
 func refuseShared(w http.ResponseWriter, full *capacityError) {
 	b := full.bucket
 	wait := retryAfter(full.wait)
-	retry := "Retry in 1 second."
-	if wait > 1 {
-		retry = fmt.Sprintf("Retry in %d seconds.", wait)
-	}
+	retry := fmt.Sprintf("Retry in %s.", quantity(wait, "second"))
 	owner := "This API key"
 	if strings.HasPrefix(b.scope, "tenant:") {
 		owner = "This workspace"
@@ -71,9 +68,9 @@ func refuseShared(w http.ResponseWriter, full *capacityError) {
 	var message string
 	switch full.limit {
 	case "concurrency":
-		message = fmt.Sprintf("%s already has %d requests in progress, its concurrency limit. Retry when one finishes.", owner, b.concurrency)
+		message = fmt.Sprintf("%s already has %s in progress, its concurrency limit. Retry when one finishes.", owner, quantity(int64(b.concurrency), "request"))
 	case "rpm":
-		message = fmt.Sprintf("%s has reached its limit of %d requests per minute. %s", owner, b.rpm, retry)
+		message = fmt.Sprintf("%s has reached its limit of %s per minute. %s", owner, quantity(int64(b.rpm), "request"), retry)
 		if owner == "This API key" {
 			message += " A key with a higher limit can be created in the console."
 		}
@@ -82,4 +79,12 @@ func refuseShared(w http.ResponseWriter, full *capacityError) {
 	}
 	w.Header().Set("Retry-After", strconv.FormatInt(wait, 10))
 	fail(w, 429, "rate_limit_exceeded", message)
+}
+
+// quantity writes n with a noun in its singular or plural form.
+func quantity(n int64, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.FormatInt(n, 10) + " " + noun + "s"
 }

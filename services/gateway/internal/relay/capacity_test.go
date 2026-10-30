@@ -24,6 +24,26 @@ func TestRetryAfterRoundsUp(t *testing.T) {
 	}
 }
 
+func TestRefusalOfOneReadsInTheSingular(t *testing.T) {
+	for _, tc := range []struct {
+		full    capacityError
+		message string
+	}{
+		{capacityError{bucket: limits{scope: "access:key", rpm: 1}, limit: "rpm", wait: time.Second}, "This API key has reached its limit of 1 request per minute. Retry in 1 second. A key with a higher limit can be created in the console."},
+		{capacityError{bucket: limits{scope: "tenant:workspace", concurrency: 1}, limit: "concurrency"}, "This workspace already has 1 request in progress, its concurrency limit. Retry when one finishes."},
+	} {
+		w := httptest.NewRecorder()
+		refuseShared(w, &tc.full)
+		var body struct {
+			Error struct{ Message string }
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		if body.Error.Message != tc.message {
+			t.Errorf("%q", body.Error.Message)
+		}
+	}
+}
+
 func refusingUpstream(t *testing.T) *httptest.Server {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Error("a refused request reached the upstream")
