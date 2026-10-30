@@ -600,7 +600,11 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 		p.input += binding.InputTokens
 		p.tpm += binding.InputTokens
 	}
-	if ref := p.model.PricingReference; ref != nil && (ref.MaxInputTokens <= 0 || p.input > ref.MaxInputTokens) {
+	// A verified standard price covers prompts up to MaxInputTokens. Longer
+	// prompts are priced by the model's long context rates, or need none
+	// when the provider has no higher price for them. A reference saved
+	// before long context prices were recorded still refuses them.
+	if ref := p.model.PricingReference; ref != nil && !ref.AllPromptLengths && p.model.LongContext == nil && (ref.MaxInputTokens <= 0 || p.input > ref.MaxInputTokens) {
 		return errors.New("request exceeds the standard reference price context limit; shorten the input or configure a separately priced model")
 	}
 	if !p.count {

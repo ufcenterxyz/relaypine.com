@@ -38,6 +38,7 @@ import type {
 import { useConsole } from "./console-provider";
 import { RouteTrail } from "./route-trail";
 import { imageEn as im } from "@/i18n/image-en";
+import { longContextEn as lc } from "@/i18n/long-context-en";
 import { usageTokens } from "@/lib/images";
 import { CopyButton, Empty, ErrorBox } from "./shared";
 
@@ -322,6 +323,7 @@ function OverviewPanel({
                 : []),
               [t.usageKnown, usage.known ? t.yes : t.no],
               [t.modelBillingMode, request.billing_mode === "usage_only" ? t.modelUsageOnly : t.modelMetered],
+              ...(request.long_context ? ([[lc.priceTier, lc.longContextApplied]] as [string, ReactNode][]) : []),
               [t.held, money(request.reserved_micros, true)],
               ...(isOperator ? ([[t.cost, requestCost(request)]] as [string, ReactNode][]) : []),
             ]}

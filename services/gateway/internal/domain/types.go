@@ -100,6 +100,12 @@ const (
 
 // PriceReference is server-verified standard text pricing from an official
 // provider. It also pins routing to that provider's canonical API origin.
+//
+// MaxInputTokens is the longest prompt the standard price covers. A model
+// with a published long context price carries it as LongContext above this
+// threshold. AllPromptLengths marks a standard price that covers every prompt
+// the model accepts. A reference saved before these were recorded has neither,
+// and its model refuses requests whose input bound exceeds MaxInputTokens.
 type PriceReference struct {
 	Provider       string    `json:"provider"`
 	Model          string    `json:"model"`
@@ -109,6 +115,9 @@ type PriceReference struct {
 	Hash           string    `json:"hash"`
 	Scope          string    `json:"scope"`
 	MaxInputTokens int64     `json:"max_input_tokens"`
+	// AllPromptLengths is set when the provider publishes no higher price
+	// for long prompts on this model.
+	AllPromptLengths bool `json:"all_prompt_lengths,omitempty"`
 }
 
 type Model struct {
@@ -138,6 +147,8 @@ type Model struct {
 	ImageOutputRate     int64  `json:"image_output_rate,omitempty"`
 	CostImageInputRate  int64  `json:"cost_image_input_rate,omitempty"`
 	CostImageOutputRate int64  `json:"cost_image_output_rate,omitempty"`
+	// LongContext prices requests whose prompt is longer than its threshold.
+	LongContext *LongContext `json:"long_context,omitempty"`
 }
 
 // ModelKindImage marks an image generation model.
@@ -189,6 +200,9 @@ type Request struct {
 	LatencyMS      int64     `json:"latency_ms"`
 	ErrorCode      string    `json:"error_code,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
+	// LongContext is set when the request's prompt was long enough to pay
+	// its model's long context rates.
+	LongContext bool `json:"long_context,omitempty"`
 	// Attempts lists every upstream tried, oldest first. It is returned only to
 	// the administrator, and only when the request was rerouted.
 	Attempts []Attempt `json:"attempts,omitempty"`

@@ -28,7 +28,15 @@ type Preview struct {
 
 func SameRates(a, b domain.Model) bool {
 	return a.EffectiveBillingMode() == b.EffectiveBillingMode() && a.InputRate == b.InputRate && a.OutputRate == b.OutputRate && a.CachedRate == b.CachedRate && a.CacheWriteRate == b.CacheWriteRate && a.CostInputRate == b.CostInputRate && a.CostOutputRate == b.CostOutputRate && a.CostCachedRate == b.CostCachedRate && a.CostCacheWriteRate == b.CostCacheWriteRate &&
-		a.ImageInputRate == b.ImageInputRate && a.ImageOutputRate == b.ImageOutputRate && a.CostImageInputRate == b.CostImageInputRate && a.CostImageOutputRate == b.CostImageOutputRate
+		a.ImageInputRate == b.ImageInputRate && a.ImageOutputRate == b.ImageOutputRate && a.CostImageInputRate == b.CostImageInputRate && a.CostImageOutputRate == b.CostImageOutputRate &&
+		sameLongContext(a.LongContext, b.LongContext)
+}
+
+func sameLongContext(a, b *domain.LongContext) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // HasRates reports a complete metered price. Image models publish no text

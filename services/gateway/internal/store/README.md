@@ -127,6 +127,23 @@ bodies with uploads keep every field, with each image replaced by its type and
 size. Replies and stream events keep every field, with each base64 image
 replaced by a short note, and record the real size of the reply.
 
+## Long context prices
+
+`models.config` may carry `long_context` with `above_input_tokens` and the
+sales and `cost_*` input, output, cached and cache write rates of prompts above
+it. Only metered text models have one; the input and output rates must be
+positive and no rate may be below its standard rate. `Settle` stores the charge
+the relay computed from the snapshot: the long context rates when the reported
+prompt (input, cache reads and cache writes) is above the threshold. Request
+views derive `long_context` from the snapshot and that prompt length. The
+customer snapshot hides the long context `cost_*` rates.
+
+`pricing_reference.max_input_tokens` is the longest prompt the standard price
+covers, and `pricing_reference.all_prompt_lengths` marks a model with one price
+for every prompt it accepts. A reference without either a long context price or
+that flag was saved before they were recorded; the relay keeps refusing
+requests whose input bound exceeds its `max_input_tokens`.
+
 ## Historical payment tables
 
 `topup_orders`: `id VARCHAR(64) PRIMARY KEY`, `tenant_id VARCHAR(64)`,

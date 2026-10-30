@@ -4,9 +4,42 @@ import { Button, Checkbox, Chip, Link } from "@heroui/react";
 import { ArrowUpRight, Clock3, ShieldCheck } from "lucide-react";
 import { pricingEn as p } from "@/i18n/pricing-en";
 import { imageEn as im } from "@/i18n/image-en";
+import { longContextEn as lc } from "@/i18n/long-context-en";
 import { isPriced } from "@/lib/images";
+import { compactTokens } from "@/lib/long-context";
 import { count, date, money } from "@/lib/api";
 import { safeReferenceURL, type PricePreview } from "@/lib/pricing";
+import type { LongContext } from "@/lib/types";
+
+const longFields = ["input_rate", "output_rate", "cached_rate", "cache_write_rate"] as const;
+const longCosts = ["cost_input_rate", "cost_output_rate", "cost_cached_rate", "cost_cache_write_rate"] as const;
+
+// The long context price of a preview item, after and before, under the
+// standard grid. It shows only when either side has one.
+function LongContextPrices({ after, before, importMode, labels }: {
+  after?: LongContext | null;
+  before?: LongContext | null;
+  importMode: boolean;
+  labels: readonly string[];
+}) {
+  if (!after && !before) return null;
+  const above = after?.above_input_tokens ?? before?.above_input_tokens ?? 0;
+  return (
+    <div className="mt-3">
+      <p className="mb-2 text-xs font-medium text-default-600">{lc.promptsOver.replace("{tokens}", compactTokens(above))}</p>
+      <div className="rp-management-price-grid">
+        {longFields.map((field, index) => (
+          <div key={field} className="rp-management-price-cell">
+            <span className="rp-management-price-label">{labels[index]}</span>
+            <strong className="rp-management-new-price">{after ? money(after[field], true) : lc.noLongContext}</strong>
+            {!importMode && <span className="rp-management-old-price">{p.before}: {before ? money(before[field], true) : lc.noLongContext}</span>}
+            {!importMode && <span className="rp-management-old-price">{p.currentCost}: {before ? money(before[longCosts[index]], true) : lc.noLongContext}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function ModelPricePreview({ preview, selected, onSelection, disabled = false }: {
   preview: PricePreview;
@@ -76,6 +109,9 @@ export function ModelPricePreview({ preview, selected, onSelection, disabled = f
                   ))}
                 </div>
               ) : <p className="mt-3 text-xs leading-5 text-default-500">{unchanged ? p.unchangedHelp : item.reason || p.noPriceHelp}</p>}
+              {available && item.after.kind !== "image" && (
+                <LongContextPrices after={item.after.long_context} before={item.before.long_context} importMode={importMode} labels={textPrices.labels} />
+              )}
               {available && <div className="rp-management-price-source"><span>{p.nextRates}</span>{sourceURL && <Link href={sourceURL} target="_blank" rel="noopener noreferrer" size="sm" className="text-xs" color="foreground" underline="hover">
                 {item.source_name || p.source}<ArrowUpRight size={12} />
               </Link>}</div>}

@@ -61,6 +61,7 @@ func (s *Store) UpdateModelPrices(ctx context.Context, edits []ModelPriceUpdate)
 		m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate = e.Model.InputRate, e.Model.OutputRate, e.Model.CachedRate, e.Model.CacheWriteRate
 		m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate = e.Model.CostInputRate, e.Model.CostOutputRate, e.Model.CostCachedRate, e.Model.CostCacheWriteRate
 		m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = e.Model.ImageInputRate, e.Model.ImageOutputRate, e.Model.CostImageInputRate, e.Model.CostImageOutputRate
+		m.LongContext = e.Model.LongContext
 		m.PricingReference, m.PricingNote = e.Model.PricingReference, e.Model.PricingNote
 		m.Enabled = current.Enabled && e.Model.Enabled
 		m.Version = version + 1

@@ -35,7 +35,9 @@ import { ModelPriceUpdate } from "./model-price-update";
 import { consoleEn as c } from "@/i18n/console-en";
 import { backupEn as b } from "@/i18n/backup-en";
 import { imageEn as im } from "@/i18n/image-en";
+import { longContextEn as lc } from "@/i18n/long-context-en";
 import { isImageUpstream, isPriced } from "@/lib/images";
+import { compactTokens, longContextFormKeys, longContextRates, maxLongContextThreshold } from "@/lib/long-context";
 import { api, count, dollars, errorMessage, money } from "@/lib/api";
 import { backupRoutes, isBackup, type BackupRoute } from "@/lib/backups";
 import type { BackupBalance, Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
@@ -711,15 +713,39 @@ const requiredRates = (values: Record<string, unknown>) =>
     ? ["input_rate", "cost_input_rate", ...imageRateFields]
     : ["input_rate", "output_rate", "cost_input_rate", "cost_output_rate"];
 
+const longRateLabels = [
+  lc.longInputRate,
+  lc.longOutputRate,
+  lc.longCachedRate,
+  lc.longCacheWriteRate,
+  lc.costLongInputRate,
+  lc.costLongOutputRate,
+  lc.costLongCachedRate,
+  lc.costLongCacheWriteRate,
+];
+
 // The models table keeps one set of columns. An image model shows its text and
-// image prices together: input, output, cached input, and no cache writes.
+// image prices together: input, output, cached input, and no cache writes. A
+// text model with a long context price shows it under each standard rate.
 function modelRateCells(model: Model) {
   if (!isPriced(model))
     return [0, 1, 2, 3].map((i) => <span key={i} className="rp-management-rate">{t.notPriced}</span>);
-  if (model.kind !== "image")
-    return [model.input_rate, model.output_rate, model.cached_rate, model.cache_write_rate].map((rate, i) => (
-      <span key={i} className="rp-management-rate">{money(rate, true)}</span>
-    ));
+  if (model.kind !== "image") {
+    const long = model.long_context;
+    const longRates = long ? [long.input_rate, long.output_rate, long.cached_rate, long.cache_write_rate] : [];
+    return [model.input_rate, model.output_rate, model.cached_rate, model.cache_write_rate].map((rate, i) =>
+      long ? (
+        <span key={i} className="rp-management-rate flex flex-col gap-0.5">
+          <span>{money(rate, true)}</span>
+          <small className="text-xs text-default-500">
+            {lc.over.replace("{tokens}", compactTokens(long.above_input_tokens))}: {money(longRates[i], true)}
+          </small>
+        </span>
+      ) : (
+        <span key={i} className="rp-management-rate">{money(rate, true)}</span>
+      ),
+    );
+  }
   const line = (rate: number, label: string) => (
     <span key={label} className="flex items-baseline gap-1.5">
       <span>{money(rate, true)}</span>
@@ -759,6 +785,10 @@ export function Models() {
     addToast({ title: t.saved, color: "success" });
   }
   function open(model?: Model) {
+    // Long context rates are edited with the other manual rates. A verified
+    // reference keeps the provider's published long context price.
+    const editsLongContext = (values: FormValues) =>
+      !routesImages(values) && (!model?.pricing_reference || !!values.manual_pricing);
     setForm({
       title: model ? t.editModel : t.addModel,
       description: `${p.balanceHelp} ${p.manualHelp}`,
@@ -821,6 +851,43 @@ export function Models() {
           }),
         ),
         {
+          key: "long_context_enabled",
+          label: lc.longContextEnabled,
+          type: "switch",
+          description: lc.longContextHelp,
+          section: lc.longContextRates,
+          visibleWhen: (values) => editsLongContext(values),
+        },
+        {
+          key: "long_context_above",
+          label: lc.longContextAbove,
+          type: "number",
+          min: 1,
+          required: true,
+          visibleWhen: (values) => editsLongContext(values) && !!values.long_context_enabled,
+          validate: (value) =>
+            !Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > maxLongContextThreshold
+              ? lc.thresholdRange
+              : undefined,
+        },
+        ...longContextRates.map(
+          ({ field, standard }, i): Field => ({
+            key: field,
+            label: longRateLabels[i],
+            type: "number",
+            required: true,
+            visibleWhen: (values) => editsLongContext(values) && !!values.long_context_enabled,
+            validate: (value, values) =>
+              !Number.isFinite(Number(value))
+                ? undefined
+                : i % 4 < 2 && dollars(value) <= 0
+                  ? lc.positiveRate
+                  : dollars(value) < dollars(values[standard])
+                    ? lc.belowStandard
+                    : undefined,
+          }),
+        ),
+        {
           key: "max_output_tokens",
           label: t.maxOutput,
           type: "number",
@@ -854,6 +921,11 @@ export function Models() {
             ...Object.fromEntries(
               imageRateFields.map((key) => [key, ((model[key as keyof Model] as number | undefined) ?? 0) / 1e6]),
             ),
+            long_context_enabled: !!model.long_context,
+            long_context_above: model.long_context?.above_input_tokens ?? "",
+            ...Object.fromEntries(
+              longContextRates.map(({ field, key }) => [field, model.long_context ? model.long_context[key] / 1e6 : ""]),
+            ),
           }
         : {
             id: "",
@@ -866,6 +938,9 @@ export function Models() {
             max_output_tokens: 4096,
             ...Object.fromEntries(rateFields.map((key) => [key, ""])),
             ...Object.fromEntries(imageRateFields.map((key) => [key, ""])),
+            long_context_enabled: false,
+            long_context_above: "",
+            ...Object.fromEntries(longContextRates.map(({ field }) => [field, ""])),
           },
       onSubmit: async (values) => {
         if (model && values.id !== model.id)
@@ -878,7 +953,7 @@ export function Models() {
         }
         await save({
           ...model,
-          ...values,
+          ...Object.fromEntries(Object.entries(values).filter(([key]) => !longContextFormKeys.includes(key))),
           billing_mode: "metered",
           manual_pricing: !!values.manual_pricing,
           ...(values.manual_pricing ? { pricing_reference: null, pricing_note: "" } : {}),
@@ -893,6 +968,13 @@ export function Models() {
           ...Object.fromEntries(
             imageRateFields.map((key) => [key, routesImages(values) ? dollars(values[key]) : 0]),
           ),
+          long_context:
+            !routesImages(values) && values.long_context_enabled
+              ? {
+                  above_input_tokens: Number(values.long_context_above),
+                  ...Object.fromEntries(longContextRates.map(({ field, key }) => [key, dollars(values[field])])),
+                }
+              : null,
           max_output_tokens: Number(values.max_output_tokens),
         });
       },

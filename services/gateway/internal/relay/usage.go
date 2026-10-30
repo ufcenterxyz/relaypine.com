@@ -37,10 +37,14 @@ func amount(u domain.Usage, r rateCard) (int64, error) {
 	}
 	return sum.Int64(), nil
 }
+
+// charges prices reported usage. A prompt above the model's long context
+// threshold moves the whole request to the long context rates.
 func charges(u domain.Usage, m domain.Model) (int64, int64, error) {
 	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
 		return 0, 0, nil
 	}
+	m = m.PricedFor(u.PromptTokens())
 	sell, err := amount(u, sales(m))
 	if err != nil {
 		return 0, 0, err
@@ -50,11 +54,21 @@ func charges(u domain.Usage, m domain.Model) (int64, int64, error) {
 }
 
 // estimate reserves for a text request: every input token at the highest
-// input-side rate and the output cap at the output rate.
+// input-side rate and the output cap at the output rate. When the input bound
+// is above the long context threshold the prompt may pay either tier, so the
+// hold is the higher of the two.
 func estimate(input, output int64, m domain.Model) (int64, int64, error) {
 	if m.EffectiveBillingMode() == domain.BillingUsageOnly {
 		return 0, 0, nil
 	}
+	sell, cost, err := hold(input, output, m)
+	if err != nil || !m.LongPrompt(input) {
+		return sell, cost, err
+	}
+	longSell, longCost, err := hold(input, output, m.PricedFor(input))
+	return max(sell, longSell), max(cost, longCost), err
+}
+func hold(input, output int64, m domain.Model) (int64, int64, error) {
 	u := domain.Usage{InputTokens: input, OutputTokens: output, Known: true}
 	sell, err := amount(u, rateCard{input: max(m.InputRate, m.CachedRate, m.CacheWriteRate), output: m.OutputRate})
 	if err != nil {

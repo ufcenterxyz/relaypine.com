@@ -90,8 +90,21 @@ export interface Proxy {
   masked_url: string;
   enabled: boolean;
 }
+// The price of requests whose prompt, cache reads and writes included, is
+// longer than above_input_tokens. The whole request then pays these rates.
+export interface LongContext {
+  above_input_tokens: number;
+  input_rate: number;
+  output_rate: number;
+  cached_rate: number;
+  cache_write_rate: number;
+  cost_input_rate: number;
+  cost_output_rate: number;
+  cost_cached_rate: number;
+  cost_cache_write_rate: number;
+}
 export interface Model {
-  pricing_reference?: { provider: string; model: string; source_url: string; source_name: string; checked_at: string; hash: string; scope: "standard_text" | "standard_image"; max_input_tokens?: number };
+  pricing_reference?: { provider: string; model: string; source_url: string; source_name: string; checked_at: string; hash: string; scope: "standard_text" | "standard_image"; max_input_tokens?: number; all_prompt_lengths?: boolean };
   pricing_note?: string;
   id: string;
   name: string;
@@ -115,6 +128,7 @@ export interface Model {
   image_output_rate?: number;
   cost_image_input_rate?: number;
   cost_image_output_rate?: number;
+  long_context?: LongContext | null;
 }
 export interface RequestLog {
   id: string;
@@ -143,6 +157,8 @@ export interface RequestLog {
   latency_ms: number;
   error_code?: string;
   created_at: string;
+  // Set when the prompt was long enough to pay the model's long context rates.
+  long_context?: boolean;
   // Administrator only: every upstream tried when the request was rerouted.
   attempts?: { credential_id: string; status: string; error_code?: string }[];
 }

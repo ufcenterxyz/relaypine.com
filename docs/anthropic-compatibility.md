@@ -110,7 +110,7 @@ const message = await client.messages.create({ ...input, max_tokens: 256 });
 
 请求预留只从原文本/请求体估算中扣除已验证图片位置的 base64 逻辑长度，再为每图
 加入 `2 * ceil(width / 28) * ceil(height / 28) + 256` 的保守输入上界。相同上界用于
-参考价上下文限制、TPM 和客户/上游资金预留；它不是实际 token 数或最终账单，
+客户/上游资金预留和长上下文计价判断，TPM 准入也计入其中的图片上界；它不是实际 token 数或最终账单，
 可信 usage 到达后按价格快照结算。`count_tokens` 不预留金额或扣取 RelayPine
 余额，但保留模型、鉴权、上下文和容量限制，且不支持 streaming。详见
 [用量与额度说明](commercial-billing.md)。

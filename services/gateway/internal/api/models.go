@@ -27,8 +27,10 @@ func validateModelInput(m *domain.Model) *modelInputProblem {
 	}
 	if !m.IsImage() {
 		m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = 0, 0, 0, 0
+	} else {
+		m.LongContext = nil
 	}
-	for _, rate := range append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...) {
+	for _, rate := range append(append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...), m.LongContextRates()...) {
 		if rate < 0 || rate > 1000000000 {
 			return &modelInputProblem{"invalid_price", "Rates must be between 0 and $1,000 per million tokens."}
 		}
@@ -41,6 +43,9 @@ func validateModelInput(m *domain.Model) *modelInputProblem {
 	}
 	if m.BillingMode == domain.BillingMetered && m.Enabled && !m.IsImage() && (m.InputRate == 0 || m.OutputRate == 0 || m.CostInputRate == 0 || m.CostOutputRate == 0) {
 		return &modelInputProblem{"invalid_price", "Enabled metered models require positive input and output rates for both sales and upstream cost."}
+	}
+	if m.LongContext != nil && domain.CheckLongContext(*m) != nil {
+		return &modelInputProblem{"invalid_price", "Long context prices need a threshold between 1 and 100,000,000 input tokens, positive input and output rates for both sales and upstream cost, and no rate below the standard rate. Usage-only models have none."}
 	}
 	if m.Enabled && m.BillingMode == domain.BillingUsageOnly {
 		return &modelInputProblem{"invalid_price", "Enabled models must have metered prices so usage deducts from the customer's balance."}

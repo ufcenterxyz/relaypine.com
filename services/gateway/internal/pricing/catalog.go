@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,8 +31,15 @@ type Rate struct {
 	// then price text input and text output.
 	Image                   bool
 	ImageInput, ImageOutput int64
-	Reference               domain.PriceReference
+	// Long is the published price of prompts longer than the reference's
+	// MaxInputTokens, if the provider charges more for them.
+	Long      *LongRate
+	Reference domain.PriceReference
 }
+
+// LongRate holds a long context price's input, output, cached input and cache
+// write rates.
+type LongRate struct{ Input, Output, Cached, CacheWrite int64 }
 type Source struct {
 	Provider  string    `json:"provider"`
 	URL       string    `json:"url"`
@@ -106,6 +114,58 @@ var dollars = regexp.MustCompile(`^\$([0-9]+(?:\.[0-9]{1,6})?)(?:\s*/\s*MTok)?(?
 var claudeName = regexp.MustCompile(`^Claude (Fable|Mythos|Opus|Sonnet|Haiku) ([0-9]+(?:\.[0-9]+)?)$`)
 var openaiName = regexp.MustCompile(`^(?:gpt-[a-z0-9.-]+|o[0-9]+(?:-[a-z0-9]+)*)$`)
 
+// Claude prices some models by prompt length, in a row for prompts up to a
+// number of tokens and a row for prompts over it.
+var claudeTier = regexp.MustCompile(`^ \(for prompts (up to|over) ([1-9][0-9]{0,2}(?:,[0-9]{3})*) tokens\)$`)
+
+// OpenAI's short context rates cover prompts of up to 272K input tokens. The
+// page states the threshold once for every model with long context rates.
+const openAIShortContext = 272000
+
+// The long context statements the parser relies on. A changed statement fails
+// closed rather than keep a stale threshold or exception list.
+const (
+	openAIShortStatement = "Short context: ≤272K input tokens"
+	openAILongStatement  = "Long context: >272K input tokens"
+	claudeLongStatement  = "Claude 4.6 and later models (except Claude Haiku 5.5)"
+	claudeStandardPrice  = "at standard pricing"
+)
+
+// claudeAtLeast reports whether a Claude version such as "4.6" or "5" is at
+// least major.minor.
+func claudeAtLeast(version string, major, minor int) bool {
+	whole, fraction, _ := strings.Cut(version, ".")
+	a, _ := strconv.Atoi(whole)
+	b, _ := strconv.Atoi(fraction)
+	return a > major || a == major && b >= minor
+}
+
+// claudeLongContextPolicy checks the page's statement that Claude 4.6 and
+// later models, except the ones priced by prompt length, cover their whole
+// context window at the standard rates.
+func claudeLongContextPolicy(document string) bool {
+	_, section, found := strings.Cut(document, "### Long context pricing")
+	if !found {
+		return false
+	}
+	if next := strings.Index(section, "\n### "); next >= 0 {
+		section = section[:next]
+	}
+	return strings.Contains(section, claudeLongStatement) && strings.Contains(section, claudeStandardPrice)
+}
+
+// longRate checks a long context price, in the order input, output, cached
+// input and cache write. It must cover every token kind its standard price
+// covers, at no lower a rate.
+func longRate(id string, standard, long [4]int64) (LongRate, error) {
+	for i := range long {
+		if long[i] < standard[i] {
+			return LongRate{}, fmt.Errorf("invalid %s long context price", id)
+		}
+	}
+	return LongRate{long[0], long[1], long[2], long[3]}, nil
+}
+
 func price(cell string, optional bool) (int64, error) {
 	cell = strings.TrimSpace(cell)
 	if optional && cell == "-" {
@@ -165,6 +225,13 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 	sum := sha256.Sum256([]byte(section))
 	hash := hex.EncodeToString(sum[:])
 	out := map[string]Rate{}
+	// Claude's row for longer prompts becomes its model's long context price.
+	type longerRow struct {
+		above  int64
+		values [4]int64
+	}
+	longer := map[string]longerRow{}
+	tiered := false
 	var header []string
 	for _, line := range strings.Split(section, "\n") {
 		c := cells(line)
@@ -182,20 +249,29 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 			return nil, errors.New("changed price table")
 		}
 		id := c[0]
-		shortClaudeContext := strings.Contains(id, " (for prompts up to 100,000 tokens)")
 		indexes := []int{1, 2, 3, -1}
-		limit := int64(272000)
+		var longIndexes []int
+		limit := int64(openAIShortContext)
+		// The standard price covers every prompt the model accepts unless the
+		// provider publishes a higher price for long prompts.
+		allLengths, over := true, false
 		if provider == "anthropic" {
 			if len(header) != 6 || header[1] != "Base input tokens" || header[2] != "5m cache writes" || header[3] != "1h cache writes" || header[4] != "Cache hits and refreshes" || header[5] != "Output tokens" {
 				return nil, errors.New("changed Claude table headers")
 			}
-			// Retired and conditional premium rows are not new available tariffs.
-			if strings.Contains(id, "retired") || strings.Contains(id, "over 100,000") {
+			// Retired rows are not available tariffs.
+			if strings.Contains(id, "retired") {
 				continue
 			}
 			if p := strings.Index(id, " ("); p >= 0 {
 				annotation := id[p:]
-				if annotation != " (for prompts up to 100,000 tokens)" && annotation != " ([limited availability](https://support.claude.com/en/articles/14604842))" {
+				if tier := claudeTier.FindStringSubmatch(annotation); tier != nil {
+					n, err := strconv.ParseInt(strings.ReplaceAll(tier[2], ",", ""), 10, 64)
+					if err != nil || n > domain.MaxLongContextThreshold {
+						return nil, errors.New("unrecognized Claude prompt length price")
+					}
+					limit, allLengths, over = n, false, tier[1] == "over"
+				} else if annotation != " ([limited availability](https://support.claude.com/en/articles/14604842))" {
 					return nil, errors.New("unrecognized conditional Claude price")
 				}
 				id = id[:p]
@@ -206,22 +282,29 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 			}
 			id = "claude-" + strings.ToLower(match[1]) + "-" + strings.ReplaceAll(match[2], ".", "-")
 			indexes = []int{1, 5, 4, 2}
-			limit = 200000
-			if match[2] != "4.5" && match[2] != "3.5" {
-				limit = 1000000
-			}
-			if shortClaudeContext {
-				limit = 100000
+			if allLengths {
+				// Claude 4.6 and later models price their whole 1M token
+				// context window at the standard rates. Older models have a
+				// 200K window: the gateway does not forward the 1M context
+				// beta that once priced longer prompts higher.
+				limit = 200000
+				if claudeAtLeast(match[2], 4, 6) {
+					limit = 1000000
+				}
 			}
 		} else {
 			if p := strings.Index(id, " (<272K context length)"); p >= 0 {
 				id = id[:p]
+				allLengths = false
 			}
 			if !openaiName.MatchString(id) {
 				return nil, errors.New("unrecognized OpenAI model")
 			}
-			if len(header) == 11 && header[1] == "Short context input" && header[2] == "Short context output" && header[3] == "Short context cached input" && header[4] == "Short context 30m write" {
+			if len(header) == 11 && header[1] == "Short context input" && header[2] == "Short context output" && header[3] == "Short context cached input" && header[4] == "Short context 30m write" &&
+				header[6] == "Long context input" && header[7] == "Long context output" && header[8] == "Long context cached input" && header[9] == "Long context 30m write" {
 				indexes[3] = 4
+				longIndexes = []int{6, 7, 8, 9}
+				allLengths, tiered = false, true
 			} else if len(header) != 4 || header[1] != "Input" || header[2] != "Output" || header[3] != "Cached input" {
 				return nil, errors.New("changed OpenAI table headers")
 			}
@@ -237,10 +320,52 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 				return nil, fmt.Errorf("invalid %s price: %w", id, err)
 			}
 		}
+		if over {
+			if _, exists := longer[id]; exists {
+				return nil, errors.New("ambiguous long context price")
+			}
+			longer[id] = longerRow{limit, values}
+			continue
+		}
+		var long *LongRate
+		// A model without published long context rates keeps refusing longer
+		// prompts.
+		if longIndexes != nil && (c[longIndexes[0]] != "-" || c[longIndexes[1]] != "-") {
+			var longValues [4]int64
+			for i, index := range longIndexes {
+				var err error
+				if longValues[i], err = price(c[index], i >= 2); err != nil {
+					return nil, fmt.Errorf("invalid %s long context price: %w", id, err)
+				}
+			}
+			rate, err := longRate(id, values, longValues)
+			if err != nil {
+				return nil, err
+			}
+			long = &rate
+		}
 		if _, exists := out[id]; exists {
 			return nil, errors.New("ambiguous standard price")
 		}
-		out[id] = Rate{Input: values[0], Output: values[1], Cached: values[2], CacheWrite: values[3], Reference: domain.PriceReference{Provider: provider, Model: id, SourceURL: u, SourceName: name, CheckedAt: checked, Hash: hash, Scope: "standard_text", MaxInputTokens: limit}}
+		out[id] = Rate{Input: values[0], Output: values[1], Cached: values[2], CacheWrite: values[3], Long: long, Reference: domain.PriceReference{Provider: provider, Model: id, SourceURL: u, SourceName: name, CheckedAt: checked, Hash: hash, Scope: "standard_text", MaxInputTokens: limit, AllPromptLengths: allLengths}}
+	}
+	for id, row := range longer {
+		r, found := out[id]
+		if !found || r.Reference.AllPromptLengths || r.Reference.MaxInputTokens != row.above {
+			return nil, errors.New("unpaired long context price")
+		}
+		long, err := longRate(id, [4]int64{r.Input, r.Output, r.Cached, r.CacheWrite}, row.values)
+		if err != nil {
+			return nil, err
+		}
+		r.Long = &long
+		out[id] = r
+	}
+	if tiered && !(strings.Contains(document, openAIShortStatement) && strings.Contains(document, openAILongStatement)) {
+		return nil, errors.New("changed long context threshold")
+	}
+	if provider == "anthropic" && !claudeLongContextPolicy(document) {
+		return nil, errors.New("changed long context pricing")
 	}
 	if len(out) < 3 {
 		return nil, errors.New("incomplete standard prices")
@@ -411,6 +536,14 @@ func ApplyRate(m domain.Model, rate Rate) domain.Model {
 	m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate = rate.Input, rate.Output, rate.Cached, rate.CacheWrite
 	m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate = rate.Input, rate.Output, rate.Cached, rate.CacheWrite
 	m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = 0, 0, 0, 0
+	m.LongContext = nil
+	if l := rate.Long; l != nil && !rate.Image {
+		m.LongContext = &domain.LongContext{
+			AboveInputTokens: rate.Reference.MaxInputTokens,
+			InputRate:        l.Input, OutputRate: l.Output, CachedRate: l.Cached, CacheWriteRate: l.CacheWrite,
+			CostInputRate: l.Input, CostOutputRate: l.Output, CostCachedRate: l.Cached, CostCacheWriteRate: l.CacheWrite,
+		}
+	}
 	if rate.Image {
 		m.ImageInputRate, m.ImageOutputRate = rate.ImageInput, rate.ImageOutput
 		m.CostImageInputRate, m.CostImageOutputRate = rate.ImageInput, rate.ImageOutput

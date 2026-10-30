@@ -46,6 +46,11 @@ func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot
 			m.CostCacheWriteRate = 0
 			m.CostImageInputRate = 0
 			m.CostImageOutputRate = 0
+			if m.LongContext != nil {
+				l := *m.LongContext
+				l.CostInputRate, l.CostOutputRate, l.CostCachedRate, l.CostCacheWriteRate = 0, 0, 0, 0
+				m.LongContext = &l
+			}
 			m.UpstreamModel = ""
 			m.PricingReference = nil
 			m.PricingNote = ""
@@ -129,6 +134,7 @@ func scanRequest(row interface{ Scan(...any) error }, user domain.User, extra ..
 		return r, err
 	}
 	r.BillingMode = model.EffectiveBillingMode()
+	r.LongContext = r.Usage.Known && model.LongPrompt(r.Usage.PromptTokens())
 	r.CostStatus = "pending"
 	if r.BillingMode == domain.BillingUsageOnly {
 		r.CostStatus = "untracked"

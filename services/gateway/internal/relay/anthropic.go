@@ -35,6 +35,9 @@ func anthropicBetaHeader(header http.Header) (string, error) {
 				return "", errors.New("too many anthropic-beta features")
 			}
 			beta := strings.Trim(field, " \t")
+			// Claude 4.5 references price every prompt at the standard
+			// rates because their window stays at 200K tokens. Forwarding
+			// a 1M context beta would need a long context price first.
 			switch beta {
 			case "task-budgets-2026-03-13", "thinking-display-updates-2026-08-18", "thinking-binding-controls-2026-08-01",
 				"interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14":

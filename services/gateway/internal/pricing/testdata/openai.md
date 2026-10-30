@@ -40,3 +40,4 @@
 | gpt-3.5-turbo | $0.50 | $1.50 | - |
 | gpt-3.5-turbo-0125 | $0.50 | $1.50 | - |
 ### Batch pricing data
+Short context: ≤272K input tokens. Long context: >272K input tokens.

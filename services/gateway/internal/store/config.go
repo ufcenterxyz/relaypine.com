@@ -465,7 +465,7 @@ func validateModel(m domain.Model) error {
 	}
 	// The kind follows from where the model routes and is never taken as given.
 	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
-	for _, rate := range append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...) {
+	for _, rate := range append(append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...), m.LongContextRates()...) {
 		if rate < 0 || rate > 1000000000000 {
 			return errors.New("model rates outside supported range")
 		}
@@ -479,6 +479,9 @@ func validateModel(m domain.Model) error {
 				return errors.New("only image models have image rates")
 			}
 		}
+	}
+	if err := domain.CheckLongContext(m); err != nil {
+		return err
 	}
 	if mode == domain.BillingMetered && m.Enabled {
 		if m.IsImage() {

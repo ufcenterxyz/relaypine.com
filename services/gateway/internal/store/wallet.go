@@ -37,7 +37,7 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 		return errors.New("usage-only requests cannot reserve money")
 	}
 	if usageOnly {
-		for _, rate := range append([]int64{r.Model.InputRate, r.Model.OutputRate, r.Model.CachedRate, r.Model.CacheWriteRate, r.Model.CostInputRate, r.Model.CostOutputRate, r.Model.CostCachedRate, r.Model.CostCacheWriteRate}, r.Model.ImageRates()...) {
+		for _, rate := range append(append([]int64{r.Model.InputRate, r.Model.OutputRate, r.Model.CachedRate, r.Model.CacheWriteRate, r.Model.CostInputRate, r.Model.CostOutputRate, r.Model.CostCachedRate, r.Model.CostCacheWriteRate}, r.Model.ImageRates()...), r.Model.LongContextRates()...) {
 			if rate != 0 {
 				return errors.New("usage-only request snapshots cannot contain prices")
 			}

@@ -200,3 +200,107 @@ func TestOpenAIImagePrices(t *testing.T) {
 		t.Fatal("changed image table still priced")
 	}
 }
+
+// Long context prices come from OpenAI's long context columns and Claude's
+// row for longer prompts. Models without them cover every prompt length.
+func TestLongContextPrices(t *testing.T) {
+	c := Catalog{Rates: map[string]Rate{}}
+	for _, provider := range []string{"anthropic", "openai"} {
+		rates, err := Parse(provider, fixture(t, provider), time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for id, r := range rates {
+			c.Rates[provider+":"+id] = r
+		}
+	}
+	for _, tc := range []struct {
+		provider, id string
+		above        int64
+		long         *LongRate
+	}{
+		{"openai", "gpt-5.5", 272000, &LongRate{10_000_000, 45_000_000, 1_000_000, 0}},
+		{"openai", "gpt-6.1-sol", 272000, &LongRate{4_000_000, 15_000_000, 200_000, 5_000_000}},
+		{"openai", "gpt-5.5-pro", 272000, &LongRate{60_000_000, 270_000_000, 0, 0}},
+		{"anthropic", "claude-haiku-5-5", 100000, &LongRate{500_000, 2_500_000, 50_000, 625_000}},
+	} {
+		r, ok := c.Match(tc.provider, tc.id)
+		if !ok || r.Long == nil || *r.Long != *tc.long || r.Reference.MaxInputTokens != tc.above || r.Reference.AllPromptLengths {
+			t.Fatalf("wrong long context price %s: %+v %+v", tc.id, r.Long, r.Reference)
+		}
+		m := ApplyRate(domain.Model{ID: "m", Provider: tc.provider, UpstreamModel: tc.id}, r)
+		l := m.LongContext
+		if l == nil || l.AboveInputTokens != tc.above || l.InputRate != tc.long.Input || l.CostOutputRate != tc.long.Output || l.CostCacheWriteRate != tc.long.CacheWrite || domain.CheckLongContext(m) != nil {
+			t.Fatalf("applied long context price %s: %+v", tc.id, l)
+		}
+	}
+	for _, tc := range []struct {
+		provider, id string
+		above        int64
+	}{
+		{"openai", "gpt-5.4-mini", 272000},
+		{"openai", "gpt-4.1", 272000},
+		{"anthropic", "claude-opus-5-5", 1000000},
+		{"anthropic", "claude-sonnet-4-6", 1000000},
+		{"anthropic", "claude-sonnet-4-5", 200000},
+		{"anthropic", "claude-haiku-4-5-20251001", 200000},
+	} {
+		r, ok := c.Match(tc.provider, tc.id)
+		if !ok || r.Long != nil || !r.Reference.AllPromptLengths || r.Reference.MaxInputTokens != tc.above || ApplyRate(domain.Model{}, r).LongContext != nil {
+			t.Fatalf("standard price should cover every prompt length %s: %+v", tc.id, r.Reference)
+		}
+	}
+}
+
+func TestChangedLongContextPricesFailClosed(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		change   func(string) string
+	}{
+		{"openai", func(s string) string { return strings.Replace(s, "Long context: >272K", "Long context: >512K", 1) }},
+		{"openai", func(s string) string {
+			return strings.Replace(s, "| Long context input |", "| Extended context input |", 1)
+		}},
+		{"openai", func(s string) string {
+			return strings.Replace(s, "| $10.00 | $45.00 | $1.00 |", "| $10.00 | $45.00 | - |", 1)
+		}},
+		{"openai", func(s string) string {
+			return strings.Replace(s, "| $10.00 | $45.00 | $1.00 |", "| $4.00 | $45.00 | $1.00 |", 1)
+		}},
+		{"anthropic", func(s string) string {
+			return strings.Replace(s, "(except Claude Haiku 5.5)", "(except Claude Haiku 5.5 and Claude Sonnet 5.5)", 1)
+		}},
+		{"anthropic", func(s string) string { return strings.Replace(s, "### Long context pricing", "### Context pricing", 1) }},
+		{"anthropic", func(s string) string {
+			return strings.Replace(s, "Claude Haiku 5.5 (for prompts over 100,000 tokens)", "Claude Haiku 5.5 (for prompts over 200,000 tokens)", 1)
+		}},
+		{"anthropic", func(s string) string {
+			return strings.Replace(s, "Claude Haiku 5.5 (for prompts over 100,000 tokens)", "Claude Haiku 4.5 (for prompts over 100,000 tokens)", 1)
+		}},
+		{"anthropic", func(s string) string {
+			return strings.Replace(s, "Claude Haiku 5.5 (for prompts up to 100,000 tokens)", "Claude Haiku 5.5 (for prompts up to 100 thousand tokens)", 1)
+		}},
+	} {
+		if rates, err := Parse(tc.provider, tc.change(fixture(t, tc.provider)), time.Now()); err == nil {
+			t.Fatalf("accepted a changed long context price: %v", len(rates))
+		}
+	}
+	// A tiered row without long context rates keeps its threshold, so the
+	// gateway refuses longer prompts instead of pricing them as standard.
+	doc := strings.Replace(fixture(t, "openai"), "| $10.00 | $45.00 | $1.00 | - | - |", "| - | - | - | - | - |", 1)
+	rates, err := Parse("openai", doc, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := rates["gpt-5.5"]; r.Long != nil || r.Reference.AllPromptLengths || r.Reference.MaxInputTokens != 272000 {
+		t.Fatalf("tiered model without long rates: %+v", r)
+	}
+	// The same holds for a Claude row priced up to a length with no row above it.
+	doc = strings.Replace(fixture(t, "anthropic"), "Claude Haiku 5.5 (for prompts over 100,000 tokens)", "Claude Haiku 5.5 (retired)", 1)
+	if rates, err = Parse("anthropic", doc, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if r := rates["claude-haiku-5-5"]; r.Long != nil || r.Reference.AllPromptLengths || r.Reference.MaxInputTokens != 100000 {
+		t.Fatalf("Claude row without a longer price: %+v", r)
+	}
+}
