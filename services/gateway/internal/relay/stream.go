@@ -277,6 +277,11 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 	} else {
 		s.Status = "failed"
 		s.ErrorCode = "upstream_stream_incomplete"
+		if tracker.failed {
+			// The upstream reported the failure in the stream, and the client
+			// received its error event.
+			s.ErrorCode = "upstream_stream_error"
+		}
 		if !tracker.failed && !bindingFailed && (r.Context().Err() != nil || clientFailed) {
 			s.Status = "canceled"
 			s.ErrorCode = "client_disconnected"

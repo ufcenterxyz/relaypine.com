@@ -602,12 +602,12 @@ func TestStreamErrorAndClientDisconnectPreserveUncertainUpstreamCost(t *testing.
 			if s.ChargeMicros != 0 || s.Usage.Known {
 				t.Fatalf("partial usage was treated as final %+v", s)
 			}
-			expected := "failed"
+			status, code := "failed", "upstream_stream_error"
 			if disconnect {
-				expected = "canceled"
+				status, code = "canceled", "client_disconnected"
 			}
-			if s.Status != expected {
-				t.Fatalf("status %s expected %s", s.Status, expected)
+			if s.Status != status || s.ErrorCode != code {
+				t.Fatalf("status %s %s expected %s %s", s.Status, s.ErrorCode, status, code)
 			}
 		})
 	}

@@ -204,7 +204,23 @@ func TestImageStreamWithoutCompletionIsFreeAndKeepsTheReservation(t *testing.T) 
 	up := newImageUpstream(t, "text/event-stream", stream)
 	h, f := imageFixture(up.server.URL)
 	serveRequest(h, newRequest("/openai/v1/images/generations", `{"model":"image","prompt":"x","stream":true,"partial_images":1}`))
-	if s := f.settlements[0]; s.Status != "failed" || s.Usage.Known || s.ChargeMicros != 0 {
+	if s := f.settlements[0]; s.Status != "failed" || s.ErrorCode != "upstream_stream_incomplete" || s.Usage.Known || s.ChargeMicros != 0 {
+		t.Fatalf("settlement %+v", s)
+	}
+}
+
+// OpenAI can fail an image in the stream it already answered with HTTP 200.
+// The client receives OpenAI's error event unchanged, and the request records
+// that the upstream reported the failure.
+func TestImageStreamErrorIsRelayedAndRecorded(t *testing.T) {
+	stream := `data: {"error":{"type":"image_generation_server_error","code":"image_generation_failed","message":"Image generation failed","param":null},"sequence_number":0,"type":"error"}` + "\n\n"
+	up := newImageUpstream(t, "text/event-stream", stream)
+	h, f := imageFixture(up.server.URL)
+	w := serveRequest(h, newRequest("/openai/v1/images/generations", `{"model":"image","prompt":"x","stream":true,"partial_images":1}`))
+	if w.Code != 200 || w.Body.String() != stream {
+		t.Fatalf("HTTP %d %q", w.Code, w.Body)
+	}
+	if s := f.settlements[0]; s.Status != "failed" || s.ErrorCode != "upstream_stream_error" || s.Usage.Known || s.ChargeMicros != 0 {
 		t.Fatalf("settlement %+v", s)
 	}
 }
