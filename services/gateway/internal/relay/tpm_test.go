@@ -265,3 +265,38 @@ func TestConcurrentRequestsWithoutOutputLimitBothRun(t *testing.T) {
 		t.Fatal("the requests did not run at the same time")
 	}
 }
+
+// An Anthropic key's token limit counts what Anthropic's input limit (ITPM)
+// counts: uncached input and cache writes, without cache reads, output or
+// max_tokens. Claude Haiku 3.5 also counts cache reads.
+func TestAnthropicTokensCountLikeITPM(t *testing.T) {
+	const reply = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":40,"cache_read_input_tokens":1000,"cache_creation_input_tokens":60,"output_tokens":25}}`
+	const body = `{"model":"model","max_tokens":128,"messages":[{"role":"user","content":"ping"}]}`
+	for _, tc := range []struct {
+		upstream string
+		want     int64
+	}{
+		{"claude-sonnet-4-5", 100},
+		{"claude-3-5-haiku-20241022", 1100},
+	} {
+		up := newImageUpstream(t, "application/json", reply)
+		h, f := fixture("anthropic", up.server.URL)
+		f.models[0].UpstreamModel = tc.upstream
+		l := &fakeLimiter{}
+		h.limiter = l
+		w := serveRequest(h, newRequest("/anthropic/v1/messages", body))
+		if w.Code != 200 {
+			t.Fatalf("HTTP %d %s", w.Code, w.Body.String())
+		}
+		// The estimate is the input alone: max_tokens is not added.
+		input, _ := estimatedInputTokens(len(body), imageInputSummary{})
+		if want := admissionTokens(len(body), imageInputSummary{}, input); l.charged["credential:credential"] != want {
+			t.Errorf("%s: admitted %d tokens, want the input estimate %d", tc.upstream, l.charged["credential:credential"], want)
+		}
+		for scope, tokens := range l.netTokens() {
+			if tokens != tc.want {
+				t.Errorf("%s: %s holds %d tokens after settlement, want %d", tc.upstream, scope, tokens, tc.want)
+			}
+		}
+	}
+}

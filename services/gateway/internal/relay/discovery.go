@@ -448,8 +448,10 @@ func (d *discoveryClient) rateLimits(ctx context.Context, workspace string) ([]d
 }
 
 func applyDiscoveredLimits(result *DiscoveryResult, organization, workspace []discoveredRateGroup) error {
-	// A local combined token bucket must not exceed either provider input or
-	// output allowance. Metadata/catalog request headers are never consulted.
+	// An Anthropic key's local token limit counts what Anthropic's input limit
+	// (ITPM) counts, so it takes that limit; output has its own Anthropic
+	// limit, which is read only to spot a zero allowance. Metadata/catalog
+	// request headers are never consulted.
 	types := map[string]bool{"requests_per_minute": true, "input_tokens_per_minute": true, "output_tokens_per_minute": true}
 	perModel := map[string]map[string]int{}
 	organizationCoverage, workspaceCoverage := map[string]map[string]bool{}, map[string]map[string]bool{}
@@ -516,6 +518,9 @@ func applyDiscoveredLimits(result *DiscoveryResult, organization, workspace []di
 	rpm, tpm := 100000, 100000000
 	for model, limits := range perModel {
 		for kind := range types {
+			if kind == "output_tokens_per_minute" {
+				continue
+			}
 			n := limits[kind]
 			known := organizationCoverage[model][kind] && (result.WorkspaceID == "" || workspaceCoverage[model][kind])
 			if n == 0 || !known {

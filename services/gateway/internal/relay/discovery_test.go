@@ -181,15 +181,18 @@ func rateGroupJSON(models string, rpm, input, output string) string {
 
 func TestDiscoveryUsesDocumentedMessagesLimitsAcrossOrganizationAndWorkspace(t *testing.T) {
 	for _, tc := range []struct {
-		name, orgRPM, workspaceRPM, workspaceOutput string
-		workspaceDenied, partial, zero              bool
-		wantRPM, wantTPM                            int
-		wantSource                                  string
+		name, orgRPM, workspaceRPM, workspaceInput string
+		workspaceDenied, partial, zero             bool
+		wantRPM, wantTPM                           int
+		wantSource                                 string
 	}{
-		{name: "minimum across both scopes", orgRPM: "400", workspaceRPM: "250", workspaceOutput: "50000", wantRPM: 250, wantTPM: 50000, wantSource: "provider"},
+		// The token limit follows the input limit (ITPM), the smaller of the
+		// organization's 1,000,000 and the workspace's 200,000; output limits
+		// are Anthropic's own.
+		{name: "minimum across both scopes", orgRPM: "400", workspaceRPM: "250", workspaceInput: "200000", wantRPM: 250, wantTPM: 200000, wantSource: "provider"},
 		{name: "workspace unavailable never claims full provider scope", orgRPM: "400", workspaceDenied: true, wantRPM: 60, wantTPM: 100000, wantSource: "default"},
-		{name: "partial limiter coverage uses conservative fallback", orgRPM: "400", workspaceRPM: "250", workspaceOutput: "null", partial: true, wantRPM: 250, wantTPM: 100000, wantSource: "default"},
-		{name: "explicit zero disables rather than treats unlimited", orgRPM: "0", workspaceRPM: "250", workspaceOutput: "50000", zero: true, wantRPM: 60, wantTPM: 100000, wantSource: "default"},
+		{name: "partial limiter coverage uses conservative fallback", orgRPM: "400", workspaceRPM: "250", workspaceInput: "null", partial: true, wantRPM: 250, wantTPM: 100000, wantSource: "default"},
+		{name: "explicit zero disables rather than treats unlimited", orgRPM: "0", workspaceRPM: "250", workspaceInput: "200000", zero: true, wantRPM: 60, wantTPM: 100000, wantSource: "default"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := discoveryClientFor(t, func(r *http.Request) *http.Response {
@@ -206,11 +209,11 @@ func TestDiscoveryUsesDocumentedMessagesLimitsAcrossOrganizationAndWorkspace(t *
 					t.Fatal("non-Messages limits were requested")
 				}
 				if r.URL.Path == "/v1/organizations/rate_limits" {
-					output := "800000"
+					input := "1000000"
 					if tc.partial {
-						output = "null"
+						input = "null"
 					}
-					return discoveryResponse(200, `{"data":[`+rateGroupJSON(`["claude-test"]`, tc.orgRPM, "1000000", output)+`],"next_page":null}`, nil)
+					return discoveryResponse(200, `{"data":[`+rateGroupJSON(`["claude-test"]`, tc.orgRPM, input, "800000")+`],"next_page":null}`, nil)
 				}
 				if r.URL.Path == "/v1/organizations/workspaces/wrkspc_Selected/rate_limits" {
 					if tc.workspaceDenied {
@@ -219,7 +222,7 @@ func TestDiscoveryUsesDocumentedMessagesLimitsAcrossOrganizationAndWorkspace(t *
 					if r.URL.Query().Get("include_inherited") != "true" {
 						t.Fatal("workspace inheritance omitted")
 					}
-					return discoveryResponse(200, `{"data":[`+rateGroupJSON(`["claude-test"]`, tc.workspaceRPM, "200000", tc.workspaceOutput)+`],"next_page":null}`, nil)
+					return discoveryResponse(200, `{"data":[`+rateGroupJSON(`["claude-test"]`, tc.workspaceRPM, tc.workspaceInput, "50000")+`],"next_page":null}`, nil)
 				}
 				t.Fatalf("unexpected metadata path %s", r.URL.Path)
 				return nil
@@ -242,7 +245,7 @@ func TestDiscoveryLimitsIgnoreUnrelatedProductsAndRespectOrgLimitAndUnknownModel
 		t.Fatalf("unknown/unrelated model handling failed: %+v %v", result, err)
 	}
 	result.Models = result.Models[:1]
-	if err := applyDiscoveredLimits(&result, groups, nil); err != nil || result.Defaults.RPM != 90 || result.Defaults.TPM != 500000 || result.LimitsSource != "provider" {
+	if err := applyDiscoveredLimits(&result, groups, nil); err != nil || result.Defaults.RPM != 90 || result.Defaults.TPM != 2000000 || result.LimitsSource != "provider" {
 		t.Fatalf("organization limit not respected: %+v %v", result, err)
 	}
 }
@@ -266,7 +269,7 @@ func TestDiscoveryLimitCompletenessIsCheckedPerScope(t *testing.T) {
 	}{
 		{name: "successful partial workspace cannot borrow complete organization fields", org: organization, workspace: `[{"group":{"type":"model_group"},"models":["claude-test"],"limits":[{"type":"requests_per_minute","value":250}]}]`, wantRPM: 250, wantTPM: 100000, wantSource: "default"},
 		{name: "complete workspace without known parent cannot claim provider", workspace: `[` + rateGroupJSON(`["claude-test"]`, "250", "200000", "150000") + `]`, wantRPM: 60, wantTPM: 100000, wantSource: "default"},
-		{name: "explicit inherited values prove parent and workspace", workspace: `[{"group":{"type":"model_group"},"models":["claude-test"],"limits":[{"type":"requests_per_minute","value":250,"org_limit":4000},{"type":"input_tokens_per_minute","value":200000,"source":{"type":"organization"}},{"type":"output_tokens_per_minute","value":150000,"org_limit":800000}]}]`, wantRPM: 250, wantTPM: 150000, wantSource: "provider"},
+		{name: "explicit inherited values prove parent and workspace", workspace: `[{"group":{"type":"model_group"},"models":["claude-test"],"limits":[{"type":"requests_per_minute","value":250,"org_limit":4000},{"type":"input_tokens_per_minute","value":200000,"source":{"type":"organization"}},{"type":"output_tokens_per_minute","value":150000,"org_limit":800000}]}]`, wantRPM: 250, wantTPM: 200000, wantSource: "provider"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			result := DiscoveryResult{Models: []DiscoveredModel{{ID: "claude-test"}}, WorkspaceID: "wrkspc_Selected", Defaults: DiscoveryDefaults{RPM: 60, TPM: 100000, Enabled: true}, LimitsSource: "default"}

@@ -18,6 +18,7 @@ import {
 } from "@heroui/react";
 import { Check, RefreshCw, KeyRound } from "lucide-react";
 import { en as t } from "@/i18n/en";
+import { limitsEn as lm } from "@/i18n/limits-en";
 import { pricingEn as p } from "@/i18n/pricing-en";
 import { api, count, dollars, errorMessage } from "@/lib/api";
 import type { Credential, Endpoint, Proxy } from "@/lib/types";
@@ -672,7 +673,11 @@ export function CredentialForm({
                             max={field.max}
                             step={field.key === "budget" ? "any" : 1}
                             description={
-                              field.key === "budget" ? t.budgetHelp : undefined
+                              field.key === "budget"
+                                ? t.budgetHelp
+                                : field.key === "tpm" && anthropic
+                                  ? lm.anthropicTPM
+                                  : undefined
                             }
                             isDisabled={saving}
                             isInvalid={!!errors[field.key]}

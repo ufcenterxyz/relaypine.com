@@ -321,7 +321,21 @@ func (h *Handler) adjustTokens(hold tokenHold, delta int64) {
 // usedTokens are the tokens a request consumed, in the units of its estimate:
 // cache reads and writes count, and an image tool's tokens belong to the image
 // model rather than to this request's estimate.
+// usedTokens is what a request counts against the per-minute token limits,
+// the way its provider counts them. OpenAI counts every input token, cached
+// or not, and the output. Anthropic limits input (ITPM) and output (OTPM)
+// apart: uncached input and cache writes count toward ITPM, cache reads do
+// not except on Claude Haiku 3.5, and output has its own limit. An Anthropic
+// key's TPM is therefore its ITPM, and output is left to Anthropic.
+// https://platform.claude.com/docs/en/api/rate-limits
 func usedTokens(p plan, u domain.Usage) int64 {
+	if p.provider == "anthropic" {
+		n := u.InputTokens + u.CacheWriteTokens
+		if countsCacheReads(p.model.UpstreamModel) {
+			n += u.CachedTokens
+		}
+		return n
+	}
 	n := u.InputTokens + u.CachedTokens + u.CacheWriteTokens + u.OutputTokens
 	if p.imageTool == nil {
 		n += u.ImageInputTokens + u.ImageOutputTokens + u.ImageTextTokens
@@ -656,7 +670,11 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if err = h.prepareImageTool(p, m, models); err != nil {
 		return err
 	}
-	p.tpm += p.output
+	// OpenAI admits a request with its output limit; Anthropic counts output
+	// only as it is generated, against a separate limit.
+	if p.provider != "anthropic" {
+		p.tpm += p.output
+	}
 	m["model"], _ = json.Marshal(p.model.UpstreamModel)
 	p.fields = m
 	p.body, err = json.Marshal(m)
@@ -1150,4 +1168,10 @@ func (h *Handler) cool(scopes []limits, d time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = h.limiter.cool(ctx, scopes, d)
+}
+
+// countsCacheReads reports a Claude model whose cache reads count toward
+// ITPM: Claude Haiku 3.5.
+func countsCacheReads(upstream string) bool {
+	return strings.HasPrefix(upstream, "claude-3-5-haiku")
 }

@@ -127,10 +127,11 @@ func TestImageForwardingAndActualUsageSettlement(t *testing.T) {
 			}
 			// The money hold keeps the strict text bound; admission charges about
 			// one token per four bytes of text. Both carry the same image bound.
+			// Anthropic does not count max_tokens, so admission leaves it out.
 			text := int64(len(body) - len(data))
 			wantBound := 2*text + 4096 + 2*10*10 + 256
 			wantReserve, wantCostReserve, err := estimate(wantBound, 64, repo.models[0])
-			if err != nil || limiter.tokens != (text+3)/4+2*10*10+256+64 || repo.reservations[0].Request.ReservedMicros != wantReserve || repo.reservations[0].CostReserve != wantCostReserve {
+			if err != nil || limiter.tokens != (text+3)/4+2*10*10+256 || repo.reservations[0].Request.ReservedMicros != wantReserve || repo.reservations[0].CostReserve != wantCostReserve {
 				t.Fatalf("admission charged %d tokens; the hold must use the strict bound and admission the same image bound", limiter.tokens)
 			}
 		})
