@@ -53,23 +53,26 @@ func bucketKeys(scope string, now time.Time) []string {
 // bucket admits while its minute is below its limit, so a request whose
 // estimate alone exceeds the limit still runs on an idle key; it then holds the
 // minute until settlement replaces the estimate with the tokens it used.
+// The reply starts with -1 on admission. Otherwise it is the index of the
+// refusing bucket, the limit it hit, and the milliseconds left of a cooldown.
 var acquireScript = redis.NewScript(`
 local now=tonumber(ARGV[1]); local expires=tonumber(ARGV[2]); local id=ARGV[3]; local tokens=tonumber(ARGV[4])
 for i=1,#KEYS,4 do
   local n=(i-1)/4; local a=5+n*3
   redis.call('ZREMRANGEBYSCORE',KEYS[i+2],'-inf',now)
-  if tonumber(redis.call('GET',KEYS[i+3]) or '0')>now then return 0 end
+  local cool=tonumber(redis.call('GET',KEYS[i+3]) or '0')
+  if cool>now then return {n,'cooldown',cool-now} end
   local rpm=tonumber(ARGV[a]); local tpm=tonumber(ARGV[a+1]); local conc=tonumber(ARGV[a+2])
-  if rpm>0 and tonumber(redis.call('GET',KEYS[i]) or '0')+1>rpm then return 0 end
-  if tpm>0 and tonumber(redis.call('GET',KEYS[i+1]) or '0')>=tpm then return 0 end
-  if conc>0 and redis.call('ZCARD',KEYS[i+2])+1>conc then return 0 end
+  if rpm>0 and tonumber(redis.call('GET',KEYS[i]) or '0')+1>rpm then return {n,'rpm',0} end
+  if tpm>0 and tonumber(redis.call('GET',KEYS[i+1]) or '0')>=tpm then return {n,'tpm',0} end
+  if conc>0 and redis.call('ZCARD',KEYS[i+2])+1>conc then return {n,'concurrency',0} end
 end
 for i=1,#KEYS,4 do
   redis.call('INCR',KEYS[i]); redis.call('EXPIRE',KEYS[i],120)
   redis.call('INCRBY',KEYS[i+1],tokens); redis.call('EXPIRE',KEYS[i+1],120)
   redis.call('ZADD',KEYS[i+2],expires,id); redis.call('EXPIRE',KEYS[i+2],480)
 end
-return 1`)
+return {-1,'',0}`)
 
 func (l *redisLimiter) acquire(ctx context.Context, id string, buckets []limits, tokens int64) (int64, error) {
 	if l.client == nil {
@@ -82,14 +85,31 @@ func (l *redisLimiter) acquire(ctx context.Context, id string, buckets []limits,
 		keys = append(keys, bucketKeys(b.scope, now)...)
 		args = append(args, b.rpm, b.tpm, b.concurrency)
 	}
-	n, err := acquireScript.Run(ctx, l.client, keys, args...).Int()
+	reply, err := acquireScript.Run(ctx, l.client, keys, args...).Slice()
 	if err != nil {
 		return 0, err
 	}
-	if n != 1 {
-		return 0, errCapacity
+	n, ok := int64(0), len(reply) == 3
+	if ok {
+		n, ok = reply[0].(int64)
 	}
-	return window(now), nil
+	if !ok || n < -1 || n >= int64(len(buckets)) {
+		return 0, fmt.Errorf("unexpected limiter reply %v", reply)
+	}
+	if n == -1 {
+		return window(now), nil
+	}
+	full := &capacityError{bucket: buckets[n]}
+	full.limit, _ = reply[1].(string)
+	switch full.limit {
+	case "cooldown":
+		ms, _ := reply[2].(int64)
+		full.wait = time.Duration(ms) * time.Millisecond
+	case "rpm", "tpm":
+		// The counts start again with the next one-minute window.
+		full.wait = time.Unix((window(now)+1)*60, 0).Sub(now)
+	}
+	return 0, full
 }
 
 // A window whose counter has expired is left alone: its minute is over and no

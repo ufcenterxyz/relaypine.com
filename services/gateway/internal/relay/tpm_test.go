@@ -124,7 +124,7 @@ func TestRedisAdjustSettlesTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("idle key refused a large estimate: %v", err)
 	}
-	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1); err != errCapacity {
+	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1); refusal(err).limit != "tpm" {
 		t.Fatalf("a full minute admitted another request: %v", err)
 	}
 	// The request used 100 tokens; the minute reopens.

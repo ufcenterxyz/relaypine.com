@@ -100,10 +100,13 @@ func (f *fakeRepo) Resource(_ context.Context, tenant, project, id string) (doma
 }
 
 type fakeLimiter struct {
-	loads              map[string]float64
-	denied             map[string]bool
-	acquired, released int
-	cooled             map[string]time.Duration
+	loads  map[string]float64
+	denied map[string]bool
+	// refusals refuse a bucket with these details; denied refuses it with a
+	// bare errCapacity.
+	refusals                     map[string]capacityError
+	attempts, acquired, released int
+	cooled                       map[string]time.Duration
 	// charged and adjusted record token estimates and their corrections by
 	// bucket scope; every acquisition charges window 42.
 	charged, adjusted map[string]int64
@@ -118,7 +121,12 @@ func (l *fakeLimiter) load(_ context.Context, b []limits) (float64, error) {
 	return 0, nil
 }
 func (l *fakeLimiter) acquire(_ context.Context, _ string, b []limits, tokens int64) (int64, error) {
+	l.attempts++
 	for _, v := range b {
+		if r, ok := l.refusals[v.scope]; ok {
+			r.bucket = v
+			return 0, &r
+		}
 		if l.denied[v.scope] {
 			return 0, errCapacity
 		}

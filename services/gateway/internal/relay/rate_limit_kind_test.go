@@ -99,7 +99,7 @@ func TestRedisPausedModelLeavesOtherModels(t *testing.T) {
 	if err := l.cool(ctx, []limits{busy}, 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.acquire(ctx, requestID(), []limits{credential, busy}, 10); err != errCapacity {
+	if _, err := l.acquire(ctx, requestID(), []limits{credential, busy}, 10); refusal(err).bucket.scope != busy.scope || refusal(err).limit != "cooldown" {
 		t.Fatalf("a paused model was admitted: %v", err)
 	}
 	if score, err := l.load(ctx, []limits{credential, busy}); err != nil || score < 1 {

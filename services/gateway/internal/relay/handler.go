@@ -365,7 +365,8 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 	// that admits the request; settlement turns it into the tokens used.
 	estimate := p.tpm
 	var sharedTokens, routeTokens tokenHold
-	var capacityErr error
+	// The capacity refusal that frees soonest.
+	var capacityErr *capacityError
 	var untrackedBudget bool
 	failedEndpoints := map[string]bool{}
 	attempts := 0
@@ -426,7 +427,14 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 		}
 		charged, err := h.limiter.acquire(ctx, p.requestID, buckets, estimate)
 		if errors.Is(err, errCapacity) {
-			capacityErr = err
+			full := refusal(err)
+			if current == nil && sharedBucket(full.bucket, shared) {
+				refuseShared(w, full)
+				return
+			}
+			if capacityErr == nil || full.wait < capacityErr.wait {
+				capacityErr = full
+			}
 			continue
 		}
 		if err != nil {
@@ -488,7 +496,8 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 	}
 	if current == nil {
 		if capacityErr != nil {
-			w.Header().Set("Retry-After", "1")
+			// The request can run once any refused route frees.
+			w.Header().Set("Retry-After", strconv.FormatInt(retryAfter(capacityErr.wait), 10))
 			fail(w, 429, "rate_limit_exceeded", "All eligible upstream capacity is in use")
 		} else if untrackedBudget {
 			fail(w, 402, "untracked_cost_budget", "Usage-only models cannot enforce an upstream monetary budget. Use a credential without a local monetary cap, or configure this model for metered billing.")
