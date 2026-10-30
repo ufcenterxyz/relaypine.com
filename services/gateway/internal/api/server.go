@@ -195,6 +195,9 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			s.report(w, e)
 			return
 		}
+		if user.Operator && len(snap.Credentials) > 0 {
+			snap.ReportedLimits = s.reportedLimits(r.Context(), snap.Credentials)
+		}
 		write(w, 200, struct {
 			domain.Snapshot
 			Surface     string `json:"surface"`
@@ -414,4 +417,23 @@ func (s *Server) admin(w http.ResponseWriter, r *http.Request, user domain.User,
 	default:
 		fail(w, 404, "not_found", "Operator API route not found.")
 	}
+}
+
+// reportedLimits reads the rate limits official upstreams last reported for
+// each credential. A Redis failure leaves them out instead of failing the page.
+func (s *Server) reportedLimits(ctx context.Context, credentials []domain.Credential) map[string][]domain.ReportedLimit {
+	if s.Redis == nil {
+		return nil
+	}
+	out := map[string][]domain.ReportedLimit{}
+	for _, c := range credentials {
+		limits, err := relay.ReportedLimits(ctx, s.Redis, c.ID)
+		if err != nil {
+			return nil
+		}
+		if len(limits) > 0 {
+			out[c.ID] = limits
+		}
+	}
+	return out
 }

@@ -95,7 +95,9 @@ func TestImageRequestValidation(t *testing.T) {
 		{gen, `{"model":"image","prompt":"x","size":"512x512"}`, "between 655,360"},
 		{gen, `{"model":"image","prompt":"x","size":"3072x1008"}`, "between 1:3 and 3:1"},
 		{gen, `{"model":"image","prompt":"x","size":"1024x1024 "}`, "WIDTHxHEIGHT"},
-		{gen, `{"model":"image","prompt":"x","background":"transparent","output_format":"jpeg"}`, "transparent backgrounds"},
+		{gen, `{"model":"image25","prompt":"x","background":"transparent","output_format":"jpeg"}`, "transparent backgrounds need png or webp"},
+		{gen, `{"model":"image","prompt":"x","background":"transparent"}`, "gpt-image-2 does not support transparent backgrounds"},
+		{edit, `{"model":"image","prompt":"x","background":"transparent","images":[{"image_url":"data:image/png;base64,` + png + `"}]}`, "gpt-image-2 does not support transparent backgrounds"},
 		{gen, `{"model":"image","prompt":"x","images":[]}`, "only by image edits"},
 		{gen, `{"model":"model","prompt":"x"}`, "does not generate images"},
 		{gen, `{"model":"image","prompt":"` + strings.Repeat("あ", 32001) + `"}`, "exceeds 32,000 characters"},
@@ -375,5 +377,15 @@ func TestModelListIncludesImageModels(t *testing.T) {
 	f.endpoints = append(f.endpoints, domain.Endpoint{ID: domain.BackupEndpointID("openrouter"), Name: "openrouter", Role: domain.RoleBackup, Vendor: "openrouter", Enabled: true})
 	if got := list(); got != "model" {
 		t.Fatalf("backup-only models %s", got)
+	}
+}
+
+// GPT Image 2.5 keeps transparent backgrounds; only GPT Image 2 refuses them.
+func TestTransparentBackgroundsNeedGPTImage25(t *testing.T) {
+	up := newImageUpstream(t, "application/json", `{"created":1,"data":[{"b64_json":"iVBORw0KGgo="}],"usage":{"input_tokens":5,"input_tokens_details":{"text_tokens":5,"image_tokens":0},"output_tokens":196}}`)
+	h, f := imageFixture(up.server.URL)
+	w := serveRequest(h, newRequest("/openai/v1/images/generations", `{"model":"image25","prompt":"a logo","background":"transparent","output_format":"webp","quality":"low"}`))
+	if w.Code != 200 || len(f.settlements) != 1 {
+		t.Fatalf("HTTP %d %s", w.Code, w.Body)
 	}
 }

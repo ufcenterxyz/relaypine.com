@@ -72,7 +72,7 @@ OpenAI 限流存在于组织、项目及模型共享组；Claude 存在组织和
 
 官方 Usage/Cost 接口用于用量或历史成本核对，不等同普通推理 Key 的实时剩余余额接口。使用这些能力需要对应的管理权限，Admin Key 应与推理 Key 分开保管。[OpenAI Costs API](https://developers.openai.com/api/reference/resources/admin/subresources/organization/subresources/usage/methods/costs)、[Claude Usage and Cost API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api)
 
-当前实现的限流：每个请求按贴近实际的 Token 估算（文本约每 4 字节 1 个 Token，加图片上界、续接输入和输出上限）进入租户、访问 Key、上游 Key 和额度组当分钟的计数；计数低于限额就放行，单个大请求在空闲的 Key 上也能执行；请求结算后计数改为实际用量，被拒绝或预留失败的通道全额退回，用量未知时保留估算。RPM 与并发不受影响。上游 Key 的默认限额只是本地保护值，应配置为服务商的实际额度。
+当前实现的限流：每个请求按贴近实际的 Token 估算（文本约每 4 字节 1 个 Token，加图片上界、续接输入和输出上限）进入租户、访问 Key、上游 Key 和额度组当分钟的计数；计数低于限额就放行，单个大请求在空闲的 Key 上也能执行；请求结算后计数改为实际用量，被拒绝或预留失败的通道全额退回，用量未知时保留估算。RPM 与并发不受影响。OpenAI 与 Anthropic 在每个响应头中报告该 Key 的每分钟限额；网关按 Key 和模型保存最近一次的值（Redis，30 天），管理后台据此显示，便于把本地限额设为真实等级。上游 Key 的默认限额只是本地保护值，应配置为服务商的实际额度。
 
 未知余额不当成无限，也不假装为零。在余额优先策略下，优先使用同币种、同口径且未过期的可比较余额；只有本地预算的 Key 可使用明确选择的“本地剩余预算”口径。未设置可比较预算的 Key 需配置备用顺序，不能偷偷混合排序。
 

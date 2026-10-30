@@ -120,7 +120,7 @@ func (h *Handler) prepareImageTool(p *plan, m map[string]json.RawMessage, models
 	}
 	background, format := "auto", "png"
 	if raw, ok := tool["background"]; ok {
-		if background, err = oneOf(raw, "background", "transparent", "opaque", "auto"); err != nil {
+		if background, err = imageBackground(raw, t.family); err != nil {
 			return err
 		}
 	}

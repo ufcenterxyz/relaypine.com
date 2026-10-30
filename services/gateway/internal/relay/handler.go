@@ -50,6 +50,8 @@ type Handler struct {
 	limiter      routeLimiter
 	allowPrivate bool
 	capture      bool
+	// limits keeps the rate limits official upstreams report for each key.
+	limits *limitRecorder
 	// target overrides endpoint addressing; tests point vendor presets at
 	// local servers. Nil uses domain.Endpoint.Target.
 	target func(domain.Endpoint, string) (string, string)
@@ -57,7 +59,7 @@ type Handler struct {
 
 // capture records each request's body and the response for request inspection.
 func New(repo Repository, client *redis.Client, allowPrivate, capture bool) *Handler {
-	return &Handler{repo: repo, limiter: &redisLimiter{client}, allowPrivate: allowPrivate, capture: capture}
+	return &Handler{repo: repo, limiter: &redisLimiter{client}, allowPrivate: allowPrivate, capture: capture, limits: &limitRecorder{client: client, last: map[string]domain.ReportedLimit{}}}
 }
 
 type candidate struct {
@@ -885,6 +887,11 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 	}
 	client := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := client.Do(upstream)
+	if err == nil && !c.backup {
+		if l, ok := reportedLimit(c.endpoint.Provider, response.Header); ok {
+			h.limits.note(c.credential.ID, c.model, l)
+		}
+	}
 	if err != nil {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "upstream_transport"
@@ -926,7 +933,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		if result.retryAfter != "" {
 			w.Header().Set("Retry-After", result.retryAfter)
 		}
-		fail(w, clientStatus, "upstream_error", "The selected upstream rejected or failed the request")
+		fail(w, clientStatus, "upstream_error", upstreamError(raw))
 		return
 	}
 	if p.stream {

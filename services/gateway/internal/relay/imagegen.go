@@ -229,7 +229,7 @@ func (q *imageRequest) validate(m map[string]json.RawMessage, edits bool) error 
 	background, format := "auto", "png"
 	var err error
 	if raw, ok := m["background"]; ok {
-		if background, err = oneOf(raw, "background", "transparent", "opaque", "auto"); err != nil {
+		if background, err = imageBackground(raw, q.family); err != nil {
 			return err
 		}
 	}
@@ -582,4 +582,16 @@ func (q *imageRequest) inspectionCopy(body []byte, fields map[string]json.RawMes
 		copied[k] = v
 	}
 	return json.Marshal(copied)
+}
+
+// imageBackground reads an image request's background. OpenAI refuses
+// transparent backgrounds on GPT Image 2, so the gateway says so up front
+// instead of forwarding a request that can only fail. GPT Image 2.5 supports
+// them.
+func imageBackground(raw json.RawMessage, family string) (string, error) {
+	background, err := oneOf(raw, "background", "transparent", "opaque", "auto")
+	if err == nil && background == "transparent" && family == domain.ImageFamily2 {
+		return "", errors.New("gpt-image-2 does not support transparent backgrounds; use background opaque or auto, or a gpt-image-2.5 model")
+	}
+	return background, err
 }

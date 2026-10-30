@@ -314,6 +314,21 @@ type Snapshot struct {
 	Proxies     []Proxy         `json:"proxies,omitempty"`
 	Customers   []Tenant        `json:"customers,omitempty"`
 	Routing     RouteConfig     `json:"routing"`
+	// ReportedLimits holds, per credential ID, the rate limits official
+	// upstreams stated in their latest responses. Operators only.
+	ReportedLimits map[string][]ReportedLimit `json:"reported_limits,omitempty"`
+}
+
+// ReportedLimit is the per-minute rate limit an official upstream stated for
+// one key and model in its latest response headers. OpenAI reports requests
+// and tokens; Anthropic also reports input and output tokens apart.
+type ReportedLimit struct {
+	Model        string    `json:"model"`
+	Requests     int64     `json:"requests,omitempty"`
+	Tokens       int64     `json:"tokens,omitempty"`
+	InputTokens  int64     `json:"input_tokens,omitempty"`
+	OutputTokens int64     `json:"output_tokens,omitempty"`
+	ObservedAt   time.Time `json:"observed_at"`
 }
 type Reservation struct {
 	Request      Request

@@ -78,7 +78,7 @@ TPM 准入与金额预留使用不同的估算。金额预留用保守上界（�
 
 ## 图像生成
 
-只有 GPT Image 2 与 2.5（`gpt-image-2`、`gpt-image-2.5-*` 及带日期的快照）可通过 `/openai/v1/images/generations` 和 `/openai/v1/images/edits` 调用；已退役或即将退役的模型（DALL·E、gpt-image-1、1.5、1-mini、chatgpt-image-latest）不提供。图像模型的价格包括文本输入、缓存文本输入、文本输出（GPT Image 2 与 2.5 未公布，为 0）、图像输入和图像输出；参考价格取自 OpenAI 价格页 “Image generation models” 的 Standard 表，带日期的快照沿用对应模型的价格。
+只有 GPT Image 2 与 2.5（`gpt-image-2`、`gpt-image-2.5-*` 及带日期的快照）可通过 `/openai/v1/images/generations` 和 `/openai/v1/images/edits` 调用；已退役或即将退役的模型（DALL·E、gpt-image-1、1.5、1-mini、chatgpt-image-latest）不提供。图像模型的价格包括文本输入、缓存文本输入、文本输出（GPT Image 2 与 2.5 未公布，为 0）、图像输入和图像输出；参考价格取自 OpenAI 价格页 “Image generation models” 的 Standard 表，带日期的快照沿用对应模型的价格。OpenAI 不接受 GPT Image 2 的透明背景（`background: "transparent"`），网关直接以 400 拒绝并说明原因，不预留也不转发；GPT Image 2.5 支持透明背景。
 
 预留按最坏情况计算：输出 Token 使用 OpenAI 的计算器按尺寸和质量计算（`auto` 取最大值，每张 23,719），GPT Image 2 加 25%，2.5 加 100%（其模型页说明该计算器不适用于 2.5），每张部分预览图加 100，再乘以张数；文本输入按提示词字节数加 2,048；每张输入图像或蒙版按 32,768。输出按图像与文本输出中较高的费率预留。结算使用回复中的 `usage`：文本与图像的拆分一致时分别计价，否则全部输入按图像输入、全部输出按图像输出计价（两者费率更高）。流式请求只生成一张图，仅 completed 事件携带用量；没有 completed 事件的流与其他上游失败一样不向客户收费。回复缺少用量时保留上游预留等待对账，不会事后向客户补扣。
 

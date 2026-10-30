@@ -36,11 +36,12 @@ import { consoleEn as c } from "@/i18n/console-en";
 import { backupEn as b } from "@/i18n/backup-en";
 import { imageEn as im } from "@/i18n/image-en";
 import { longContextEn as lc } from "@/i18n/long-context-en";
+import { limitsEn as lm } from "@/i18n/limits-en";
 import { isImageUpstream, isPriced } from "@/lib/images";
 import { compactTokens, longContextFormKeys, longContextRates, maxLongContextThreshold } from "@/lib/long-context";
-import { api, count, dollars, errorMessage, money } from "@/lib/api";
+import { api, count, date, dollars, errorMessage, money } from "@/lib/api";
 import { backupRoutes, isBackup, type BackupRoute } from "@/lib/backups";
-import type { BackupBalance, Credential, Endpoint, Model, Proxy, Snapshot } from "@/lib/types";
+import type { BackupBalance, Credential, Endpoint, Model, Proxy, ReportedLimit, Snapshot } from "@/lib/types";
 import { useConsole } from "./console-provider";
 import { BackupForm } from "./backup-form";
 import { CredentialForm } from "./credential-form";
@@ -76,6 +77,34 @@ interface FormConfig {
   initial: FormValues;
   onSubmit: (values: FormValues) => Promise<void>;
   onChange?: (key: string, value: string, values: FormValues) => FormValues;
+}
+// A key's local limits, with the limits its provider last reported for the
+// models it served, so the operator can match them to the key's real tier.
+function CredentialLimits({ credential, reported }: { credential: Credential; reported: ReportedLimit[] }) {
+  const shown = [...reported].sort((a, b) => (b.tokens ?? b.input_tokens ?? 0) - (a.tokens ?? a.input_tokens ?? 0)).slice(0, 3);
+  return (
+    <div className="tabular-nums">
+      <p className="whitespace-nowrap">
+        {lm.local
+          .replace("{rpm}", count(credential.rpm))
+          .replace("{tpm}", compactTokens(credential.tpm))
+          .replace("{concurrency}", count(credential.max_concurrency))}
+      </p>
+      {shown.map((limit) => (
+        <p key={limit.model} className="mt-1 text-xs text-default-500" title={lm.reportedTitle.replace("{date}", date(limit.observed_at))}>
+          {(limit.input_tokens || limit.output_tokens ? lm.reportedSplit : lm.reported)
+            .replace("{model}", limit.model)
+            .replace("{rpm}", limit.requests ? count(limit.requests) : "—")
+            .replace("{tpm}", limit.tokens ? compactTokens(limit.tokens) : "—")
+            .replace("{input}", limit.input_tokens ? compactTokens(limit.input_tokens) : "—")
+            .replace("{output}", limit.output_tokens ? compactTokens(limit.output_tokens) : "—")}
+        </p>
+      ))}
+      {reported.length > shown.length && (
+        <p className="mt-1 text-xs text-default-400">{lm.reportedMore.replace("{count}", count(reported.length - shown.length))}</p>
+      )}
+    </div>
+  );
 }
 export function Upstreams() {
   const { state, refresh } = useConsole();
@@ -344,7 +373,7 @@ export function Upstreams() {
           t.endpoint,
           t.key,
           t.budgetAvailable,
-          t.rpm,
+          lm.limits,
           t.proxy,
           t.status,
           t.actions,
@@ -387,7 +416,7 @@ export function Upstreams() {
               {t.spent}: {money(credential.spent_micros, true)}
             </p>
           </div>,
-          count(credential.rpm),
+          <CredentialLimits key="limits" credential={credential} reported={state.reported_limits?.[credential.id] ?? []} />,
           state.proxies?.find((p) => p.id === credential.proxy_id)?.name ||
             t.direct,
           <Status key="enabled" enabled={credential.enabled} />,

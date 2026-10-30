@@ -219,6 +219,16 @@ export interface RouteConfig {
   tenant_rpm: number;
   tenant_concurrency: number;
 }
+// The per-minute rate limit an official upstream stated for a key and model
+// in its latest response.
+export interface ReportedLimit {
+  model: string;
+  requests?: number;
+  tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  observed_at: string;
+}
 export interface Snapshot {
   surface: "admin" | "customer";
   app_url: string;
@@ -237,4 +247,6 @@ export interface Snapshot {
   customers?: Tenant[];
   routing: RouteConfig;
   waitlist?: WaitlistEntry[];
+  // Administrator only: reported limits by credential ID.
+  reported_limits?: Record<string, ReportedLimit[]>;
 }
