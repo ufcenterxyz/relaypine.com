@@ -34,8 +34,9 @@ func TestTokenEstimateSettlesToUsage(t *testing.T) {
 			t.Errorf("%s holds %d tokens after settlement, want 15", scope, tokens)
 		}
 	}
-	// Tenant, access key and credential; this credential has no quota group.
-	if len(l.charged) != 3 {
+	// Tenant, access key, credential and the credential's model bucket; this
+	// credential has no quota group.
+	if _, ok := l.charged["credential:credential|model:upstream-model"]; !ok || len(l.charged) != 4 {
 		t.Fatalf("buckets charged %v", l.charged)
 	}
 }

@@ -46,7 +46,7 @@ Go 网关每 15 秒运行请求恢复；另一个后台任务每 15 秒删除超
 - `wallets.held_micros` 与 `credentials.held_micros` 分别表示调用额度和上游成本预留。
 - 配置代理不可用时拒绝相应路线；不允许静默绕过代理。
 - 内部额度调整需填写原因，保留操作者及唯一业务参考。
-- 备用通道（OpenRouter / ZenMux）在 Upstreams 配置，使用 **Check key** 确认 Key 和模型覆盖范围；Key 检查不发起付费推理。备用通道只在官方路线全部不可用时承接 Chat Completions 和 Messages，消费上限需在服务商账户设置。管理员请求记录中带多次尝试的请求即发生过换路，可按尝试的 `error_code` 判断官方故障类型。被拒绝的 Key 会暂时冷却（401/402/403 五分钟，429 按 Retry-After，5xx 与未发出请求 30 秒），冷却期间请求直接走下一条路线。
+- 备用通道（OpenRouter / ZenMux）在 Upstreams 配置，使用 **Check key** 确认 Key 和模型覆盖范围；Key 检查不发起付费推理。备用通道只在官方路线全部不可用时承接 Chat Completions 和 Messages，消费上限需在服务商账户设置。管理员请求记录中带多次尝试的请求即发生过换路，可按尝试的 `error_code` 判断官方故障类型。被拒绝的 Key 会暂时冷却（401/402/403 五分钟，5xx 与未发出请求 30 秒），冷却期间请求直接走下一条路线。429 按原因处理：某个模型触发限额时，只在该 Key 和额度组上暂停这个模型（按 Retry-After），其他模型照常；计费、额度或消费上限类 429 让整把 Key 暂停至少五分钟。
 - 图像生成：在 Models & rates 导入或添加上游模型 `gpt-image-2`、`gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`（或其带日期的快照）。配置了启用的官方 OpenAI 上游时，“更新参考价格”会套用 OpenAI 价格页中的图像价格；手动添加时填写文本输入、图像输入和图像输出价格，文本输出填 0。图像请求只走官方 OpenAI 通道，不会改走备用通道。
 - 限流：上游 Key 的默认限额（60 RPM、100,000 TPM、并发 10）只是本地保护值。Upstreams 页“限额”列会显示服务商在最近响应中报告的每分钟限额（按模型）；Key 处理过请求后即可按此填写。请按服务商的实际额度修改每把 Key 的 RPM、TPM 和并发，同组 Key 共用最低的限额。请求按贴近实际的 Token 估算准入，结算后改为实际用量；Anthropic Key 的 TPM 填 Anthropic 的输入限额（ITPM）：网关和 Anthropic 一样不计缓存读取和输出，输出限额由 Anthropic 执行；默认 100,000 TPM 下，同一时间大约只能执行一个不写输出上限的长上下文请求。客户端收到 `429 rate_limit_exceeded`（All eligible upstream capacity is in use）时，先检查 Key 的限额配置。
 - Responses 图像工具：需要已启用且定价完整的 GPT Image 模型，客户的访问 Key 需允许使用该图像模型；工具默认使用 `gpt-image-2`，`max_tool_calls` 默认 1、最多 4。图像工具的用量在请求详情中显示为“图像提示词 Token”及图像输入/输出 Token。

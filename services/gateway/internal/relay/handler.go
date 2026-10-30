@@ -773,9 +773,11 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 		if c.BudgetMicros > 0 && (c.SpentMicros >= c.BudgetMicros || c.HeldMicros >= c.BudgetMicros-c.SpentMicros) {
 			continue
 		}
-		buckets := []limits{{"credential:" + c.ID, c.RPM, c.TPM, c.MaxConcurrency}}
+		// Each route also counts in a bucket for its model, on the key and on
+		// its quota group, so a 429 for one model pauses only that model.
+		buckets := []limits{{"credential:" + c.ID, c.RPM, c.TPM, c.MaxConcurrency}, {scope: modelScope("credential:"+c.ID, model)}}
 		if c.QuotaGroup != "" {
-			buckets = append(buckets, groupLimits(c, credentials))
+			buckets = append(buckets, groupLimits(c, credentials), limits{scope: modelScope("group:"+c.QuotaGroup, model)})
 		}
 		load, err := h.limiter.load(ctx, append(sharedLimits(p, config), buckets...))
 		if err != nil {
@@ -931,7 +933,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		status := response.StatusCode
 		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxCapturedUpstreamBytes+1))
 		result.upstream = upstreamReply(response, raw, maxCapturedUpstreamBytes)
-		h.coolRejected(c, response)
+		h.coolRejected(c, response, raw)
 		settlement.Status = "failed"
 		settlement.ErrorCode = fmt.Sprintf("upstream_%d", status)
 		clientStatus := status
@@ -1137,13 +1139,27 @@ func unavailableStatus(status int) bool {
 
 // coolRejected keeps a refused key out of routing for a while, so later
 // requests go straight to another route instead of meeting the same failure.
-func (h *Handler) coolRejected(c candidate, response *http.Response) {
+// A rate limit on one model pauses only that model on the key and its quota
+// group; other models keep using the key.
+func (h *Handler) coolRejected(c candidate, response *http.Response, body []byte) {
 	status, retryAfter := response.StatusCode, response.Header.Get("Retry-After")
 	scopes := []limits{{scope: "credential:" + c.credential.ID}}
 	var d time.Duration
 	switch {
 	case status == 429:
 		d = retryDelay(retryAfter)
+		kind := rateLimitKind(c.endpoint.Provider, body)
+		if kind == limitModel {
+			scopes = []limits{{scope: modelScope("credential:"+c.credential.ID, c.model)}}
+			if c.credential.QuotaGroup != "" {
+				scopes = append(scopes, limits{scope: modelScope("group:"+c.credential.QuotaGroup, c.model)})
+			}
+			break
+		}
+		if kind == limitAccount {
+			// Billing, quota and spend refusals do not clear within a minute.
+			d = max(d, 5*time.Minute)
+		}
 		if c.credential.QuotaGroup != "" {
 			scopes = append(scopes, limits{scope: "group:" + c.credential.QuotaGroup})
 		}
