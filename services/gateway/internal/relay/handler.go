@@ -56,9 +56,16 @@ type Handler struct {
 	// target overrides endpoint addressing; tests point vendor presets at
 	// local servers. Nil uses domain.Endpoint.Target.
 	target func(domain.Endpoint, string) (string, string)
-	// replyTimeout replaces upstreamReplyTimeout when positive; tests shorten
-	// it.
-	replyTimeout time.Duration
+	// replyTimeout and beatEvery replace upstreamReplyTimeout and
+	// heartbeatEvery when positive; tests shorten them.
+	replyTimeout, beatEvery time.Duration
+}
+
+func (h *Handler) heartbeatEvery() time.Duration {
+	if h.beatEvery > 0 {
+		return h.beatEvery
+	}
+	return heartbeatEvery
 }
 
 // capture records each request's body and the response for request inspection.
@@ -143,6 +150,11 @@ func requestID() string {
 	return "req_" + hex.EncodeToString(b[:])
 }
 func fail(w http.ResponseWriter, status int, code, message string) {
+	if status == http.StatusBadGateway || status == http.StatusGatewayTimeout {
+		// Cloudflare replaces an origin's 502 and 504 with its own text page,
+		// so the client would never see this error. It passes 503 unchanged.
+		status = http.StatusServiceUnavailable
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
@@ -407,6 +419,12 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 			h.savePayload(r, p, capture, last.upstream)
 		}
 	}()
+	if p.stream {
+		// Deferred last, so it stops before settlement reads the capture.
+		beat := startHeartbeat(w, p.provider, h.heartbeatEvery())
+		defer beat.close()
+		w = beat
+	}
 	for i := range candidates {
 		if attempts >= maxUpstreamAttempts || ctx.Err() != nil {
 			break
@@ -874,6 +892,11 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 	if h.replyTimeout > 0 {
 		tr.ResponseHeaderTimeout = h.replyTimeout
 	}
+	if p.stream {
+		// The heartbeat keeps a streamed reply's client connected while the
+		// upstream is silent, so the request deadline bounds the wait.
+		tr.ResponseHeaderTimeout = 0
+	}
 	target, err := upstreamURL(c.base, p.path, h.allowPrivate)
 	if err != nil {
 		*settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "upstream_configuration"}
@@ -945,12 +968,11 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		if errors.As(err, &timeout) && timeout.Timeout() && r.Context().Err() == nil {
 			// The upstream took the request but sent no reply in time. It may
 			// still finish, so its cost stays pending.
+			// Only a reply that is not streamed has this limit. Sending the same
+			// request again would most likely time out, and be billed, again.
 			settlement.ErrorCode = "upstream_timeout"
-			message := fmt.Sprintf("The upstream did not reply within %s.", quantity(int64(tr.ResponseHeaderTimeout/time.Second), "second"))
-			if !p.stream {
-				message += " Use stream: true for requests that take longer, such as high-quality images."
-			}
-			fail(w, 504, "upstream_timeout", message)
+			w.Header().Set("X-Should-Retry", "false")
+			fail(w, 503, "upstream_timeout", fmt.Sprintf("The upstream did not reply within %s. Use stream: true for requests that take longer, such as high-quality images.", quantity(int64(tr.ResponseHeaderTimeout/time.Second), "second")))
 			return
 		}
 		fail(w, 502, "upstream_error", "Upstream connection failed")
@@ -1087,7 +1109,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 	}
 	settlement.Status = "completed"
 	h.price(settlement, p)
-	if capture, ok := w.(*responseCapture); ok && images {
+	if capture := captureOf(w); capture != nil && images {
 		// Inspection keeps the reply without its images.
 		capture.summarize(parsed)
 	}

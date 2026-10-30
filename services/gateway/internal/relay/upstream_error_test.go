@@ -1,7 +1,6 @@
 package relay
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -81,29 +80,38 @@ func TestUpstreamOverloadAsksTheClientToRetry(t *testing.T) {
 	}
 }
 
-// An upstream that sends no reply in time gets 504 upstream_timeout. A reply
-// that is not streamed arrives only when it is complete, so the message points
-// long requests to streaming. The upstream may still finish, so its cost stays
-// pending and the customer is not charged.
+// A reply that is not streamed arrives only when it is complete. When it takes
+// too long the client gets 503 upstream_timeout, pointing it to streaming, and
+// is told not to retry, since the same request would most likely time out
+// again. The upstream may still finish, so its cost stays pending and the
+// customer is not charged.
 func TestSlowUpstreamReplyTimesOut(t *testing.T) {
-	for _, stream := range []bool{false, true} {
-		t.Run(fmt.Sprint(stream), func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = io.ReadAll(r.Body)
-				time.Sleep(300 * time.Millisecond)
-				_, _ = io.WriteString(w, `{"usage":{"input_tokens":2,"output_tokens":1}}`)
-			}))
-			defer server.Close()
-			h, f := fixture("openai", server.URL)
-			h.replyTimeout = 50 * time.Millisecond
-			w := serve(h, "/openai/v1/responses", fmt.Sprintf(`{"model":"model","input":"hi","stream":%t}`, stream))
-			body := w.Body.String()
-			if w.Code != 504 || !strings.Contains(body, `"upstream_timeout"`) || !strings.Contains(body, "The upstream did not reply within") || strings.Contains(body, "stream: true") == stream {
-				t.Fatalf("HTTP %d: %s", w.Code, body)
-			}
-			if s := f.settlements; len(s) != 1 || s[0].Status != "failed" || s[0].ErrorCode != "upstream_timeout" || s[0].Usage.Known || s[0].ChargeMicros != 0 {
-				t.Fatalf("settlement %+v", s)
-			}
-		})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		time.Sleep(300 * time.Millisecond)
+		_, _ = io.WriteString(w, `{"usage":{"input_tokens":2,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+	h, f := fixture("openai", server.URL)
+	h.replyTimeout = 50 * time.Millisecond
+	w := serve(h, "/openai/v1/responses", `{"model":"model","input":"hi"}`)
+	body := w.Body.String()
+	if w.Code != 503 || w.Header().Get("X-Should-Retry") != "false" || !strings.Contains(body, `"upstream_timeout"`) || !strings.Contains(body, "The upstream did not reply within") || !strings.Contains(body, "stream: true") {
+		t.Fatalf("HTTP %d %v: %s", w.Code, w.Header(), body)
+	}
+	if s := f.settlements; len(s) != 1 || s[0].Status != "failed" || s[0].ErrorCode != "upstream_timeout" || s[0].Usage.Known || s[0].ChargeMicros != 0 {
+		t.Fatalf("settlement %+v", s)
+	}
+}
+
+// Cloudflare replaces an origin's 502 and 504 with its own text page, so the
+// gateway sends 503 instead and its JSON error reaches the client.
+func TestErrorsAvoidStatusesCloudflareReplaces(t *testing.T) {
+	for status, want := range map[int]int{502: 503, 504: 503, 500: 500, 503: 503, 429: 429} {
+		w := httptest.NewRecorder()
+		fail(w, status, "upstream_error", "message")
+		if w.Code != want || !strings.Contains(w.Body.String(), `"message":"message"`) {
+			t.Errorf("fail(%d) sent %d %s", status, w.Code, w.Body)
+		}
 	}
 }

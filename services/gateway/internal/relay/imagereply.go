@@ -275,7 +275,7 @@ func (h *Handler) relayImage(w http.ResponseWriter, r *http.Request, response *h
 		fail(w, 502, "upstream_error", "Expected a JSON response")
 		return
 	}
-	capture, _ := w.(*responseCapture)
+	capture := captureOf(w)
 	if capture != nil {
 		capture.summarize(nil)
 	}

@@ -167,7 +167,7 @@ func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.Response, p plan, c candidate, s *domain.Settlement) {
 	frameLimit := maxFrameBytes
 	// Request inspection keeps image events without their base64 images.
-	capture, _ := w.(*responseCapture)
+	capture := captureOf(w)
 	if p.image != nil || p.imageTool != nil {
 		frameLimit = maxImageFrameBytes
 		if capture != nil {

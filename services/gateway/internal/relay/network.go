@@ -74,11 +74,12 @@ func (d safeDialer) DialContext(ctx context.Context, network, address string) (n
 	return nil, last
 }
 
-// upstreamReplyTimeout is how long an upstream may take to send its reply
-// headers. A reply that is not streamed has none until it is complete, so this
-// also bounds non-streamed generations. Cloudflare closes the client's
-// connection when the origin sends nothing for 100 seconds, so a longer wait
-// would only let an upstream finish, and bill, a reply nobody receives.
+// upstreamReplyTimeout is how long an upstream may take to send the headers of
+// a reply that is not streamed, which has none until it is complete.
+// Cloudflare closes the client's connection when the origin sends nothing for
+// 100 seconds, so a longer wait would only let an upstream finish, and bill, a
+// reply nobody receives. A streamed reply has no such limit; the heartbeat
+// keeps its client connected instead.
 const upstreamReplyTimeout = 90 * time.Second
 
 func transport(proxyURL string, allowPrivate bool) (*http.Transport, error) {

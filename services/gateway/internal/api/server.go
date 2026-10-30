@@ -64,6 +64,11 @@ func (s *Server) Handler() http.Handler {
 	})
 }
 func write(w http.ResponseWriter, status int, v any) {
+	if status == http.StatusBadGateway || status == http.StatusGatewayTimeout {
+		// Cloudflare replaces an origin's 502 and 504 with its own text page,
+		// so the console would never see this error. It passes 503 unchanged.
+		status = http.StatusServiceUnavailable
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)

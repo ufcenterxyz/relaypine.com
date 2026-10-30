@@ -578,7 +578,7 @@ func TestTerminalResourceBindingFailureIsFreeWithVerifiedCost(t *testing.T) {
 	f.saveError = errors.New("storage failed")
 	w := serve(h, "/openai/v1/responses", `{"model":"model","input":"hi","stream":true}`)
 	s := f.settlements[0]
-	if w.Code != 502 || s.Status != "failed" || !s.Usage.Known || s.ChargeMicros != 0 || s.CostMicros != 14 {
+	if w.Code != 503 || s.Status != "failed" || !s.Usage.Known || s.ChargeMicros != 0 || s.CostMicros != 14 {
 		t.Fatalf("platform failure billing: HTTP %d %+v", w.Code, s)
 	}
 }

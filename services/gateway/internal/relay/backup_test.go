@@ -352,7 +352,7 @@ func TestUnsentAttemptReroutesButSentFailureNeverReplays(t *testing.T) {
 	openrouter = newRecorder(t, 200, "application/json", chatReply)
 	h, f, _ = backupFixture(t, "openai", dropped.URL, map[string]*recorder{"openrouter": openrouter})
 	w = serve(h, "/openai/v1/chat/completions", `{"model":"model","messages":[]}`)
-	if w.Code != 502 || openrouter.count() != 0 || len(f.reroutes) != 0 || f.settlements[0].Status != "failed" || f.settlements[0].Usage.Known {
+	if w.Code != 503 || openrouter.count() != 0 || len(f.reroutes) != 0 || f.settlements[0].Status != "failed" || f.settlements[0].Usage.Known {
 		t.Fatalf("sent: %d backup=%d %+v", w.Code, openrouter.count(), f.settlements)
 	}
 }
