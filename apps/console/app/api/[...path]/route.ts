@@ -12,6 +12,12 @@ const hopHeaders = new Set([
   "te", "trailer", "transfer-encoding", "upgrade", "content-length",
 ]);
 
+// Cloudflare replaces an origin's 502 and 504 with its own text page, so the
+// console would never see the JSON error. It passes 503 unchanged.
+function visible(status: number) {
+  return status === 502 || status === 504 ? 503 : status;
+}
+
 function failure(status: number, code: string, message: string) {
   return Response.json({ error: { code, message } }, {
     status, headers: { "Cache-Control": "no-store" },
@@ -83,7 +89,7 @@ async function proxy(request: NextRequest) {
         const empty = request.method === "HEAD" || [204, 205, 304].includes(response.statusCode || 200);
         if (empty) response.resume();
         resolve(new Response(empty ? null : Readable.toWeb(response) as ReadableStream<Uint8Array>, {
-          status: response.statusCode || 502, headers: outgoing,
+          status: visible(response.statusCode || 503), headers: outgoing,
         }));
       });
       const abort = () => upstream.destroy(new Error("Request aborted"));
@@ -97,7 +103,7 @@ async function proxy(request: NextRequest) {
       else upstream.end(body);
     });
   } catch {
-    return failure(502, "gateway_unavailable", "The gateway is temporarily unavailable.");
+    return failure(503, "gateway_unavailable", "The gateway is temporarily unavailable.");
   }
 }
 
