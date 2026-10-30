@@ -74,6 +74,13 @@ func (d safeDialer) DialContext(ctx context.Context, network, address string) (n
 	return nil, last
 }
 
+// upstreamReplyTimeout is how long an upstream may take to send its reply
+// headers. A reply that is not streamed has none until it is complete, so this
+// also bounds non-streamed generations. Cloudflare closes the client's
+// connection when the origin sends nothing for 100 seconds, so a longer wait
+// would only let an upstream finish, and bill, a reply nobody receives.
+const upstreamReplyTimeout = 90 * time.Second
+
 func transport(proxyURL string, allowPrivate bool) (*http.Transport, error) {
 	direct := safeDialer{allowPrivate: allowPrivate}
 	dial := direct.DialContext
@@ -111,7 +118,7 @@ func transport(proxyURL string, allowPrivate bool) (*http.Transport, error) {
 			return nil, last
 		}
 	}
-	return &http.Transport{Proxy: nil, DialContext: dial, ForceAttemptHTTP2: true, MaxIdleConns: 8, MaxIdleConnsPerHost: 2, IdleConnTimeout: 30 * time.Second, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 90 * time.Second, DisableCompression: true}, nil
+	return &http.Transport{Proxy: nil, DialContext: dial, ForceAttemptHTTP2: true, MaxIdleConns: 8, MaxIdleConnsPerHost: 2, IdleConnTimeout: 30 * time.Second, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: upstreamReplyTimeout, DisableCompression: true}, nil
 }
 
 func upstreamURL(base, path string, allowPrivate bool) (string, error) {

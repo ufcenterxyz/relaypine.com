@@ -1,11 +1,13 @@
 package relay
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUpstreamErrorsKeepTheProvidersExplanation(t *testing.T) {
@@ -55,5 +57,53 @@ func TestUpstreamClientErrorsReachTheClient(t *testing.T) {
 	}
 	if len(f.settlements) != 1 || f.settlements[0].ChargeMicros != 0 || f.settlements[0].ErrorCode != "upstream_400" {
 		t.Fatalf("settlement %+v", f.settlements)
+	}
+}
+
+// An upstream that fails or is overloaded tells the client to retry, and its
+// own wording does not reach the client.
+func TestUpstreamOverloadAsksTheClientToRetry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(503)
+		_, _ = io.WriteString(w, `{"error":{"message":"Our servers are currently overloaded. Please try again later.","type":"service_unavailable_error","param":null,"code":"server_is_overloaded"}}`)
+	}))
+	defer server.Close()
+	h, f := fixture("openai", server.URL)
+	w := serve(h, "/openai/v1/responses", `{"model":"model","input":"hi"}`)
+	body := w.Body.String()
+	if w.Code != 503 || !strings.Contains(body, "The upstream is temporarily unavailable. Retry the request.") || strings.Contains(body, "Our servers") {
+		t.Fatalf("HTTP %d: %s", w.Code, body)
+	}
+	if len(f.settlements) != 1 || f.settlements[0].ErrorCode != "upstream_503" || f.settlements[0].ChargeMicros != 0 {
+		t.Fatalf("settlement %+v", f.settlements)
+	}
+}
+
+// An upstream that sends no reply in time gets 504 upstream_timeout. A reply
+// that is not streamed arrives only when it is complete, so the message points
+// long requests to streaming. The upstream may still finish, so its cost stays
+// pending and the customer is not charged.
+func TestSlowUpstreamReplyTimesOut(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.ReadAll(r.Body)
+				time.Sleep(300 * time.Millisecond)
+				_, _ = io.WriteString(w, `{"usage":{"input_tokens":2,"output_tokens":1}}`)
+			}))
+			defer server.Close()
+			h, f := fixture("openai", server.URL)
+			h.replyTimeout = 50 * time.Millisecond
+			w := serve(h, "/openai/v1/responses", fmt.Sprintf(`{"model":"model","input":"hi","stream":%t}`, stream))
+			body := w.Body.String()
+			if w.Code != 504 || !strings.Contains(body, `"upstream_timeout"`) || !strings.Contains(body, "The upstream did not reply within") || strings.Contains(body, "stream: true") == stream {
+				t.Fatalf("HTTP %d: %s", w.Code, body)
+			}
+			if s := f.settlements; len(s) != 1 || s[0].Status != "failed" || s[0].ErrorCode != "upstream_timeout" || s[0].Usage.Known || s[0].ChargeMicros != 0 {
+				t.Fatalf("settlement %+v", s)
+			}
+		})
 	}
 }

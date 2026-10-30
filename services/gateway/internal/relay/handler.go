@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"sort"
@@ -55,6 +56,9 @@ type Handler struct {
 	// target overrides endpoint addressing; tests point vendor presets at
 	// local servers. Nil uses domain.Endpoint.Target.
 	target func(domain.Endpoint, string) (string, string)
+	// replyTimeout replaces upstreamReplyTimeout when positive; tests shorten
+	// it.
+	replyTimeout time.Duration
 }
 
 // capture records each request's body and the response for request inspection.
@@ -867,6 +871,9 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		return reject(502, "Upstream proxy configuration unavailable")
 	}
 	defer tr.CloseIdleConnections()
+	if h.replyTimeout > 0 {
+		tr.ResponseHeaderTimeout = h.replyTimeout
+	}
 	target, err := upstreamURL(c.base, p.path, h.allowPrivate)
 	if err != nil {
 		*settlement = domain.Settlement{Status: "not_sent", Usage: domain.Usage{Known: true}, ErrorCode: "upstream_configuration"}
@@ -934,6 +941,18 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 				return reject(502, "Upstream connection failed")
 			}
 		}
+		var timeout net.Error
+		if errors.As(err, &timeout) && timeout.Timeout() && r.Context().Err() == nil {
+			// The upstream took the request but sent no reply in time. It may
+			// still finish, so its cost stays pending.
+			settlement.ErrorCode = "upstream_timeout"
+			message := fmt.Sprintf("The upstream did not reply within %s.", quantity(int64(tr.ResponseHeaderTimeout/time.Second), "second"))
+			if !p.stream {
+				message += " Use stream: true for requests that take longer, such as high-quality images."
+			}
+			fail(w, 504, "upstream_timeout", message)
+			return
+		}
 		fail(w, 502, "upstream_error", "Upstream connection failed")
 		return
 	}
@@ -957,7 +976,13 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 			// and has no upstream cost. Another route may still serve it.
 			settlement.Usage = domain.Usage{Known: true}
 			result.endpointWide = status >= 500
-			return reject(clientStatus, "The selected upstream rejected or failed the request")
+			message := upstreamRefused
+			if status >= 500 {
+				// An upstream failure or overload is temporary, and it ran no
+				// inference, so the client can send the request again.
+				message = "The upstream is temporarily unavailable. Retry the request."
+			}
+			return reject(clientStatus, message)
 		}
 		if result.retryAfter != "" {
 			w.Header().Set("Retry-After", result.retryAfter)
