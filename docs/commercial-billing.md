@@ -84,6 +84,8 @@ TPM 准入与金额预留使用不同的估算。金额预留用保守上界（�
 
 Responses 的 `image_generation` 工具：文本模型照常按 `usage` 计费；工具调用的图像模型（默认 `gpt-image-2`，须是该 Key 可用的已启用 GPT Image 2 或 2.5 模型）按自身价格另计。`max_tool_calls` 限制图像调用次数（默认 1，最多 4），预留按每次调用 32,768 个文本 Token、4 张上下文图像和该尺寸与质量的输出上界计算。结算优先使用 `tool_usage.image_gen`，输入全部按非缓存价格计（OpenAI 不报告缓存的图像输入），输出至少为每张已完成图像按 OpenAI 计算器得到的值，流式再加每张已收到的部分预览图 100 个；没有 `tool_usage` 时，每次调用按最坏情况计费：该尺寸与质量的输出上界、修订后的提示词加 2,048 个文本 Token，编辑另加一张输入图像。用户选择了这一保守口径，可能略高于 OpenAI 的实际扣费。
 
+Responses 的 `web_search` 工具（含 `web_search_preview` 和带日期的版本）：每个动作为搜索的 `web_search_call` 按 OpenAI 的单次价格计费，动作缺失或无法识别的调用也计费，不论状态；打开网页（`open_page`）和页内查找（`find_in_page`）没有单次价格。价格为每千次 $10（`web_search`，以及 `web_search_preview` 搭配推理模型），`web_search_preview` 搭配其他模型为每千次 $25；售价等于成本。搜索读取的网页内容（search content tokens）包含在模型报告的输入 Token 中，按模型价格计。`max_tool_calls` 限制调用次数（默认 10，最多 20），预留为每次允许的调用加上单次价格和 128,000 个输入 Token（联网搜索的上下文窗口；请求自身的输入上界更大时取后者），按模型输入侧最高价计，总输入超过长上下文阈值时按更高一档预留。流式请求统计输出项事件和最终 Response 中出现过的全部调用。请求用量中的 `web_search_calls` 和 `web_search_micros` 记录搜索次数和费用，费用计入 `charge_micros`。
+
 请求记录保存请求与回复中除图像数据以外的全部字段，图像以字节数代替，避免把大体积图片写入数据库。
 
 ## 备用通道

@@ -8,7 +8,7 @@ Route native API requests across multiple upstream keys, control their usage and
 
 ## What it does
 
-- **Native protocols:** OpenAI Chat Completions and Responses, with image inputs and the Responses `image_generation` tool, and the Images API (GPT Image 2 and 2.5); Anthropic Messages and token counting; JSON and SSE streaming.
+- **Native protocols:** OpenAI Chat Completions and Responses, with image inputs and the Responses `image_generation` and `web_search` tools, and the Images API (GPT Image 2 and 2.5); Anthropic Messages and token counting; JSON and SSE streaming.
 - **Multiple upstreams:** official hosts by default, plus configurable compatible hosts and authentication modes.
 - **Key discovery and batch import:** verify credentials, discover models, and import a selection with matched official reference prices. Workspaces and rate limits are imported when the provider exposes them. Discovery does not run paid inference.
 - **Routing:** lowest load, highest remaining local budget, or a balanced strategy, with RPM, TPM, concurrency, and shared quota groups.
@@ -98,6 +98,8 @@ const png = Buffer.from(result.data![0].b64_json!, "base64");
 ```
 
 Responses can also offer the `image_generation` tool (`tools: [{"type": "image_generation", "quality": "medium"}]`). The tool's image model (default `gpt-image-2`) is billed at its own rates on top of the text model's tokens, from OpenAI's `tool_usage`. Because OpenAI may omit or undercount that report, each generated image is billed at least at OpenAI's calculator value for its size and quality, and at its worst case when no report arrives. `max_tool_calls` (default 1, at most 4) bounds the images per response.
+
+Responses can also offer the `web_search` tool, or `web_search_preview` (`tools: [{"type": "web_search", "user_location": {"type": "approximate", "country": "US"}}]`, with `include: ["web_search_call.action.sources"]` for every source the model consulted). Each search is billed at OpenAI's per-call price ($10 per 1,000; $25 for `web_search_preview` with a model that does not reason), and the pages the model reads are part of its input tokens. `max_tool_calls` (default 10, at most 20) bounds the calls per response, and each allowed call holds a full 128,000-token context window of input until the request settles, so a lower limit holds less. The request's usage shows `web_search_calls` and their price `web_search_micros`. Chat Completions `web_search_options` is not supported yet.
 
 Image requests are billed per token from the usage OpenAI reports: text input, input images and generated image tokens at their published rates. Each request first holds the worst case for its size, quality and image count, and settles at the actual amount. Edits accept uploaded PNG, JPEG or WebP images and base64 data URLs, not file IDs or remote URLs.
 

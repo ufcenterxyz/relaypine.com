@@ -119,7 +119,9 @@ image tokens, and `input_tokens`/`output_tokens` its text tokens. For a
 Responses request with the image generation tool, `image_text_tokens`,
 `image_input_tokens` and `image_output_tokens` are the image model's tokens
 next to the text model's usage. The relay computes the charge from both models'
-rates; `Settle` rejects negative counts. The customer snapshot hides
+rates; `Settle` rejects negative counts. A Responses request with the web
+search tool adds `web_search_calls`, the searches OpenAI prices per call, and
+`web_search_micros`, their price, which is part of the charge. The customer snapshot hides
 `cost_image_*` rates like every other cost rate.
 
 Request inspection stores image calls without their images. Images API request

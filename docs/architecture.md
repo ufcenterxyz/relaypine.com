@@ -54,7 +54,7 @@
 
 不做跨协议转换、Files/Vector Stores、Batch、background Responses、Realtime/WebSocket、音频端点或云厂商 IAM。允许的请求字段在协议内透传；涉及尚未支持的资源或会产生独立费用的内置工具，必须能力检查并明确拒绝。普通由客户端执行的工具调用可正常透传。
 
-当前实现的图像能力：Images API 生成与编辑（GPT Image 2 与 2.5，按文本与图像 Token 精确计费）；Chat Completions 与 Responses 接受用户消息中的图片输入（Responses 还接受函数与自定义工具输出中的图片），来源限 https URL 或 base64 data URL，文件 ID 一律拒绝，以免引用同一上游账户中其他客户上传的文件；Responses 唯一放行的内置工具是 `image_generation`，图像模型固定、`max_tool_calls` 限制调用次数，按图像模型价格另计。参数采用白名单，未知参数可能改变费用，因此直接拒绝。
+当前实现的图像能力：Images API 生成与编辑（GPT Image 2 与 2.5，按文本与图像 Token 精确计费）；Chat Completions 与 Responses 接受用户消息中的图片输入（Responses 还接受函数与自定义工具输出中的图片），来源限 https URL 或 base64 data URL，文件 ID 一律拒绝，以免引用同一上游账户中其他客户上传的文件；Responses 放行的内置工具只有 `image_generation` 和 `web_search`：图像工具固定图像模型、`max_tool_calls` 限制调用次数，按图像模型价格另计；联网搜索按 OpenAI 每次搜索的官方价格另计，搜索读取的网页内容计入模型的输入 Token，`max_tool_calls` 同样固定，每次调用按完整的 128,000 Token 上下文预留。参数采用白名单，未知参数可能改变费用，因此直接拒绝。
 
 ## 3. 额度与限流
 

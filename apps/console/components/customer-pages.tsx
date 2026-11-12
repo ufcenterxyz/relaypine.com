@@ -30,6 +30,7 @@ import {
 import { en as t } from "@/i18n/en";
 import { consoleEn as c } from "@/i18n/console-en";
 import { waitlistEn as w } from "@/i18n/waitlist-en";
+import { requestDetailEn as rd } from "@/i18n/request-detail-en";
 import { api, count, date, dollars, money } from "@/lib/api";
 import type { AccessKey, RequestLog } from "@/lib/types";
 import { useConsole } from "./console-provider";
@@ -88,6 +89,16 @@ export function RequestTable({
             {row.billing_mode === "usage_only" && (
               <p className="mt-1 text-xs text-default-500">
                 {t.modelUsageOnly}
+              </p>
+            )}
+            {!!row.usage.web_search_calls && (
+              <p className="mt-1 text-xs text-default-500">
+                {row.usage.web_search_calls === 1
+                  ? rd.webSearchOne
+                  : rd.webSearchCount.replace(
+                      "{count}",
+                      count(row.usage.web_search_calls),
+                    )}
               </p>
             )}
             <RouteHint request={row} />

@@ -180,6 +180,11 @@ type Usage struct {
 	// image_generation tool called, priced at that image model's text rate.
 	// The image tool's image tokens use the two fields above.
 	ImageTextTokens int64 `json:"image_text_tokens,omitempty"`
+	// WebSearchCalls counts the searches of a Responses web_search tool,
+	// which OpenAI prices per call, and WebSearchMicros is their price, part
+	// of the request's charge. The pages a search reads are input tokens.
+	WebSearchCalls  int64 `json:"web_search_calls,omitempty"`
+	WebSearchMicros int64 `json:"web_search_micros,omitempty"`
 	Known           bool  `json:"known"`
 }
 type Request struct {

@@ -24,10 +24,12 @@ type streamTracker struct {
 	// images the stream delivered.
 	toolText, toolImage, toolOutput int64
 	partialImages                   int
-	anthropic                       map[string]json.RawMessage
-	completed, failed               bool
-	resourceID                      string
-	finalFailedUsage                bool
+	// searches are the web search calls the stream reported.
+	searches          webSearches
+	anthropic         map[string]json.RawMessage
+	completed, failed bool
+	resourceID        string
+	finalFailedUsage  bool
 }
 
 // inspectImage follows an Images API stream: partial images, then one
@@ -148,6 +150,19 @@ func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
 				t.toolText, t.toolImage, t.toolOutput = p.imageTool.usage(response, t.partialImages)
 			}
 		}
+		if p.webSearch != nil {
+			// Each call appears as it starts and ends, and again in the final
+			// Response object.
+			if t.searches == nil {
+				t.searches = webSearches{}
+			}
+			if kind == "response.output_item.added" || kind == "response.output_item.done" {
+				t.searches.add(obj["item"])
+			}
+			if kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" {
+				t.searches.addOutput(object(obj["response"]))
+			}
+		}
 		if kind == "response.completed" || kind == "response.incomplete" {
 			t.completed = true
 		}
@@ -264,6 +279,9 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 	withTool := func() {
 		if p.imageTool != nil && s.Usage.Known {
 			s.Usage.ImageTextTokens, s.Usage.ImageInputTokens, s.Usage.ImageOutputTokens = tracker.toolText, tracker.toolImage, tracker.toolOutput
+		}
+		if p.webSearch != nil && s.Usage.Known {
+			s.Usage.WebSearchCalls = tracker.searches.billed()
 		}
 	}
 	if tracker.completed && !tracker.failed && streamErr == nil {

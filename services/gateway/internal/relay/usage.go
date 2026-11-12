@@ -236,7 +236,10 @@ func validatePayloadCapabilities(m map[string]json.RawMessage, path string) erro
 	if _, exists := m["fallbacks"]; exists {
 		return errors.New("server-side model fallbacks are not supported; send a separate request for each authorized model")
 	}
-	for _, field := range []string{"background", "conversation", "file_ids", "attachments", "audio", "modalities", "web_search_options", "prediction", "prompt", "mcp_servers", "container", "context_management", "skills"} {
+	if v, ok := m["web_search_options"]; ok && string(v) != "null" && string(v) != "false" {
+		return errors.New("web_search_options is not supported yet; use the Responses API with the web_search tool")
+	}
+	for _, field := range []string{"background", "conversation", "file_ids", "attachments", "audio", "modalities", "prediction", "prompt", "mcp_servers", "container", "context_management", "skills"} {
 		if v, ok := m[field]; ok && string(v) != "null" && string(v) != "false" {
 			return errors.New("unsupported unmetered capability: " + field)
 		}
@@ -302,6 +305,13 @@ func validatePayloadCapabilities(m map[string]json.RawMessage, path string) erro
 				// Validated with its image model by prepareImageTool.
 				continue
 			}
+			if webSearchType.MatchString(kind) {
+				if !strings.HasSuffix(path, "/responses") {
+					return errors.New("the web search tool is supported only by the Responses API")
+				}
+				// Validated and priced by prepareWebSearch.
+				continue
+			}
 			if kind != "" && kind != "function" && kind != "custom" {
 				return errors.New("built-in tools are not supported")
 			}
@@ -346,9 +356,11 @@ func validateContent(v any, parent string) error {
 			}
 			return nil
 		}
-		if typ, _ := x["type"].(string); typ != "" {
+		if typ, _ := x["type"].(string); typ != "" && !webSearchPart(parent, typ) {
 			switch typ {
-			case "text", "input_text", "output_text", "message", "tool_use", "tool_result", "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output", "refusal", "thinking":
+			// An earlier web search answer may be sent back as context: its
+			// search calls and the citations in its text cost nothing more.
+			case "text", "input_text", "output_text", "message", "tool_use", "tool_result", "function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output", "refusal", "thinking", "web_search_call", "url_citation":
 			default:
 				return errors.New("unsupported content type: " + typ)
 			}
@@ -369,4 +381,10 @@ func validateContent(v any, parent string) error {
 		}
 	}
 	return nil
+}
+
+// webSearchPart reports the action of a web search call sent back as
+// context, or a URL that action found.
+func webSearchPart(parent, typ string) bool {
+	return parent == "action" && (typ == "search" || typ == "open_page" || typ == "find_in_page") || parent == "sources" && typ == "url"
 }

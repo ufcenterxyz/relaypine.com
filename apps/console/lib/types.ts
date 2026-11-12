@@ -149,6 +149,10 @@ export interface RequestLog {
     image_input_tokens?: number;
     image_output_tokens?: number;
     image_text_tokens?: number;
+    // Searches of the Responses web_search tool and their price, which is
+    // part of charge_micros.
+    web_search_calls?: number;
+    web_search_micros?: number;
     known: boolean;
   };
   charge_micros: number;

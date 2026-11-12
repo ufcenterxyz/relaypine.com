@@ -154,8 +154,8 @@ func (h *Handler) prepareImageTool(p *plan, m map[string]json.RawMessage, models
 		}
 		t.partials = int(n)
 	}
-	// max_tool_calls bounds every built-in tool call of a response, and this
-	// is the only built-in tool the gateway relays.
+	// max_tool_calls bounds every built-in tool call of a response, web
+	// searches included; prepareWebSearch keeps this bound.
 	t.calls = defaultImageToolCalls
 	if raw, ok := m["max_tool_calls"]; ok && string(raw) != "null" {
 		n, valid := integer(raw)

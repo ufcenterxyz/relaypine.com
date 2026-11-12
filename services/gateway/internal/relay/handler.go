@@ -110,6 +110,8 @@ type plan struct {
 	imageInput int64
 	// imageTool is set when a Responses request offers image_generation.
 	imageTool *imageToolPlan
+	// webSearch is set when a Responses request offers web_search.
+	webSearch *webSearchPlan
 	// inputImages counts the OpenAI image inputs of the request.
 	inputImages int
 	// contentType is the upstream body type; empty means JSON.
@@ -297,7 +299,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if !p.count && !p.resource {
-		reserved, costReserve, err = estimate(p.input, p.output, p.model)
+		input := p.input
+		if p.webSearch != nil {
+			// The pages the model reads are its input tokens.
+			input += p.webSearch.inputBound
+		}
+		reserved, costReserve, err = estimate(input, p.output, p.model)
 		if err != nil {
 			fail(w, 400, "invalid_price", "Unable to reserve this request")
 			return
@@ -312,6 +319,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reserved, costReserve = reserved+sell, costReserve+cost
+	}
+	if p.webSearch != nil && p.model.EffectiveBillingMode() == domain.BillingMetered {
+		// Every allowed call at the search price.
+		fee := p.webSearch.fee()
+		reserved, costReserve = reserved+fee, costReserve+fee
 	}
 	h.route(w, r, p, sharedLimits(p, config), candidates, reserved, costReserve)
 }
@@ -701,6 +713,9 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if err = h.prepareImageTool(p, m, models); err != nil {
 		return err
 	}
+	if err = h.prepareWebSearch(p, m); err != nil {
+		return err
+	}
 	// OpenAI admits a request with its output limit; Anthropic counts output
 	// only as it is generated, against a separate limit.
 	if p.provider != "anthropic" {
@@ -1058,11 +1073,17 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		fail(w, 502, "upstream_error", "Expected a JSON response")
 		return
 	}
-	// The image model's tokens join the text model's verified usage.
+	// The image model's tokens and the web searches join the text model's
+	// verified usage.
 	toolUsage := func() {
 		if p.imageTool != nil && settlement.Usage.Known {
 			u := &settlement.Usage
 			u.ImageTextTokens, u.ImageInputTokens, u.ImageOutputTokens = p.imageTool.usage(obj, 0)
+		}
+		if p.webSearch != nil && settlement.Usage.Known {
+			searches := webSearches{}
+			searches.addOutput(obj)
+			settlement.Usage.WebSearchCalls = searches.billed()
 		}
 	}
 	if _, exists := obj["error"]; exists && string(obj["error"]) != "null" {
@@ -1138,6 +1159,7 @@ func (h *Handler) price(s *domain.Settlement, p plan) {
 		// Token evidence is independent from pricing. Unknown cost must not
 		// erase verified usage or become a synthetic free monetary settlement.
 		s.ChargeMicros, s.CostMicros = 0, 0
+		s.Usage.WebSearchMicros = 0
 		return
 	}
 	if !s.Usage.Known {
@@ -1155,6 +1177,11 @@ func (h *Handler) price(s *domain.Settlement, p plan) {
 		if toolCharge, toolCost, err = charges(tool, p.imageTool.model); err == nil {
 			charge, cost = charge+toolCharge, cost+toolCost
 		}
+	}
+	if err == nil && p.webSearch != nil {
+		// Searches at OpenAI's price per call, the same for sales and cost.
+		s.Usage.WebSearchMicros = s.Usage.WebSearchCalls * p.webSearch.callMicros
+		charge, cost = charge+s.Usage.WebSearchMicros, cost+s.Usage.WebSearchMicros
 	}
 	if err != nil {
 		s.Usage.Known = false

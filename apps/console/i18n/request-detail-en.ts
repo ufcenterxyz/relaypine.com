@@ -70,5 +70,8 @@ export const requestDetailEn = {
   unavailableBody: "The request and response were saved but can’t be loaded right now.",
   disabledTitle: "Body recording is off",
   disabledBody: "This gateway doesn’t record request and response bodies.",
+  webSearches: "Web searches",
+  webSearchCount: "{count} web searches",
+  webSearchOne: "1 web search",
 };
 export type RequestDetailCopy = typeof requestDetailEn;

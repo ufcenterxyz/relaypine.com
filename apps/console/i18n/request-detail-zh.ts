@@ -71,4 +71,7 @@ export const requestDetailZh: RequestDetailCopy = {
   unavailableBody: "请求和响应已经保存，但现在无法读取。",
   disabledTitle: "未开启正文记录",
   disabledBody: "此网关不记录请求和响应正文。",
+  webSearches: "联网搜索",
+  webSearchCount: "联网搜索 {count} 次",
+  webSearchOne: "联网搜索 1 次",
 };

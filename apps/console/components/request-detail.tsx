@@ -321,6 +321,9 @@ function OverviewPanel({
                     [im.imageOutputTokens, tokens(usage.image_output_tokens ?? 0)],
                   ] as [string, ReactNode][])
                 : []),
+              ...(usage.web_search_calls
+                ? ([[d.webSearches, `${count(usage.web_search_calls)} · ${money(usage.web_search_micros ?? 0, true)}`]] as [string, ReactNode][])
+                : []),
               [t.usageKnown, usage.known ? t.yes : t.no],
               [t.modelBillingMode, request.billing_mode === "usage_only" ? t.modelUsageOnly : t.modelMetered],
               ...(request.long_context ? ([[lc.priceTier, lc.longContextApplied]] as [string, ReactNode][]) : []),

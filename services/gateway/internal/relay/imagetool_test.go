@@ -28,7 +28,8 @@ func TestImageToolValidation(t *testing.T) {
 		{"/openai/v1/responses", `{"model":"model","input":"x","max_tool_calls":5,"tools":[{"type":"image_generation"}]}`, "max_tool_calls must be between 1 and 4"},
 		{"/openai/v1/responses", `{"model":"model","input":"x","multi_agent":{"enabled":true},"tools":[{"type":"image_generation"}]}`, "multi-agent requests cannot use the image generation tool"},
 		{"/openai/v1/responses", `{"model":"model","input":"x","tools":[{"type":"image_generation"},{"type":"image_generation"}]}`, "declare the image generation tool once"},
-		{"/openai/v1/responses", `{"model":"model","input":"x","tools":[{"type":"web_search"}]}`, "built-in tools are not supported"},
+		{"/openai/v1/responses", `{"model":"model","input":"x","tools":[{"type":"file_search","vector_store_ids":["vs_1"]}]}`, "built-in tools are not supported"},
+		{"/openai/v1/responses", `{"model":"model","input":"x","tools":[{"type":"code_interpreter","container":{"type":"auto"}}]}`, "built-in tools are not supported"},
 	} {
 		w := serveRequest(h, newRequest(c.path, c.body))
 		if w.Code != 400 || !strings.Contains(w.Body.String(), c.want) {
