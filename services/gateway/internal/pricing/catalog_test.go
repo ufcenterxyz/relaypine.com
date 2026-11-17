@@ -143,10 +143,13 @@ func TestLivePricingCatalog(t *testing.T) {
 			t.Fatal(s.Provider, s.Error)
 		}
 	}
-	for _, pair := range [][2]string{{"anthropic", "claude-fable-5-1"}, {"anthropic", "claude-haiku-4-5-20251001"}, {"openai", "gpt-6.1-sol"}} {
+	for _, pair := range [][2]string{{"anthropic", "claude-fable-5-1"}, {"anthropic", "claude-haiku-4-5-20251001"}, {"openai", "gpt-6.1-sol"}, {"openai", "gpt-image-2"}} {
 		if _, ok := c.Match(pair[0], pair[1]); !ok {
 			t.Fatal("live exact model missing", pair)
 		}
+	}
+	if r, _ := c.Match("openai", "gpt-6.1-terra"); r.Flex == nil || r.Flex.Long == nil {
+		t.Fatal("live Flex price missing for gpt-6.1-terra")
 	}
 	t.Logf("Verified %d public reference prices", len(c.Rates))
 }
@@ -198,6 +201,62 @@ func TestOpenAIImagePrices(t *testing.T) {
 	}
 	if _, ok := rates["gpt-image-2"]; ok {
 		t.Fatal("changed image table still priced")
+	}
+}
+
+// OpenAI's pricing page renamed its image section "Images" in November 2026
+// and added GPT Image 2.6 rows and a Batch table. The fixture keeps the live
+// page's shape. The Standard table still prices the supported models, at the
+// same rates as under the old heading.
+func TestOpenAIImagePricesUnderTheImagesHeading(t *testing.T) {
+	images, err := os.ReadFile("testdata/openai-images-2026-11.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := fixture(t, "openai") + "\n" + string(images)
+	imagePrices := func(t *testing.T, document string) map[string]Rate {
+		t.Helper()
+		rates, err := Parse("openai", document, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The text and Flex prices beside the image section are unaffected.
+		if r := rates["gpt-6.1-terra"]; r.Input != 1_000_000 || r.Flex == nil || r.Flex.Input != 500_000 {
+			t.Fatalf("text price %+v", r)
+		}
+		out := map[string]Rate{}
+		for id, r := range rates {
+			if r.Image {
+				out[id] = r
+			}
+		}
+		return out
+	}
+	rates := imagePrices(t, document)
+	if len(rates) != 3 {
+		t.Fatalf("image prices for %d models: %v", len(rates), rates)
+	}
+	for _, id := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+		r := rates[id]
+		// Standard, not Batch: $5 text input, $1.25 cached, $8 image input, $30 image output.
+		if r.Input != 5_000_000 || r.Output != 0 || r.Cached != 1_250_000 || r.ImageInput != 8_000_000 || r.ImageOutput != 30_000_000 || r.Reference.Scope != "standard_image" || r.Reference.Model != id {
+			t.Fatalf("%s rate %+v", id, r)
+		}
+	}
+	// A Markdown heading names the section too.
+	if rates := imagePrices(t, strings.Replace(document, "\nImages\n", "\n### Images\n", 1)); len(rates) != 3 {
+		t.Fatalf("Markdown heading: %d image prices", len(rates))
+	}
+	// Both headings, or one twice, leave the section ambiguous: image models
+	// stay unmatched instead of taking a guessed table.
+	for name, changed := range map[string]string{
+		"both headings":    strings.Replace(document, "\nImages\n", "\nImage generation models\n\nImages\n", 1),
+		"repeated heading": strings.Replace(document, "\nImages\n", "\nImages\n\nImages\n", 1),
+		"no heading":       strings.Replace(document, "\nImages\n", "\nImage pricing\n", 1),
+	} {
+		if rates := imagePrices(t, changed); len(rates) != 0 {
+			t.Fatalf("%s: priced %d image models", name, len(rates))
+		}
 	}
 }
 

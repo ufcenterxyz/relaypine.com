@@ -510,15 +510,39 @@ func parseFlexRates(document string, standard map[string]Rate) (map[string]*Flex
 
 var imageModelName = regexp.MustCompile(`^(?:gpt-image-[a-z0-9.-]+|chatgpt-image-latest)$`)
 
-// parseImageRates reads the Standard table of the "Image generation models"
-// section: one Image and one Text row per model, with input, output and
-// cached input prices per 1M tokens. Only supported image families are kept.
-func parseImageRates(document string, checked time.Time) (map[string]Rate, error) {
-	a := strings.Index(document, "Image generation models")
-	if a < 0 {
-		return nil, errors.New("missing image pricing section")
+// imageHeadings are the headings of the image generation prices: "Image
+// generation models" until November 2026, then "Images".
+var imageHeadings = map[string]bool{"Image generation models": true, "Images": true}
+
+// imageSection returns the document from the line that heads its image
+// generation prices, a line of its own or a Markdown heading. No such line,
+// or more than one, fails closed.
+func imageSection(document string) (string, error) {
+	start, headings, offset := 0, 0, 0
+	for _, line := range strings.SplitAfter(document, "\n") {
+		if imageHeadings[strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "#"))] {
+			start = offset
+			headings++
+		}
+		offset += len(line)
 	}
-	section := document[a:]
+	switch {
+	case headings == 0:
+		return "", errors.New("missing image pricing section")
+	case headings > 1:
+		return "", errors.New("ambiguous image pricing section")
+	}
+	return document[start:], nil
+}
+
+// parseImageRates reads the Standard table of the image generation section:
+// one Image and one Text row per model, with input, output and cached input
+// prices per 1M tokens. Only supported image families are kept.
+func parseImageRates(document string, checked time.Time) (map[string]Rate, error) {
+	section, err := imageSection(document)
+	if err != nil {
+		return nil, err
+	}
 	table := strings.Index(section, "### Grouped Pricing Table data")
 	standard := strings.Index(section, "Standard")
 	batch := strings.Index(section, "Batch")
