@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"relaypine.com/gateway/internal/domain"
 	"relaypine.com/gateway/internal/store"
@@ -66,9 +67,9 @@ type imageRecordingLimiter struct {
 	tokens int64
 }
 
-func (l *imageRecordingLimiter) acquire(ctx context.Context, id string, buckets []limits, tokens int64) (int64, error) {
+func (l *imageRecordingLimiter) acquire(ctx context.Context, id string, buckets []limits, tokens int64, lease time.Duration) (int64, error) {
 	l.tokens = tokens
-	return l.fakeLimiter.acquire(ctx, id, buckets, tokens)
+	return l.fakeLimiter.acquire(ctx, id, buckets, tokens, lease)
 }
 
 // Use the existing fake limiter with an extra observation of the bound supplied

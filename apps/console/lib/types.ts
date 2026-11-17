@@ -103,6 +103,20 @@ export interface LongContext {
   cost_cached_rate: number;
   cost_cache_write_rate: number;
 }
+// OpenAI's official price of Flex processing (service_tier "flex"). It comes
+// only with the model's official reference price. long_context prices Flex
+// prompts above the standard long context threshold.
+export interface FlexPrice {
+  input_rate: number;
+  output_rate: number;
+  cached_rate: number;
+  cache_write_rate: number;
+  cost_input_rate: number;
+  cost_output_rate: number;
+  cost_cached_rate: number;
+  cost_cache_write_rate: number;
+  long_context?: LongContext | null;
+}
 export interface Model {
   pricing_reference?: { provider: string; model: string; source_url: string; source_name: string; checked_at: string; hash: string; scope: "standard_text" | "standard_image"; max_input_tokens?: number; all_prompt_lengths?: boolean };
   pricing_note?: string;
@@ -129,6 +143,7 @@ export interface Model {
   cost_image_input_rate?: number;
   cost_image_output_rate?: number;
   long_context?: LongContext | null;
+  flex?: FlexPrice | null;
 }
 export interface RequestLog {
   id: string;
@@ -153,6 +168,8 @@ export interface RequestLog {
     // part of charge_micros.
     web_search_calls?: number;
     web_search_micros?: number;
+    // The tier OpenAI ran a Flex request at, and priced it by.
+    service_tier?: "flex" | "default";
     known: boolean;
   };
   charge_micros: number;
@@ -163,6 +180,8 @@ export interface RequestLog {
   created_at: string;
   // Set when the prompt was long enough to pay the model's long context rates.
   long_context?: boolean;
+  // "flex" when the request asked for OpenAI Flex processing.
+  service_tier?: "flex";
   // Administrator only: every upstream tried when the request was rerouted.
   attempts?: { credential_id: string; status: string; error_code?: string }[];
 }

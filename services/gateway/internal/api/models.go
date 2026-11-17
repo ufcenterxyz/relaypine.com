@@ -29,8 +29,9 @@ func validateModelInput(m *domain.Model) *modelInputProblem {
 		m.ImageInputRate, m.ImageOutputRate, m.CostImageInputRate, m.CostImageOutputRate = 0, 0, 0, 0
 	} else {
 		m.LongContext = nil
+		m.Flex = nil
 	}
-	for _, rate := range append(append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...), m.LongContextRates()...) {
+	for _, rate := range append(append(append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...), m.LongContextRates()...), m.FlexRates()...) {
 		if rate < 0 || rate > 1000000000 {
 			return &modelInputProblem{"invalid_price", "Rates must be between 0 and $1,000 per million tokens."}
 		}
@@ -74,10 +75,12 @@ func (s *Server) importModels(w http.ResponseWriter, r *http.Request) {
 		input.Models = models
 	} else {
 		// Only explicit manual rates can bypass reference lookup; never trust client
-		// claims about an official source or enable an unpriced model.
+		// claims about an official source or enable an unpriced model. A Flex
+		// price is official only with its reference.
 		for i := range input.Models {
 			input.Models[i].PricingReference = nil
 			input.Models[i].PricingNote = ""
+			input.Models[i].Flex = nil
 		}
 	}
 	if len(input.Models) == 0 || len(input.Models) > store.MaxModelImportItems {

@@ -52,7 +52,7 @@
 
 保留 Anthropic 的版本和允许的 beta 头；替换上游认证，过滤 hop-by-hop 头、Cookie、客户端伪造的组织/项目及内部路由头。上游组织/项目由管理员配置。
 
-不做跨协议转换、Files/Vector Stores、Batch、background Responses、Realtime/WebSocket、音频端点或云厂商 IAM。允许的请求字段在协议内透传；涉及尚未支持的资源或会产生独立费用的内置工具，必须能力检查并明确拒绝。普通由客户端执行的工具调用可正常透传。
+不做跨协议转换、Files/Vector Stores、Batch、background Responses、Realtime/WebSocket、音频端点或云厂商 IAM。OpenAI 的 Flex 处理（Responses 与 Chat Completions 的 `service_tier: "flex"`）已支持：只接受官方参考价中带 Flex 价格的模型，只走官方 OpenAI 通道，按 Flex 价预留，按上游报告的实际等级结算；其他请求仍强制 `service_tier: "default"`。Batch 和 background Responses 仍不做。允许的请求字段在协议内透传；涉及尚未支持的资源或会产生独立费用的内置工具，必须能力检查并明确拒绝。普通由客户端执行的工具调用可正常透传。
 
 当前实现的图像能力：Images API 生成与编辑（GPT Image 2 与 2.5，按文本与图像 Token 精确计费）；Chat Completions 与 Responses 接受用户消息中的图片输入（Responses 还接受函数与自定义工具输出中的图片），来源限 https URL 或 base64 data URL，文件 ID 一律拒绝，以免引用同一上游账户中其他客户上传的文件；Responses 放行的内置工具只有 `image_generation` 和 `web_search`：图像工具固定图像模型、`max_tool_calls` 限制调用次数，按图像模型价格另计；联网搜索按 OpenAI 每次搜索的官方价格另计，搜索读取的网页内容计入模型的输入 Token，`max_tool_calls` 同样固定，每次调用按完整的 128,000 Token 上下文预留。参数采用白名单，未知参数可能改变费用，因此直接拒绝。
 
@@ -116,6 +116,8 @@ flowchart LR
 5. 收到 usage 后幂等结算，区分输入、输出、缓存读写及供应商报告的其它计费项，释放预留差额。
 6. 流中断或 usage 缺失时记录待核对/估算金额，不能直接当作免费请求。估算和实收分别展示。
 
+Flex 价格：OpenAI 的 Flex 价格随官方参考价一起导入（价格页 Batch 部分的 Flex 表，含长上下文列），只属于官方参考价，手动定价没有。Flex 请求按 Flex 价预留；结算按上游回复中的 `service_tier`：`flex` 按 Flex 价，`default` 按标准价（扣款仍不超过预留），没有报告等级时用量视为未核实，客户不扣费、上游成本待核对。Flex 容量不足的 429 不产生费用，也不代表这把 Key 的限额，不暂停 Key 或模型，也不换通道。
+
 长上下文价格：部分模型在 prompt 超过阈值时整单按更高价格计费（OpenAI 新模型超过 272K 输入 Token，Claude Haiku 5.5 超过 100K Token）。参考价导入时一并写入；输入上界超过阈值时按两档中较高的金额预留，结算时按上游报告的 prompt 长度（含缓存读写）选档。没有加价档的模型在其上下文窗口内只有一个价格，不因长度被拒。
 
 图像请求的上界同样必须真实可靠，因为客户扣款不超过预留：Images API 按 OpenAI 的输出 Token 计算器和尺寸、质量、张数预留，Responses 图像工具按每次调用的最坏情况预留。图像工具的费用只出现在 `tool_usage.image_gen`，OpenAI 说明它可能缺失或少报，因此结算时按报告值且不低于每张已完成图像的计算器值，没有报告时按最坏情况计费。
@@ -137,6 +139,7 @@ MySQL 是预算账本权威来源；Redis 管速率和并发，避免两个系�
 | 401 | 隔离该凭据并记录原因 |
 | 403 | 区分模型权限、账号权限和配置问题 |
 | 暂时 429 | 某个模型的限额：只暂停该 Key 及其额度组上的这个模型（按 Retry-After）；计费、额度或消费上限：暂停整把 Key 至少五分钟 |
+| Flex 容量不足 429 | 返回客户端 429 `flex_unavailable`（带上游 Retry-After），不收费，不暂停 Key 或模型，不换通道 |
 | 预算或上游余额耗尽 | 标记相关账户不可用，等待调整或可信同步 |
 | 5xx/过载 | 短暂熔断；仅在已确认适合重试且响应未提交时有限切换 |
 | 已向客户端提交响应头或内容 | 不自动切换、不拼接第二次回答 |
@@ -208,4 +211,4 @@ Go 网关、用户 API 和管理员 API 在同一代码库按模块隔离；管�
 
 建议结构：`apps/console`、`services/gateway`、`contracts`、`deploy`、`docs`。关系模型和数据库迁移统一由服务端维护，避免两个 ORM 各自修改 schema。Redis 脚本与部署先按单主拓扑设计；以后采用 Cluster 时需确保原子操作涉及的 key 在同一 slot，或重设分区方式。
 
-部署需验证 SSE 不被入口代理缓冲，区分连接、首字节、流空闲和总时长超时；滚动发布先停止接纳新流量，再排空进行中的流。配置更新带版本，停用 Key 必须及时撤销新请求路由资格。
+部署需验证 SSE 不被入口代理缓冲，区分连接、首字节、流空闲和总时长超时（单请求 5 分钟，流式 Flex 请求 15 分钟，靠每 15 秒的 keepalive 保持 Cloudflare 与入口连接）；滚动发布先停止接纳新流量，再排空进行中的流。配置更新带版本，停用 Key 必须及时撤销新请求路由资格。

@@ -409,6 +409,12 @@ func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly, manua
 	}
 	m.BillingMode = m.EffectiveBillingMode()
 	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
+	// Client edits cannot assert an official reference or Flex price. Preserve
+	// verified metadata only when the authoritative stored price and routing
+	// identity are unchanged.
+	m.PricingReference = nil
+	m.PricingNote = ""
+	m.Flex = nil
 	if err := validateModel(m); err != nil {
 		return m, err
 	}
@@ -419,10 +425,6 @@ func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly, manua
 	defer tx.Rollback()
 	var version int
 	var previous []byte
-	// Client edits cannot assert an official reference. Preserve verified metadata
-	// only when the authoritative stored price and routing identity are unchanged.
-	m.PricingReference = nil
-	m.PricingNote = ""
 	if !createOnly {
 		err = tx.QueryRowContext(ctx, "SELECT config,version FROM models WHERE id=? FOR UPDATE", m.ID).Scan(&previous, &version)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -435,8 +437,10 @@ func (s *Store) saveModel(ctx context.Context, m domain.Model, createOnly, manua
 			return m, err
 		}
 		if !manual && pricing.SameRates(old, m) && old.Provider == m.Provider && old.UpstreamModel == m.UpstreamModel {
+			// The Flex price was verified with this reference and these rates.
 			m.PricingReference = old.PricingReference
 			m.PricingNote = old.PricingNote
+			m.Flex = old.Flex
 		}
 	}
 	m.Version = version + 1
@@ -465,13 +469,16 @@ func validateModel(m domain.Model) error {
 	}
 	// The kind follows from where the model routes and is never taken as given.
 	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
-	for _, rate := range append(append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...), m.LongContextRates()...) {
+	for _, rate := range append(append(append([]int64{m.InputRate, m.OutputRate, m.CachedRate, m.CacheWriteRate, m.CostInputRate, m.CostOutputRate, m.CostCachedRate, m.CostCacheWriteRate}, m.ImageRates()...), m.LongContextRates()...), m.FlexRates()...) {
 		if rate < 0 || rate > 1000000000000 {
 			return errors.New("model rates outside supported range")
 		}
 		if mode == domain.BillingUsageOnly && rate != 0 {
 			return errors.New("usage-only models require all sales and upstream cost rates to be zero")
 		}
+	}
+	if err := domain.CheckFlex(m); err != nil {
+		return err
 	}
 	if !m.IsImage() {
 		for _, rate := range m.ImageRates() {

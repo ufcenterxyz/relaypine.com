@@ -36,6 +36,7 @@ import { consoleEn as c } from "@/i18n/console-en";
 import { backupEn as b } from "@/i18n/backup-en";
 import { imageEn as im } from "@/i18n/image-en";
 import { longContextEn as lc } from "@/i18n/long-context-en";
+import { flexEn as fx } from "@/i18n/flex-en";
 import { limitsEn as lm } from "@/i18n/limits-en";
 import { isImageUpstream, isPriced } from "@/lib/images";
 import { compactTokens, longContextFormKeys, longContextRates, maxLongContextThreshold } from "@/lib/long-context";
@@ -755,20 +756,30 @@ const longRateLabels = [
 
 // The models table keeps one set of columns. An image model shows its text and
 // image prices together: input, output, cached input, and no cache writes. A
-// text model with a long context price shows it under each standard rate.
+// text model with a long context or Flex price shows it under each standard
+// rate.
 function modelRateCells(model: Model) {
   if (!isPriced(model))
     return [0, 1, 2, 3].map((i) => <span key={i} className="rp-management-rate">{t.notPriced}</span>);
   if (model.kind !== "image") {
     const long = model.long_context;
+    const flex = model.flex;
     const longRates = long ? [long.input_rate, long.output_rate, long.cached_rate, long.cache_write_rate] : [];
+    const flexRates = flex ? [flex.input_rate, flex.output_rate, flex.cached_rate, flex.cache_write_rate] : [];
     return [model.input_rate, model.output_rate, model.cached_rate, model.cache_write_rate].map((rate, i) =>
-      long ? (
+      long || flex ? (
         <span key={i} className="rp-management-rate flex flex-col gap-0.5">
           <span>{money(rate, true)}</span>
-          <small className="text-xs text-default-500">
-            {lc.over.replace("{tokens}", compactTokens(long.above_input_tokens))}: {money(longRates[i], true)}
-          </small>
+          {long && (
+            <small className="text-xs text-default-500">
+              {lc.over.replace("{tokens}", compactTokens(long.above_input_tokens))}: {money(longRates[i], true)}
+            </small>
+          )}
+          {flex && (
+            <small className="text-xs text-default-500">
+              {fx.flex}: {money(flexRates[i], true)}
+            </small>
+          )}
         </span>
       ) : (
         <span key={i} className="rp-management-rate">{money(rate, true)}</span>

@@ -53,7 +53,7 @@ import {
   sdkModels,
   sdkOrder,
 } from "./marketing";
-import { RequestDetailModal, RequestStatus, requestCharge } from "./request-detail";
+import { RequestDetailModal, RequestStatus, requestCharge, requestTier } from "./request-detail";
 import { RouteHint } from "./route-trail";
 import { totalTokens as requestTokens } from "@/lib/images";
 export function RequestTable({
@@ -99,6 +99,11 @@ export function RequestTable({
                       "{count}",
                       count(row.usage.web_search_calls),
                     )}
+              </p>
+            )}
+            {requestTier(row) && (
+              <p className="mt-1 text-xs text-default-500">
+                {requestTier(row)}
               </p>
             )}
             <RouteHint request={row} />

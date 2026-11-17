@@ -120,18 +120,18 @@ func TestRedisAdjustSettlesTokens(t *testing.T) {
 	bucket := limits{scope: "test:" + requestID() + ":tokens", rpm: 100, tpm: 1500, concurrency: 10}
 	t.Cleanup(func() { client.Del(ctx, bucketKeys(bucket.scope, time.Now())...) })
 	// An idle key runs a request whose estimate alone exceeds its limit.
-	w, err := l.acquire(ctx, requestID(), []limits{bucket}, 5000)
+	w, err := l.acquire(ctx, requestID(), []limits{bucket}, 5000, 7*time.Minute)
 	if err != nil {
 		t.Fatalf("idle key refused a large estimate: %v", err)
 	}
-	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1); refusal(err).limit != "tpm" {
+	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1, 7*time.Minute); refusal(err).limit != "tpm" {
 		t.Fatalf("a full minute admitted another request: %v", err)
 	}
 	// The request used 100 tokens; the minute reopens.
 	if err = l.adjust(ctx, []limits{bucket}, w, -4900); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1000); err != nil {
+	if _, err = l.acquire(ctx, requestID(), []limits{bucket}, 1000, 7*time.Minute); err != nil {
 		t.Fatalf("estimate refused after settlement: %v", err)
 	}
 	if n, _ := client.Get(ctx, tpmKey(bucket.scope, w)).Int64(); n != 1100 && window(time.Now()) == w {

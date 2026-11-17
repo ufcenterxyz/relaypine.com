@@ -104,6 +104,8 @@ type plan struct {
 	limitAdded              bool
 	stream, count, resource bool
 	binding                 *domain.Resource
+	// flex marks a request for OpenAI Flex processing (service_tier "flex").
+	flex bool
 	// image is set for Images API calls. input then includes imageInput, the
 	// bound on image input tokens, which is priced separately.
 	image      *imageRequest
@@ -187,7 +189,8 @@ func validID(id string) bool {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	origin, started := r.Context(), time.Now()
+	ctx, cancel := context.WithTimeout(origin, requestTimeout)
 	defer cancel()
 	r = r.WithContext(ctx)
 	p := plan{requestID: requestID()}
@@ -273,6 +276,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "unsupported_operation", "This API operation is not supported")
 		return
 	}
+	if limit := p.timeout(); limit != requestTimeout {
+		// A streamed Flex request may wait longer for OpenAI's capacity. It
+		// still ends when the client disconnects.
+		var cancelLimit context.CancelFunc
+		ctx, cancelLimit = context.WithDeadline(origin, started.Add(limit))
+		defer cancelLimit()
+		r = r.WithContext(ctx)
+	}
 	config, err := h.repo.Routing(ctx)
 	if err != nil {
 		fail(w, 503, "configuration_unavailable", "Routing configuration unavailable")
@@ -282,6 +293,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, store.ErrUntrackedCostBudget) {
 			fail(w, 402, "untracked_cost_budget", "Usage-only models cannot enforce an upstream monetary budget. Use a credential without a local monetary cap, or configure this model for metered billing.")
+			return
+		}
+		if errors.Is(err, errFlexRoute) {
+			fail(w, 400, "invalid_request_error", err.Error())
 			return
 		}
 		fail(w, 503, "upstream_unavailable", "No usable upstream configuration")
@@ -304,7 +319,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// The pages the model reads are its input tokens.
 			input += p.webSearch.inputBound
 		}
-		reserved, costReserve, err = estimate(input, p.output, p.model)
+		priced := p.model
+		if p.flex {
+			// A Flex request holds its Flex price. Should OpenAI run it at the
+			// standard tier, it settles at the standard rates within this hold.
+			priced = p.model.FlexPriced()
+		}
+		reserved, costReserve, err = estimate(input, p.output, priced)
 		if err != nil {
 			fail(w, 400, "invalid_price", "Unable to reserve this request")
 			return
@@ -459,7 +480,7 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 			_ = release(held[len(shared):])
 			held = shared
 		}
-		charged, err := h.limiter.acquire(ctx, p.requestID, buckets, estimate)
+		charged, err := h.limiter.acquire(ctx, p.requestID, buckets, estimate, p.timeout()+leaseMargin)
 		if errors.Is(err, errCapacity) {
 			full := refusal(err)
 			if current == nil && sharedBucket(full.bucket, shared) {
@@ -480,6 +501,9 @@ func (h *Handler) route(w http.ResponseWriter, r *http.Request, p plan, shared [
 		}
 		if current == nil {
 			reservation := domain.Reservation{Request: domain.Request{ID: p.requestID, TenantID: p.key.TenantID, ProjectID: p.key.ProjectID, AccessKeyID: p.key.ID, CredentialID: c.credential.ID, Provider: p.provider, Model: p.model.ID, Status: "reserved", ReservedMicros: reserved, CreatedAt: time.Now()}, Model: p.model, CredentialID: c.credential.ID, CostReserve: costReserve}
+			if p.flex {
+				reservation.Request.ServiceTier = domain.ServiceTierFlex
+			}
 			err = h.repo.Reserve(ctx, reservation)
 		} else {
 			err = h.repo.Reroute(ctx, p.requestID, domain.Reroute{FromCredentialID: current.credential.ID, ToCredentialID: c.credential.ID, CostReserve: costReserve, ErrorCode: last.settlement.ErrorCode})
@@ -632,6 +656,8 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if err != nil {
 		return err
 	}
+	// Only OpenAI's Chat Completions and Responses keep "flex" after validation.
+	p.flex = str(m["service_tier"]) == domain.ServiceTierFlex
 	p.inputImages = images.OpenAIImages
 	p.input, err = estimatedInputTokens(len(body), images)
 	if err == nil {
@@ -716,6 +742,11 @@ func (h *Handler) prepare(r *http.Request, p *plan, models []domain.Model) error
 	if err = h.prepareWebSearch(p, m); err != nil {
 		return err
 	}
+	if p.flex {
+		if err = p.checkFlex(); err != nil {
+			return err
+		}
+	}
 	// OpenAI admits a request with its output limit; Anthropic counts output
 	// only as it is generated, against a separate limit.
 	if p.provider != "anthropic" {
@@ -763,6 +794,9 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 	}
 	result := []candidate{}
 	untrackedBudget := false
+	// A Flex request never goes to a route that cannot run Flex. When those
+	// were the model's only routes, the request is refused as invalid.
+	flexExcluded, flexRouted := false, false
 	for _, c := range credentials {
 		if !c.Enabled || c.Secret == "" {
 			continue
@@ -792,6 +826,13 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 			model = id
 		} else if endpoint.Provider != p.provider || p.model.PricingReference != nil && !pricing.OfficialEndpoint(endpoint.Provider, endpoint.BaseURL) || !allowed(endpoint.Models, p.model.ID) && !allowed(endpoint.Models, p.model.UpstreamModel) {
 			continue
+		}
+		if p.flex {
+			if !flexRoute(endpoint) {
+				flexExcluded = true
+				continue
+			}
+			flexRouted = true
 		}
 		base, authMode := endpoint.Target(p.provider)
 		if h.target != nil {
@@ -834,6 +875,9 @@ func (h *Handler) candidates(ctx context.Context, p plan, config domain.RouteCon
 			balance = c.BudgetMicros - c.SpentMicros - c.HeldMicros
 		}
 		result = append(result, candidate{credential: c, endpoint: endpoint, proxyURL: proxyURL, buckets: buckets, score: load, balance: balance, backup: endpoint.IsBackup(), model: model, base: base, authMode: authMode})
+	}
+	if len(result) == 0 && flexExcluded && !flexRouted {
+		return nil, errFlexRoute
 	}
 	if len(result) == 0 && untrackedBudget {
 		return nil, store.ErrUntrackedCostBudget
@@ -998,6 +1042,17 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		status := response.StatusCode
 		raw, _ := io.ReadAll(io.LimitReader(response.Body, maxCapturedUpstreamBytes+1))
 		result.upstream = upstreamReply(response, raw, maxCapturedUpstreamBytes)
+		if status == http.StatusTooManyRequests && p.flex && flexCapacityRefusal(raw) {
+			// OpenAI lacks Flex capacity: it ran nothing and charges nothing.
+			// The refusal says nothing about this key's own limits, so neither
+			// the key nor the model is paused, and no other route is tried: the
+			// client chooses between waiting and standard processing.
+			settlement.Status = "failed"
+			settlement.ErrorCode = flexUnavailableCode
+			settlement.Usage = domain.Usage{Known: true}
+			failFlexUnavailable(w, upstreamRetryAfter(response.Header.Get("Retry-After")))
+			return
+		}
 		h.coolRejected(c, response, raw)
 		settlement.Status = "failed"
 		settlement.ErrorCode = fmt.Sprintf("upstream_%d", status)
@@ -1074,7 +1129,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		return
 	}
 	// The image model's tokens and the web searches join the text model's
-	// verified usage.
+	// verified usage, and a Flex request records the tier OpenAI ran it at.
 	toolUsage := func() {
 		if p.imageTool != nil && settlement.Usage.Known {
 			u := &settlement.Usage
@@ -1085,12 +1140,33 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 			searches.addOutput(obj)
 			settlement.Usage.WebSearchCalls = searches.billed()
 		}
+		if p.flex && settlement.Usage.Known {
+			settlement.Usage.ServiceTier = pricedTier(str(obj["service_tier"]))
+		}
+	}
+	// A reply whose error refuses Flex is answered like OpenAI's 429 for it.
+	flexRefused := func() bool {
+		if !p.flex || !flexError(object(obj["error"])) {
+			return false
+		}
+		settlement.ErrorCode = flexUnavailableCode
+		if !settlement.Usage.Known {
+			// OpenAI charges nothing for a refused Flex request.
+			settlement.Usage = domain.Usage{Known: true}
+		}
+		h.price(settlement, p)
+		rejected()
+		failFlexUnavailable(w, upstreamRetryAfter(response.Header.Get("Retry-After")))
+		return true
 	}
 	if _, exists := obj["error"]; exists && string(obj["error"]) != "null" {
 		settlement.Status = "failed"
 		settlement.ErrorCode = "upstream_error"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
 		toolUsage()
+		if flexRefused() {
+			return
+		}
 		h.price(settlement, p)
 		rejected()
 		fail(w, 502, "upstream_error", "The selected upstream returned an error")
@@ -1101,6 +1177,9 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, p plan, c cand
 		settlement.ErrorCode = "upstream_response_failed"
 		settlement.Usage, _ = parseUsage(obj["usage"], p.provider)
 		toolUsage()
+		if flexRefused() {
+			return
+		}
 		h.price(settlement, p)
 		rejected()
 		fail(w, 502, "upstream_error", "The upstream response did not complete")
@@ -1164,6 +1243,29 @@ func (h *Handler) price(s *domain.Settlement, p plan) {
 	}
 	if !s.Usage.Known {
 		return
+	}
+	if p.flex && !untouched(s.Usage) {
+		// A Flex request is priced at the tier OpenAI reports it ran at.
+		switch s.Usage.ServiceTier {
+		case domain.ServiceTierFlex:
+			if !m.FlexCovers(s.Usage.PromptTokens()) {
+				// No Flex price is published for a prompt this long.
+				s.Usage.Known = false
+				s.ErrorCode = "invalid_usage"
+				return
+			}
+			m = m.FlexPriced()
+		case domain.ServiceTierDefault:
+			// OpenAI ran it at the standard tier, at the standard rates.
+		default:
+			// Without the tier, neither price is verified. The upstream cost
+			// stays pending, as for any reply whose usage cannot be trusted.
+			s.Usage.Known = false
+			if s.ErrorCode == "" {
+				s.ErrorCode = "service_tier_unknown"
+			}
+			return
+		}
 	}
 	usage := s.Usage
 	if p.imageTool != nil {

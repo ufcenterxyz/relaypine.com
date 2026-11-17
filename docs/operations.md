@@ -14,7 +14,7 @@ Compose 数据卷属于 `relaypine`。停止依赖可用 `docker compose stop`�
 
 Go 网关每 15 秒运行请求恢复；另一个后台任务每 15 秒删除超过保留期的正文，并把暂存在 MySQL 的正文迁移到对象存储，多副本时同一时间只有一个副本执行。Stripe 客户端、支付收件箱处理、支付对账及相关 HTTP 入口已移除，环境不再需要 `STRIPE_*` 变量。历史支付数据保留，不再自动处理。
 
-生产要求 `APP_ENV=production`、不同主机名的 HTTPS `APP_URL` 和 `ADMIN_APP_URL`，并关闭 `ALLOW_PRIVATE_UPSTREAMS`。反向代理将 `/api/*`、`/openai/*`、`/anthropic/*` 指向 Go，其余指向 Next.js。流式接口禁用代理缓冲并设置足够超时；单请求最长 5 分钟；结果未知的请求不重放，只有上游在产生输出前明确拒绝时才换到下一条路线。
+生产要求 `APP_ENV=production`、不同主机名的 HTTPS `APP_URL` 和 `ADMIN_APP_URL`，并关闭 `ALLOW_PRIVATE_UPSTREAMS`。反向代理将 `/api/*`、`/openai/*`、`/anthropic/*` 指向 Go，其余指向 Next.js。流式接口禁用代理缓冲并设置足够超时；单请求最长 5 分钟，流式 Flex 请求最长 15 分钟（每 15 秒的 keepalive 让 Cloudflare 和入口的空闲超时不触发）；结果未知的请求不重放，只有上游在产生输出前明确拒绝时才换到下一条路线。
 
 ## 用户与管理入口
 
@@ -47,6 +47,7 @@ Go 网关每 15 秒运行请求恢复；另一个后台任务每 15 秒删除超
 - 配置代理不可用时拒绝相应路线；不允许静默绕过代理。
 - 内部额度调整需填写原因，保留操作者及唯一业务参考。
 - 备用通道（OpenRouter / ZenMux）在 Upstreams 配置，使用 **Check key** 确认 Key 和模型覆盖范围；Key 检查不发起付费推理。备用通道只在官方路线全部不可用时承接 Chat Completions 和 Messages，消费上限需在服务商账户设置。管理员请求记录中带多次尝试的请求即发生过换路，可按尝试的 `error_code` 判断官方故障类型。被拒绝的 Key 会暂时冷却（401/402/403 五分钟，5xx 与未发出请求 30 秒），冷却期间请求直接走下一条路线。429 按原因处理：某个模型触发限额时，只在该 Key 和额度组上暂停这个模型（按 Retry-After），其他模型照常；计费、额度或消费上限类 429 让整把 Key 暂停至少五分钟。
+- Flex 处理：升级到支持 Flex 的版本后，在 Models & rates 点“更新参考价格”，选中 OpenAI 模型并应用，Flex 价格才会写入；预览中每个模型下方显示 “Flex rates”。应用前，`service_tier: "flex"` 的请求以 400 拒绝。请求记录的 `error_code`：`flex_unavailable` 是 OpenAI Flex 容量不足（429，不收费，不暂停 Key 或模型），`service_tier_unknown` 是回复没有报告处理等级（用量待核对，不向客户扣费）。流式 Flex 请求最长 15 分钟，期间一直占用工作空间和上游 Key 的并发，工作空间的并发上限需按同时运行的 Flex 请求数调高。发布时旧网关最多再等 30 秒，之后仍在运行的请求会被中断，按客户端断开处理（用量未知时不向客户扣费，上游成本待核对）；长时间运行的 Flex 请求更容易遇到，发布尽量避开批量 Flex 任务。
 - 图像生成：在 Models & rates 导入或添加上游模型 `gpt-image-2`、`gpt-image-2.5-sunburst`、`gpt-image-2.5-flare`（或其带日期的快照）。配置了启用的官方 OpenAI 上游时，“更新参考价格”会套用 OpenAI 价格页中的图像价格；手动添加时填写文本输入、图像输入和图像输出价格，文本输出填 0。图像请求只走官方 OpenAI 通道，不会改走备用通道。
 - 限流：上游 Key 的默认限额（60 RPM、100,000 TPM、并发 10）只是本地保护值。Upstreams 页“限额”列会显示服务商在最近响应中报告的每分钟限额（按模型）；Key 处理过请求后即可按此填写。请按服务商的实际额度修改每把 Key 的 RPM、TPM 和并发，同组 Key 共用最低的限额。请求按贴近实际的 Token 估算准入，结算后改为实际用量；Anthropic Key 的 TPM 填 Anthropic 的输入限额（ITPM）：网关和 Anthropic 一样不计缓存读取和输出，输出限额由 Anthropic 执行；默认 100,000 TPM 下，同一时间大约只能执行一个不写输出上限的长上下文请求。
 - 工作空间限制：Routing 页的每分钟请求数和并发请求数按工作空间生效，由该空间的所有 API Key 共用。默认 120 和 10，对同时运行多个请求的 Agent 偏低，应按客户的实际用量调高。

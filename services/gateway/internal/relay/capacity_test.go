@@ -134,7 +134,7 @@ func TestRedisRefusalNamesBucketAndLimit(t *testing.T) {
 		}
 	})
 	for _, b := range []limits{concurrency, rpm, tpm} {
-		if _, err := l.acquire(ctx, requestID(), []limits{b}, 10); err != nil {
+		if _, err := l.acquire(ctx, requestID(), []limits{b}, 10, 7*time.Minute); err != nil {
 			t.Fatalf("%s refused its first request: %v", b.scope, err)
 		}
 	}
@@ -152,7 +152,7 @@ func TestRedisRefusalNamesBucketAndLimit(t *testing.T) {
 		{cooling, "cooldown", 29 * time.Second, 30 * time.Second},
 	} {
 		// The refusing bucket is named even behind one with room.
-		_, err := l.acquire(ctx, requestID(), []limits{open, tc.bucket}, 1)
+		_, err := l.acquire(ctx, requestID(), []limits{open, tc.bucket}, 1, 7*time.Minute)
 		full := refusal(err)
 		if !errors.Is(err, errCapacity) || full.bucket != tc.bucket || full.limit != tc.limit || full.wait < tc.min || full.wait > tc.max {
 			t.Errorf("%s: %v bucket %q limit %q wait %v", tc.limit, err, full.bucket.scope, full.limit, full.wait)

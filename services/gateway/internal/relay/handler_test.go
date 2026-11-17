@@ -32,6 +32,8 @@ type fakeRepo struct {
 	reserveError, saveError error
 	reroutes                []domain.Reroute
 	rerouteErrors           map[string]error
+	// deadline is the request deadline routing saw.
+	deadline time.Time
 }
 
 func (f *fakeRepo) ListEndpoints(context.Context) ([]domain.Endpoint, error) { return f.endpoints, nil }
@@ -46,7 +48,12 @@ func (f *fakeRepo) AuthenticateKey(_ context.Context, secret string) (domain.Acc
 	}
 	return f.key, nil
 }
-func (f *fakeRepo) Routing(context.Context) (domain.RouteConfig, error) { return f.routing, nil }
+func (f *fakeRepo) Routing(ctx context.Context) (domain.RouteConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deadline, _ = ctx.Deadline()
+	return f.routing, nil
+}
 func (f *fakeRepo) Reserve(_ context.Context, v domain.Reservation) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -110,6 +117,8 @@ type fakeLimiter struct {
 	// charged and adjusted record token estimates and their corrections by
 	// bucket scope; every acquisition charges window 42.
 	charged, adjusted map[string]int64
+	// leases records the concurrency lease of each admission.
+	leases []time.Duration
 }
 
 func (l *fakeLimiter) load(_ context.Context, b []limits) (float64, error) {
@@ -120,7 +129,7 @@ func (l *fakeLimiter) load(_ context.Context, b []limits) (float64, error) {
 	}
 	return 0, nil
 }
-func (l *fakeLimiter) acquire(_ context.Context, _ string, b []limits, tokens int64) (int64, error) {
+func (l *fakeLimiter) acquire(_ context.Context, _ string, b []limits, tokens int64, lease time.Duration) (int64, error) {
 	l.attempts++
 	for _, v := range b {
 		if r, ok := l.refusals[v.scope]; ok {
@@ -132,6 +141,7 @@ func (l *fakeLimiter) acquire(_ context.Context, _ string, b []limits, tokens in
 		}
 	}
 	l.acquired++
+	l.leases = append(l.leases, lease)
 	if l.charged == nil {
 		l.charged = map[string]int64{}
 	}

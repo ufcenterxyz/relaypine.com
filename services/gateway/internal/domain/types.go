@@ -149,6 +149,9 @@ type Model struct {
 	CostImageOutputRate int64  `json:"cost_image_output_rate,omitempty"`
 	// LongContext prices requests whose prompt is longer than its threshold.
 	LongContext *LongContext `json:"long_context,omitempty"`
+	// Flex is OpenAI's official price of Flex processing for the model. A
+	// model without one refuses service_tier "flex".
+	Flex *FlexPrice `json:"flex,omitempty"`
 }
 
 // ModelKindImage marks an image generation model.
@@ -185,7 +188,12 @@ type Usage struct {
 	// of the request's charge. The pages a search reads are input tokens.
 	WebSearchCalls  int64 `json:"web_search_calls,omitempty"`
 	WebSearchMicros int64 `json:"web_search_micros,omitempty"`
-	Known           bool  `json:"known"`
+	// ServiceTier is the processing tier OpenAI reported for a request that
+	// asked for Flex: ServiceTierFlex, priced at the Flex rates, or
+	// ServiceTierDefault, priced at the standard ones. It is empty for every
+	// other request.
+	ServiceTier string `json:"service_tier,omitempty"`
+	Known       bool   `json:"known"`
 }
 type Request struct {
 	ID             string    `json:"id"`
@@ -208,6 +216,9 @@ type Request struct {
 	// LongContext is set when the request's prompt was long enough to pay
 	// its model's long context rates.
 	LongContext bool `json:"long_context,omitempty"`
+	// ServiceTier is ServiceTierFlex when the request asked for OpenAI Flex
+	// processing. Usage.ServiceTier tells the tier it was priced at.
+	ServiceTier string `json:"service_tier,omitempty"`
 	// Attempts lists every upstream tried, oldest first. It is returned only to
 	// the administrator, and only when the request was rerouted.
 	Attempts []Attempt `json:"attempts,omitempty"`

@@ -20,6 +20,14 @@ var ErrUntrackedCostBudget = errors.New("usage-only models require a credential 
 const usageOnlyPending = "usage_only_pending"
 const usageOnlyExpired = "usage_only_expired"
 
+// priceSnapshot is a request's immutable price record: the model with every
+// price it was admitted under, and the processing tier the request asked for.
+// A request without one stores exactly the model, as before tiers existed.
+type priceSnapshot struct {
+	domain.Model
+	ServiceTier string `json:"service_tier,omitempty"`
+}
+
 // Money transactions lock the request (if any), wallet, then credential. Keep
 // this order when composing additional accounting operations with Store.DB.
 func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
@@ -37,11 +45,16 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 		return errors.New("usage-only requests cannot reserve money")
 	}
 	if usageOnly {
-		for _, rate := range append(append([]int64{r.Model.InputRate, r.Model.OutputRate, r.Model.CachedRate, r.Model.CacheWriteRate, r.Model.CostInputRate, r.Model.CostOutputRate, r.Model.CostCachedRate, r.Model.CostCacheWriteRate}, r.Model.ImageRates()...), r.Model.LongContextRates()...) {
+		for _, rate := range append(append(append([]int64{r.Model.InputRate, r.Model.OutputRate, r.Model.CachedRate, r.Model.CacheWriteRate, r.Model.CostInputRate, r.Model.CostOutputRate, r.Model.CostCachedRate, r.Model.CostCacheWriteRate}, r.Model.ImageRates()...), r.Model.LongContextRates()...), r.Model.FlexRates()...) {
 			if rate != 0 {
 				return errors.New("usage-only request snapshots cannot contain prices")
 			}
 		}
+	}
+	// A Flex request is priced by its model's Flex price, so its snapshot
+	// must carry one.
+	if q.ServiceTier != "" && (q.ServiceTier != domain.ServiceTierFlex || usageOnly || r.Model.Flex == nil) {
+		return errors.New("invalid service tier reservation")
 	}
 	if !validID(q.ID) || !validID(q.TenantID) || !validID(q.ProjectID) || !validID(q.AccessKeyID) || !validID(r.CredentialID) || q.ReservedMicros < 0 || q.ReservedMicros > maxAmount || r.CostReserve < 0 || r.CostReserve > maxAmount {
 		return errors.New("invalid reservation")
@@ -114,7 +127,7 @@ func (s *Store) Reserve(ctx context.Context, r domain.Reservation) error {
 	now := time.Now().UTC()
 	q.CreatedAt = now
 	usageRaw, _ := json.Marshal(domain.Usage{})
-	modelRaw, err := json.Marshal(r.Model)
+	modelRaw, err := json.Marshal(priceSnapshot{Model: r.Model, ServiceTier: q.ServiceTier})
 	if err != nil {
 		return err
 	}
@@ -165,6 +178,9 @@ func customerCharge(reserved, charge int64, status string) int64 {
 func (s *Store) Settle(ctx context.Context, requestID string, v domain.Settlement) error {
 	if v.ChargeMicros < 0 || v.ChargeMicros > maxAmount || v.CostMicros < 0 || v.CostMicros > maxAmount || v.Usage.InputTokens < 0 || v.Usage.OutputTokens < 0 || v.Usage.CachedTokens < 0 || v.Usage.CacheWriteTokens < 0 || v.Usage.ImageInputTokens < 0 || v.Usage.ImageOutputTokens < 0 || v.Usage.ImageTextTokens < 0 || v.Usage.WebSearchCalls < 0 || v.Usage.WebSearchMicros < 0 || v.LatencyMS < 0 || len(v.ErrorCode) > 128 {
 		return errors.New("invalid settlement")
+	}
+	if tier := v.Usage.ServiceTier; tier != "" && tier != domain.ServiceTierFlex && tier != domain.ServiceTierDefault {
+		return errors.New("invalid settlement service tier")
 	}
 	switch v.Status {
 	case "completed", "success", "canceled", "error", "failed", "unknown", "pending_usage", "not_sent":
@@ -230,7 +246,11 @@ func (s *Store) Settle(ctx context.Context, requestID string, v domain.Settlemen
 		if err != nil {
 			return err
 		}
-		if err = insertLedger(ctx, tx, tenant, "charge", -charge, "request:"+requestID, "API usage settlement"); err != nil {
+		reason := "API usage settlement"
+		if v.Usage.Known && v.Usage.ServiceTier == domain.ServiceTierFlex {
+			reason = "API usage settlement at Flex rates"
+		}
+		if err = insertLedger(ctx, tx, tenant, "charge", -charge, "request:"+requestID, reason); err != nil {
 			return err
 		}
 		customerHeld = false

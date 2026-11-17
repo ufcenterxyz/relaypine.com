@@ -251,12 +251,21 @@ func validatePayloadCapabilities(m map[string]json.RawMessage, path string) erro
 	if strings.HasPrefix(path, "/v1/messages") {
 		tierName = "standard_only"
 	}
-	if tier, ok := m["service_tier"]; ok && str(tier) != tierName && str(tier) != "auto" {
+	tier, hasTier := m["service_tier"]
+	// OpenAI's Flex processing is priced by the model's Flex rates, which the
+	// caller checks before anything is reserved.
+	flex := hasTier && flexPath(path) && str(tier) == domain.ServiceTierFlex
+	if hasTier && !flex && str(tier) != tierName && str(tier) != "auto" {
+		if flexPath(path) {
+			return errors.New(`only the standard service tier ("default" or "auto") and "flex" are supported`)
+		}
 		return errors.New("only standard service tier is supported")
 	}
 	// Omitting this parameter permits upstream account defaults to select premium
 	// processing. Force the tier represented by the model's configured rates.
-	if !strings.HasSuffix(path, "/count_tokens") {
+	if flex {
+		m["service_tier"], _ = json.Marshal(domain.ServiceTierFlex)
+	} else if !strings.HasSuffix(path, "/count_tokens") {
 		m["service_tier"], _ = json.Marshal(tierName)
 	}
 	if speed, ok := m["speed"]; ok && str(speed) != "standard" {

@@ -51,6 +51,16 @@ func (s *Store) Snapshot(ctx context.Context, user domain.User) (domain.Snapshot
 				l.CostInputRate, l.CostOutputRate, l.CostCachedRate, l.CostCacheWriteRate = 0, 0, 0, 0
 				m.LongContext = &l
 			}
+			if m.Flex != nil {
+				f := *m.Flex
+				f.CostInputRate, f.CostOutputRate, f.CostCachedRate, f.CostCacheWriteRate = 0, 0, 0, 0
+				if f.LongContext != nil {
+					l := *f.LongContext
+					l.CostInputRate, l.CostOutputRate, l.CostCachedRate, l.CostCacheWriteRate = 0, 0, 0, 0
+					f.LongContext = &l
+				}
+				m.Flex = &f
+			}
 			m.UpstreamModel = ""
 			m.PricingReference = nil
 			m.PricingNote = ""
@@ -129,10 +139,12 @@ func scanRequest(row interface{ Scan(...any) error }, user domain.User, extra ..
 	if err := json.Unmarshal(usageRaw, &r.Usage); err != nil {
 		return r, err
 	}
-	var model domain.Model
-	if err := json.Unmarshal(modelRaw, &model); err != nil {
+	var snapshot priceSnapshot
+	if err := json.Unmarshal(modelRaw, &snapshot); err != nil {
 		return r, err
 	}
+	model := snapshot.Model
+	r.ServiceTier = snapshot.ServiceTier
 	r.BillingMode = model.EffectiveBillingMode()
 	r.LongContext = r.Usage.Known && model.LongPrompt(r.Usage.PromptTokens())
 	r.CostStatus = "pending"

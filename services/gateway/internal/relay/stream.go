@@ -30,7 +30,17 @@ type streamTracker struct {
 	completed, failed bool
 	resourceID        string
 	finalFailedUsage  bool
+	// A Flex request records the tier OpenAI reports, the latest one the
+	// stream states, and whether OpenAI refused it for capacity. output marks
+	// any event after the request started running, before which a refusal
+	// costs nothing.
+	tier                string
+	flexRefused, output bool
 }
+
+// waitingEvents are the Responses events of a request that has not started
+// running.
+var waitingEvents = map[string]bool{"response.created": true, "response.queued": true, "response.in_progress": true}
 
 // inspectImage follows an Images API stream: partial images, then one
 // completed event that carries the usage.
@@ -166,6 +176,20 @@ func (t *streamTracker) inspect(data []byte, p plan) (string, error) {
 		if kind == "response.completed" || kind == "response.incomplete" {
 			t.completed = true
 		}
+		if p.flex {
+			// Responses events carry the tier in their Response, Chat
+			// Completions chunks at the top level.
+			if tier := str(object(obj["response"])["service_tier"]); tier != "" {
+				t.tier = tier
+			} else if tier := str(obj["service_tier"]); tier != "" {
+				t.tier = tier
+			}
+			if flexStreamRefusal(obj) {
+				t.flexRefused = true
+			} else if kind == "" && len(obj["choices"]) > 0 && string(obj["choices"]) != "[]" || kind != "" && !waitingEvents[kind] {
+				t.output = true
+			}
+		}
 	}
 	if resource != "" {
 		if t.resourceID != "" && t.resourceID != resource {
@@ -228,6 +252,11 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 			if err != nil {
 				return err
 			}
+			if tracker.flexRefused && !committed {
+				// Nothing reached the client yet: the refusal is answered like
+				// OpenAI's 429 for it.
+				return errFlexRefused
+			}
 			if capture != nil && p.image != nil {
 				capture.addSummary(append(append([]byte("data: "), summarizeImageEvent(data)...), '\n', '\n'))
 			} else if capture != nil && p.imageTool != nil {
@@ -283,6 +312,28 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request, response *http.
 		if p.webSearch != nil && s.Usage.Known {
 			s.Usage.WebSearchCalls = tracker.searches.billed()
 		}
+		if p.flex && s.Usage.Known {
+			s.Usage.ServiceTier = pricedTier(tracker.tier)
+		}
+	}
+	if tracker.flexRefused {
+		// OpenAI refused the Flex request for capacity. It charges nothing for
+		// a request that never ran; usage it reported is kept, and a refusal
+		// after the request started leaves its cost pending.
+		s.Status = "failed"
+		s.ErrorCode = flexUnavailableCode
+		s.Usage = domain.Usage{}
+		if tracker.finalFailedUsage {
+			s.Usage = tracker.usage
+			withTool()
+		} else if !tracker.output {
+			s.Usage = domain.Usage{Known: true}
+		}
+		if !committed {
+			failFlexUnavailable(w, upstreamRetryAfter(response.Header.Get("Retry-After")))
+		}
+		h.price(s, p)
+		return
 	}
 	if tracker.completed && !tracker.failed && streamErr == nil {
 		s.Status = "completed"

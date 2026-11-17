@@ -1,6 +1,7 @@
-// Package pricing reads public, official standard text price tables. It never
-// sends credentials to the source, infers prices from a model's name, or treats
-// unavailable prices as free usage.
+// Package pricing reads public, official standard text price tables, and
+// OpenAI's Flex processing prices beside them. It never sends credentials to
+// the source, infers prices from a model's name, or treats unavailable prices
+// as free usage.
 package pricing
 
 import (
@@ -33,13 +34,23 @@ type Rate struct {
 	ImageInput, ImageOutput int64
 	// Long is the published price of prompts longer than the reference's
 	// MaxInputTokens, if the provider charges more for them.
-	Long      *LongRate
+	Long *LongRate
+	// Flex is OpenAI's published Flex processing price, if the model has one.
+	Flex      *FlexRate
 	Reference domain.PriceReference
 }
 
 // LongRate holds a long context price's input, output, cached input and cache
 // write rates.
 type LongRate struct{ Input, Output, Cached, CacheWrite int64 }
+
+// FlexRate holds a Flex processing price's input, output, cached input and
+// cache write rates, and its rates for prompts above the long context
+// threshold if OpenAI publishes them.
+type FlexRate struct {
+	Input, Output, Cached, CacheWrite int64
+	Long                              *LongRate
+}
 type Source struct {
 	Provider  string    `json:"provider"`
 	URL       string    `json:"url"`
@@ -223,13 +234,63 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 	}
 	section = section[:b]
 	sum := sha256.Sum256([]byte(section))
-	hash := hex.EncodeToString(sum[:])
-	out := map[string]Rate{}
-	// Claude's row for longer prompts becomes its model's long context price.
-	type longerRow struct {
-		above  int64
-		values [4]int64
+	reference := domain.PriceReference{Provider: provider, SourceURL: u, SourceName: name, CheckedAt: checked, Hash: hex.EncodeToString(sum[:]), Scope: "standard_text"}
+	out, tiered, err := parseTables(provider, section, reference)
+	if err != nil {
+		return nil, err
 	}
+	if tiered && !longContextStatements(document) {
+		return nil, errors.New("changed long context threshold")
+	}
+	if provider == "anthropic" && !claudeLongContextPolicy(document) {
+		return nil, errors.New("changed long context pricing")
+	}
+	if len(out) < 3 {
+		return nil, errors.New("incomplete standard prices")
+	}
+	if provider == "openai" {
+		// A changed Flex table removes Flex prices only. Those models then
+		// refuse Flex requests instead of pricing them at a guessed rate.
+		if flex, err := parseFlexRates(document, out); err == nil {
+			for id, f := range flex {
+				r := out[id]
+				r.Flex = f
+				out[id] = r
+			}
+		}
+		// A changed image section removes image prices only. Image models then
+		// stay unmatched instead of falling back to a guessed rate.
+		if images, err := parseImageRates(document, checked); err == nil {
+			for id, rate := range images {
+				if _, exists := out[id]; exists {
+					return nil, errors.New("ambiguous standard price")
+				}
+				out[id] = rate
+			}
+		}
+	}
+	return out, nil
+}
+
+// longContextStatements checks OpenAI's statement of the long context
+// threshold, which its tables priced by context length rely on.
+func longContextStatements(document string) bool {
+	return strings.Contains(document, openAIShortStatement) && strings.Contains(document, openAILongStatement)
+}
+
+// longerRow is Claude's row for longer prompts, which becomes its model's long
+// context price.
+type longerRow struct {
+	above  int64
+	values [4]int64
+}
+
+// parseTables reads every price table of a provider's section, each row under
+// its table's header. reference describes where the rows come from; each
+// rate's reference adds its model and the prompt lengths its price covers.
+// tiered reports an OpenAI table priced by context length.
+func parseTables(provider, section string, reference domain.PriceReference) (map[string]Rate, bool, error) {
+	out := map[string]Rate{}
 	longer := map[string]longerRow{}
 	tiered := false
 	var header []string
@@ -246,7 +307,7 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 			continue
 		}
 		if len(header) == 0 || len(c) != len(header) {
-			return nil, errors.New("changed price table")
+			return nil, false, errors.New("changed price table")
 		}
 		id := c[0]
 		indexes := []int{1, 2, 3, -1}
@@ -257,7 +318,7 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 		allLengths, over := true, false
 		if provider == "anthropic" {
 			if len(header) != 6 || header[1] != "Base input tokens" || header[2] != "5m cache writes" || header[3] != "1h cache writes" || header[4] != "Cache hits and refreshes" || header[5] != "Output tokens" {
-				return nil, errors.New("changed Claude table headers")
+				return nil, false, errors.New("changed Claude table headers")
 			}
 			// Retired rows are not available tariffs.
 			if strings.Contains(id, "retired") {
@@ -268,17 +329,17 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 				if tier := claudeTier.FindStringSubmatch(annotation); tier != nil {
 					n, err := strconv.ParseInt(strings.ReplaceAll(tier[2], ",", ""), 10, 64)
 					if err != nil || n > domain.MaxLongContextThreshold {
-						return nil, errors.New("unrecognized Claude prompt length price")
+						return nil, false, errors.New("unrecognized Claude prompt length price")
 					}
 					limit, allLengths, over = n, false, tier[1] == "over"
 				} else if annotation != " ([limited availability](https://support.claude.com/en/articles/14604842))" {
-					return nil, errors.New("unrecognized conditional Claude price")
+					return nil, false, errors.New("unrecognized conditional Claude price")
 				}
 				id = id[:p]
 			}
 			match := claudeName.FindStringSubmatch(id)
 			if match == nil {
-				return nil, errors.New("unrecognized Claude model")
+				return nil, false, errors.New("unrecognized Claude model")
 			}
 			id = "claude-" + strings.ToLower(match[1]) + "-" + strings.ReplaceAll(match[2], ".", "-")
 			indexes = []int{1, 5, 4, 2}
@@ -298,7 +359,7 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 				allLengths = false
 			}
 			if !openaiName.MatchString(id) {
-				return nil, errors.New("unrecognized OpenAI model")
+				return nil, false, errors.New("unrecognized OpenAI model")
 			}
 			if len(header) == 11 && header[1] == "Short context input" && header[2] == "Short context output" && header[3] == "Short context cached input" && header[4] == "Short context 30m write" &&
 				header[6] == "Long context input" && header[7] == "Long context output" && header[8] == "Long context cached input" && header[9] == "Long context 30m write" {
@@ -306,7 +367,7 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 				longIndexes = []int{6, 7, 8, 9}
 				allLengths, tiered = false, true
 			} else if len(header) != 4 || header[1] != "Input" || header[2] != "Output" || header[3] != "Cached input" {
-				return nil, errors.New("changed OpenAI table headers")
+				return nil, false, errors.New("changed OpenAI table headers")
 			}
 		}
 		var values [4]int64
@@ -317,12 +378,12 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 			var err error
 			values[i], err = price(c[index], i >= 2)
 			if err != nil {
-				return nil, fmt.Errorf("invalid %s price: %w", id, err)
+				return nil, false, fmt.Errorf("invalid %s price: %w", id, err)
 			}
 		}
 		if over {
 			if _, exists := longer[id]; exists {
-				return nil, errors.New("ambiguous long context price")
+				return nil, false, errors.New("ambiguous long context price")
 			}
 			longer[id] = longerRow{limit, values}
 			continue
@@ -335,52 +396,114 @@ func Parse(provider, document string, checked time.Time) (map[string]Rate, error
 			for i, index := range longIndexes {
 				var err error
 				if longValues[i], err = price(c[index], i >= 2); err != nil {
-					return nil, fmt.Errorf("invalid %s long context price: %w", id, err)
+					return nil, false, fmt.Errorf("invalid %s long context price: %w", id, err)
 				}
 			}
 			rate, err := longRate(id, values, longValues)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			long = &rate
 		}
 		if _, exists := out[id]; exists {
-			return nil, errors.New("ambiguous standard price")
+			return nil, false, errors.New("ambiguous standard price")
 		}
-		out[id] = Rate{Input: values[0], Output: values[1], Cached: values[2], CacheWrite: values[3], Long: long, Reference: domain.PriceReference{Provider: provider, Model: id, SourceURL: u, SourceName: name, CheckedAt: checked, Hash: hash, Scope: "standard_text", MaxInputTokens: limit, AllPromptLengths: allLengths}}
+		ref := reference
+		ref.Model, ref.MaxInputTokens, ref.AllPromptLengths = id, limit, allLengths
+		out[id] = Rate{Input: values[0], Output: values[1], Cached: values[2], CacheWrite: values[3], Long: long, Reference: ref}
 	}
 	for id, row := range longer {
 		r, found := out[id]
 		if !found || r.Reference.AllPromptLengths || r.Reference.MaxInputTokens != row.above {
-			return nil, errors.New("unpaired long context price")
+			return nil, false, errors.New("unpaired long context price")
 		}
 		long, err := longRate(id, [4]int64{r.Input, r.Output, r.Cached, r.CacheWrite}, row.values)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		r.Long = &long
 		out[id] = r
 	}
-	if tiered && !(strings.Contains(document, openAIShortStatement) && strings.Contains(document, openAILongStatement)) {
+	return out, tiered, nil
+}
+
+// OpenAI publishes Flex prices in the "Flex" table of its Batch pricing data
+// section, laid out like the standard tables.
+// https://developers.openai.com/api/docs/guides/flex-processing
+const (
+	batchSection = "### Batch pricing data"
+	flexHeading  = "#### Flex"
+)
+
+// flexSection returns the lines of OpenAI's Flex price tables: those after the
+// Flex heading of the Batch pricing data section, up to the next heading.
+func flexSection(document string) (string, error) {
+	_, rest, found := strings.Cut(document, batchSection)
+	if !found {
+		return "", errors.New("missing batch pricing section")
+	}
+	lines := strings.Split(rest, "\n")
+	start := -1
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if start < 0 {
+			if line == flexHeading {
+				start = i + 1
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			return strings.Join(lines[start:i], "\n"), nil
+		}
+	}
+	return "", errors.New("missing Flex pricing table")
+}
+
+// parseFlexRates reads OpenAI's Flex tables. A model's Flex price is kept only
+// with its standard price, and must be a discount on it: no rate above the
+// standard rate it replaces, and a long context price only where the standard
+// price has one, at most its rates. Any changed, ambiguous or inconsistent
+// row invalidates every Flex price rather than publishing a partial list.
+func parseFlexRates(document string, standard map[string]Rate) (map[string]*FlexRate, error) {
+	section, err := flexSection(document)
+	if err != nil {
+		return nil, err
+	}
+	rows, tiered, err := parseTables("openai", section, domain.PriceReference{})
+	if err != nil {
+		return nil, err
+	}
+	if tiered && !longContextStatements(document) {
 		return nil, errors.New("changed long context threshold")
 	}
-	if provider == "anthropic" && !claudeLongContextPolicy(document) {
-		return nil, errors.New("changed long context pricing")
-	}
-	if len(out) < 3 {
-		return nil, errors.New("incomplete standard prices")
-	}
-	if provider == "openai" {
-		// A changed image section removes image prices only. Image models then
-		// stay unmatched instead of falling back to a guessed rate.
-		if images, err := parseImageRates(document, checked); err == nil {
-			for id, rate := range images {
-				if _, exists := out[id]; exists {
-					return nil, errors.New("ambiguous standard price")
-				}
-				out[id] = rate
+	out := map[string]*FlexRate{}
+	for id, row := range rows {
+		std, found := standard[id]
+		if !found {
+			// Only a model with a standard price can be imported.
+			continue
+		}
+		flex := [4]int64{row.Input, row.Output, row.Cached, row.CacheWrite}
+		for i, rate := range [4]int64{std.Input, std.Output, std.Cached, std.CacheWrite} {
+			if flex[i] > rate {
+				return nil, fmt.Errorf("%s Flex price above its standard price", id)
 			}
 		}
+		if row.Long != nil {
+			if std.Long == nil {
+				return nil, fmt.Errorf("unpaired %s Flex long context price", id)
+			}
+			long := [4]int64{row.Long.Input, row.Long.Output, row.Long.Cached, row.Long.CacheWrite}
+			for i, rate := range [4]int64{std.Long.Input, std.Long.Output, std.Long.Cached, std.Long.CacheWrite} {
+				if long[i] > rate {
+					return nil, fmt.Errorf("%s Flex long context price above its standard price", id)
+				}
+			}
+		}
+		out[id] = &FlexRate{Input: row.Input, Output: row.Output, Cached: row.Cached, CacheWrite: row.CacheWrite, Long: row.Long}
+	}
+	if len(out) == 0 {
+		return nil, errors.New("no Flex prices")
 	}
 	return out, nil
 }
@@ -547,6 +670,20 @@ func ApplyRate(m domain.Model, rate Rate) domain.Model {
 	if rate.Image {
 		m.ImageInputRate, m.ImageOutputRate = rate.ImageInput, rate.ImageOutput
 		m.CostImageInputRate, m.CostImageOutputRate = rate.ImageInput, rate.ImageOutput
+	}
+	m.Flex = nil
+	if f := rate.Flex; f != nil && !rate.Image {
+		m.Flex = &domain.FlexPrice{
+			InputRate: f.Input, OutputRate: f.Output, CachedRate: f.Cached, CacheWriteRate: f.CacheWrite,
+			CostInputRate: f.Input, CostOutputRate: f.Output, CostCachedRate: f.Cached, CostCacheWriteRate: f.CacheWrite,
+		}
+		if l := f.Long; l != nil && m.LongContext != nil {
+			m.Flex.LongContext = &domain.LongContext{
+				AboveInputTokens: m.LongContext.AboveInputTokens,
+				InputRate:        l.Input, OutputRate: l.Output, CachedRate: l.Cached, CacheWriteRate: l.CacheWrite,
+				CostInputRate: l.Input, CostOutputRate: l.Output, CostCachedRate: l.Cached, CostCacheWriteRate: l.CacheWrite,
+			}
+		}
 	}
 	m.Kind = domain.ModelKindFor(m.Provider, m.UpstreamModel)
 	ref := rate.Reference

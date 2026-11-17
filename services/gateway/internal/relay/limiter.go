@@ -22,8 +22,9 @@ type limits struct {
 type routeLimiter interface {
 	load(context.Context, []limits) (float64, error)
 	// acquire admits a request in every bucket and returns the one-minute
-	// window its estimated tokens were charged to.
-	acquire(context.Context, string, []limits, int64) (int64, error)
+	// window its estimated tokens were charged to. The request holds a
+	// concurrency slot until it is released or its lease runs out.
+	acquire(ctx context.Context, id string, buckets []limits, tokens int64, lease time.Duration) (int64, error)
 	release(context.Context, string, []limits) error
 	// adjust moves the tokens charged to a window by delta, never below zero,
 	// so an estimate becomes the tokens a request actually used.
@@ -55,10 +56,13 @@ func bucketKeys(scope string, now time.Time) []string {
 // minute until settlement replaces the estimate with the tokens it used.
 // The reply starts with -1 on admission. Otherwise it is the index of the
 // refusing bucket, the limit it hit, and the milliseconds left of a cooldown.
+// A set of running requests lives at least a minute past its newest lease:
+// its time to live is extended, never shortened, so a long lease outlives the
+// shorter ones admitted after it.
 var acquireScript = redis.NewScript(`
-local now=tonumber(ARGV[1]); local expires=tonumber(ARGV[2]); local id=ARGV[3]; local tokens=tonumber(ARGV[4])
+local now=tonumber(ARGV[1]); local expires=tonumber(ARGV[2]); local id=ARGV[3]; local tokens=tonumber(ARGV[4]); local keep=tonumber(ARGV[5])
 for i=1,#KEYS,4 do
-  local n=(i-1)/4; local a=5+n*3
+  local n=(i-1)/4; local a=6+n*3
   redis.call('ZREMRANGEBYSCORE',KEYS[i+2],'-inf',now)
   local cool=tonumber(redis.call('GET',KEYS[i+3]) or '0')
   if cool>now then return {n,'cooldown',cool-now} end
@@ -70,17 +74,21 @@ end
 for i=1,#KEYS,4 do
   redis.call('INCR',KEYS[i]); redis.call('EXPIRE',KEYS[i],120)
   redis.call('INCRBY',KEYS[i+1],tokens); redis.call('EXPIRE',KEYS[i+1],120)
-  redis.call('ZADD',KEYS[i+2],expires,id); redis.call('EXPIRE',KEYS[i+2],480)
+  redis.call('ZADD',KEYS[i+2],expires,id)
+  if redis.call('TTL',KEYS[i+2])<keep then redis.call('EXPIRE',KEYS[i+2],keep) end
 end
 return {-1,'',0}`)
 
-func (l *redisLimiter) acquire(ctx context.Context, id string, buckets []limits, tokens int64) (int64, error) {
+func (l *redisLimiter) acquire(ctx context.Context, id string, buckets []limits, tokens int64, lease time.Duration) (int64, error) {
 	if l.client == nil {
 		return 0, errors.New("limiter unavailable")
 	}
 	now := time.Now()
 	keys := []string{}
-	args := []any{now.UnixMilli(), now.Add(7 * time.Minute).UnixMilli(), id, tokens}
+	// A five-minute request keeps the seven-minute lease and the eight-minute
+	// set it always had.
+	keep := int64((lease + time.Minute) / time.Second)
+	args := []any{now.UnixMilli(), now.Add(lease).UnixMilli(), id, tokens, keep}
 	for _, b := range buckets {
 		keys = append(keys, bucketKeys(b.scope, now)...)
 		args = append(args, b.rpm, b.tpm, b.concurrency)

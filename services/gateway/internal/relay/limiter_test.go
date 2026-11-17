@@ -86,7 +86,7 @@ func TestRedisAtomicSharedCapacity(t *testing.T) {
 			if i%2 == 0 {
 				credential.scope = prefix + ":b"
 			}
-			_, err := l.acquire(ctx, id, []limits{tenant, credential, group}, 100)
+			_, err := l.acquire(ctx, id, []limits{tenant, credential, group}, 100, 7*time.Minute)
 			if err == nil {
 				accepted.Add(1)
 				lock.Lock()
@@ -122,26 +122,78 @@ func TestRedisAtomicSharedCapacity(t *testing.T) {
 	if err := l.cool(ctx, []limits{group}, time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.acquire(ctx, requestID(), []limits{group}, 1); !errors.Is(err, errCapacity) {
+	if _, err := l.acquire(ctx, requestID(), []limits{group}, 1, 7*time.Minute); !errors.Is(err, errCapacity) {
 		t.Fatalf("cooldown ignored: %v", err)
 	}
 	// A token bucket admits while its minute is below the limit: the request
 	// that crosses it runs, and the next one waits.
 	tokens := limits{scope: prefix + ":tokens", tpm: 20}
-	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 13); err != nil {
+	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 13, 7*time.Minute); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 8); err != nil {
+	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 8, 7*time.Minute); err != nil {
 		t.Fatalf("request below the limit refused: %v", err)
 	}
-	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 1); !errors.Is(err, errCapacity) {
+	if _, err := l.acquire(ctx, requestID(), []limits{tokens}, 1, 7*time.Minute); !errors.Is(err, errCapacity) {
 		t.Fatalf("TPM limit ignored: %v", err)
 	}
 	// Expired process leases are removed before admission; crashed gateways cannot
 	// permanently lock the shared group.
 	_ = client.Del(ctx, keys[3]).Err()
 	_ = client.ZAdd(ctx, keys[2], redis.Z{Score: float64(time.Now().Add(-time.Second).UnixMilli()), Member: "expired"}).Err()
-	if _, err := l.acquire(ctx, requestID(), []limits{group}, 1); err != nil {
+	if _, err := l.acquire(ctx, requestID(), []limits{group}, 1, 7*time.Minute); err != nil {
 		t.Fatalf("stale lease blocked admission: %v", err)
+	}
+}
+
+// A streamed Flex request holds its concurrency slot for its whole 15
+// minutes: its lease outlives the request, and the set of running requests is
+// never given a shorter life by the five-minute requests admitted after it.
+func TestRedisFlexLeaseOutlivesShorterLeases(t *testing.T) {
+	address := os.Getenv("REDIS_TEST_ADDR")
+	if address == "" {
+		t.Skip("set REDIS_TEST_ADDR for Redis Lua integration")
+	}
+	ctx := context.Background()
+	client := redis.NewClient(&redis.Options{Addr: address})
+	defer client.Close()
+	if err := client.Ping(ctx).Err(); err != nil {
+		t.Fatal(err)
+	}
+	l := &redisLimiter{client: client}
+	flexBucket := limits{scope: "test:" + requestID() + ":flex", concurrency: 2}
+	standardBucket := limits{scope: "test:" + requestID() + ":standard", concurrency: 2}
+	keys := append(bucketKeys(flexBucket.scope, time.Now()), bucketKeys(standardBucket.scope, time.Now())...)
+	defer client.Del(ctx, keys...)
+	long := requestID()
+	if _, err := l.acquire(ctx, long, []limits{flexBucket}, 1, flexStreamTimeout+leaseMargin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.acquire(ctx, requestID(), []limits{flexBucket}, 1, requestTimeout+leaseMargin); err != nil {
+		t.Fatal(err)
+	}
+	active := keys[2]
+	if ttl, err := client.TTL(ctx, active).Result(); err != nil || ttl < 17*time.Minute || ttl > 18*time.Minute {
+		t.Fatalf("running set lives %s: %v", ttl, err)
+	}
+	score, err := client.ZScore(ctx, active, long).Result()
+	if left := time.Until(time.UnixMilli(int64(score))); err != nil || left < 16*time.Minute || left > 17*time.Minute {
+		t.Fatalf("Flex lease ends in %s: %v", left, err)
+	}
+	if _, err := l.acquire(ctx, requestID(), []limits{flexBucket}, 1, requestTimeout+leaseMargin); !errors.Is(err, errCapacity) {
+		t.Fatalf("a full bucket admitted a third request: %v", err)
+	}
+	// A five-minute request keeps the seven-minute lease and the eight-minute
+	// set it always had.
+	short := requestID()
+	if _, err := l.acquire(ctx, short, []limits{standardBucket}, 1, requestTimeout+leaseMargin); err != nil {
+		t.Fatal(err)
+	}
+	if ttl, err := client.TTL(ctx, keys[6]).Result(); err != nil || ttl < 7*time.Minute+50*time.Second || ttl > 8*time.Minute {
+		t.Fatalf("standard running set lives %s: %v", ttl, err)
+	}
+	score, err = client.ZScore(ctx, keys[6], short).Result()
+	if left := time.Until(time.UnixMilli(int64(score))); err != nil || left < 6*time.Minute+50*time.Second || left > 7*time.Minute {
+		t.Fatalf("standard lease ends in %s: %v", left, err)
 	}
 }

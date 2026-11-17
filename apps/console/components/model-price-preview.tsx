@@ -5,39 +5,64 @@ import { ArrowUpRight, Clock3, ShieldCheck } from "lucide-react";
 import { pricingEn as p } from "@/i18n/pricing-en";
 import { imageEn as im } from "@/i18n/image-en";
 import { longContextEn as lc } from "@/i18n/long-context-en";
+import { flexEn as fx } from "@/i18n/flex-en";
 import { isPriced } from "@/lib/images";
 import { compactTokens } from "@/lib/long-context";
 import { count, date, money } from "@/lib/api";
 import { safeReferenceURL, type PricePreview } from "@/lib/pricing";
-import type { LongContext } from "@/lib/types";
+import type { FlexPrice, LongContext } from "@/lib/types";
 
-const longFields = ["input_rate", "output_rate", "cached_rate", "cache_write_rate"] as const;
-const longCosts = ["cost_input_rate", "cost_output_rate", "cost_cached_rate", "cost_cache_write_rate"] as const;
+const tierFields = ["input_rate", "output_rate", "cached_rate", "cache_write_rate"] as const;
+const tierCosts = ["cost_input_rate", "cost_output_rate", "cost_cached_rate", "cost_cache_write_rate"] as const;
+type TierRates = Pick<LongContext, (typeof tierFields)[number] | (typeof tierCosts)[number]>;
 
-// The long context price of a preview item, after and before, under the
-// standard grid. It shows only when either side has one.
-function LongContextPrices({ after, before, importMode, labels }: {
-  after?: LongContext | null;
-  before?: LongContext | null;
+// A second price of a preview item, such as its long context or Flex price,
+// after and before, under the standard grid. It shows only when either side
+// has one.
+function TierPrices({ title, after, before, importMode, labels, none }: {
+  title: string;
+  after?: TierRates | null;
+  before?: TierRates | null;
   importMode: boolean;
   labels: readonly string[];
+  none: string;
 }) {
   if (!after && !before) return null;
-  const above = after?.above_input_tokens ?? before?.above_input_tokens ?? 0;
   return (
     <div className="mt-3">
-      <p className="mb-2 text-xs font-medium text-default-600">{lc.promptsOver.replace("{tokens}", compactTokens(above))}</p>
+      <p className="mb-2 text-xs font-medium text-default-600">{title}</p>
       <div className="rp-management-price-grid">
-        {longFields.map((field, index) => (
+        {tierFields.map((field, index) => (
           <div key={field} className="rp-management-price-cell">
             <span className="rp-management-price-label">{labels[index]}</span>
-            <strong className="rp-management-new-price">{after ? money(after[field], true) : lc.noLongContext}</strong>
-            {!importMode && <span className="rp-management-old-price">{p.before}: {before ? money(before[field], true) : lc.noLongContext}</span>}
-            {!importMode && <span className="rp-management-old-price">{p.currentCost}: {before ? money(before[longCosts[index]], true) : lc.noLongContext}</span>}
+            <strong className="rp-management-new-price">{after ? money(after[field], true) : none}</strong>
+            {!importMode && <span className="rp-management-old-price">{p.before}: {before ? money(before[field], true) : none}</span>}
+            {!importMode && <span className="rp-management-old-price">{p.currentCost}: {before ? money(before[tierCosts[index]], true) : none}</span>}
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+const promptsOver = (title: string, after?: LongContext | null, before?: LongContext | null) =>
+  title.replace("{tokens}", compactTokens(after?.above_input_tokens ?? before?.above_input_tokens ?? 0));
+
+// The long context price, then OpenAI's Flex price and its long context
+// price, of a text model in the preview.
+function TextTierPrices({ after, before, importMode, labels }: {
+  after: { long_context?: LongContext | null; flex?: FlexPrice | null };
+  before: { long_context?: LongContext | null; flex?: FlexPrice | null };
+  importMode: boolean;
+  labels: readonly string[];
+}) {
+  const flexLong = { after: after.flex?.long_context, before: before.flex?.long_context };
+  return (
+    <>
+      <TierPrices title={promptsOver(lc.promptsOver, after.long_context, before.long_context)} after={after.long_context} before={before.long_context} importMode={importMode} labels={labels} none={lc.noLongContext} />
+      <TierPrices title={fx.flexRates} after={after.flex} before={before.flex} importMode={importMode} labels={labels} none={fx.noFlex} />
+      <TierPrices title={promptsOver(fx.flexPromptsOver, flexLong.after, flexLong.before)} after={flexLong.after} before={flexLong.before} importMode={importMode} labels={labels} none={fx.noFlex} />
+    </>
   );
 }
 
@@ -110,7 +135,7 @@ export function ModelPricePreview({ preview, selected, onSelection, disabled = f
                 </div>
               ) : <p className="mt-3 text-xs leading-5 text-default-500">{unchanged ? p.unchangedHelp : item.reason || p.noPriceHelp}</p>}
               {available && item.after.kind !== "image" && (
-                <LongContextPrices after={item.after.long_context} before={item.before.long_context} importMode={importMode} labels={textPrices.labels} />
+                <TextTierPrices after={item.after} before={item.before} importMode={importMode} labels={textPrices.labels} />
               )}
               {available && <div className="rp-management-price-source"><span>{p.nextRates}</span>{sourceURL && <Link href={sourceURL} target="_blank" rel="noopener noreferrer" size="sm" className="text-xs" color="foreground" underline="hover">
                 {item.source_name || p.source}<ArrowUpRight size={12} />

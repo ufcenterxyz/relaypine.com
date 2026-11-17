@@ -39,6 +39,7 @@ import { useConsole } from "./console-provider";
 import { RouteTrail } from "./route-trail";
 import { imageEn as im } from "@/i18n/image-en";
 import { longContextEn as lc } from "@/i18n/long-context-en";
+import { flexEn as fx } from "@/i18n/flex-en";
 import { usageTokens } from "@/lib/images";
 import { CopyButton, Empty, ErrorBox } from "./shared";
 
@@ -46,6 +47,14 @@ export const requestCharge = (request: RequestLog) =>
   request.billing_mode === "usage_only"
     ? t.noRelayCharge
     : money(request.charge_micros, true);
+// A Flex request's tier: Flex, unless OpenAI ran it at the standard tier and
+// it was priced at the standard rates.
+export const requestTier = (request: RequestLog) =>
+  request.service_tier !== "flex"
+    ? undefined
+    : request.usage.service_tier === "default"
+      ? fx.flexRanStandard
+      : fx.flexRan;
 export const requestCost = (request: RequestLog) =>
   request.cost_status === "untracked" || request.billing_mode === "usage_only"
     ? t.notPriced
@@ -326,6 +335,7 @@ function OverviewPanel({
                 : []),
               [t.usageKnown, usage.known ? t.yes : t.no],
               [t.modelBillingMode, request.billing_mode === "usage_only" ? t.modelUsageOnly : t.modelMetered],
+              [fx.serviceTier, requestTier(request)],
               ...(request.long_context ? ([[lc.priceTier, lc.longContextApplied]] as [string, ReactNode][]) : []),
               [t.held, money(request.reserved_micros, true)],
               ...(isOperator ? ([[t.cost, requestCost(request)]] as [string, ReactNode][]) : []),
