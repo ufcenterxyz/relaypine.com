@@ -427,33 +427,45 @@ func parseTables(provider, section string, reference domain.PriceReference) (map
 	return out, tiered, nil
 }
 
-// OpenAI publishes Flex prices in the "Flex" table of its Batch pricing data
-// section, laid out like the standard tables.
+// OpenAI publishes Flex prices laid out like the standard tables: in a "Flex
+// pricing data" section of their own since November 2026, and before that in
+// the "Flex" table of its Batch pricing data section.
 // https://developers.openai.com/api/docs/guides/flex-processing
 const (
-	batchSection = "### Batch pricing data"
-	flexHeading  = "#### Flex"
+	flexDataSection = "### Flex pricing data"
+	batchSection    = "### Batch pricing data"
+	flexHeading     = "#### Flex"
 )
 
 // flexSection returns the lines of OpenAI's Flex price tables: those after the
-// Flex heading of the Batch pricing data section, up to the next heading.
+// Flex pricing data heading, or after the Flex heading of the Batch pricing
+// data section, up to the next heading. No such table, a table no heading
+// ends, or more than one table fails closed.
 func flexSection(document string) (string, error) {
-	_, rest, found := strings.Cut(document, batchSection)
-	if !found {
-		return "", errors.New("missing batch pricing section")
-	}
-	lines := strings.Split(rest, "\n")
-	start := -1
+	lines := strings.Split(document, "\n")
+	var starts []int
+	inBatch := false
 	for i, line := range lines {
 		line = strings.TrimSpace(line)
-		if start < 0 {
-			if line == flexHeading {
-				start = i + 1
-			}
+		if !strings.HasPrefix(line, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, "#") {
-			return strings.Join(lines[start:i], "\n"), nil
+		if line == flexDataSection || (inBatch && line == flexHeading) {
+			starts = append(starts, i+1)
+		}
+		// Only a heading above level four ends the Batch pricing data section.
+		if !strings.HasPrefix(line, "####") {
+			inBatch = line == batchSection
+		}
+	}
+	if len(starts) > 1 {
+		return "", errors.New("ambiguous Flex pricing table")
+	}
+	if len(starts) == 1 {
+		for i := starts[0]; i < len(lines); i++ {
+			if strings.HasPrefix(strings.TrimSpace(lines[i]), "#") {
+				return strings.Join(lines[starts[0]:i], "\n"), nil
+			}
 		}
 	}
 	return "", errors.New("missing Flex pricing table")

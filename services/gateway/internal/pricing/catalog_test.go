@@ -260,6 +260,67 @@ func TestOpenAIImagePricesUnderTheImagesHeading(t *testing.T) {
 	}
 }
 
+// OpenAI's pricing page moved its Flex table out of the Batch pricing data
+// section into a "Flex pricing data" section of its own in November 2026. The
+// fixture is the live page of 2026-11-18. Both layouts are read; both at once,
+// the section twice or a renamed section price no model at Flex, and the
+// standard prices stay as they are.
+func TestOpenAIFlexPricesUnderTheirOwnHeading(t *testing.T) {
+	page, err := os.ReadFile("testdata/openai-2026-11.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := string(page)
+	flexPrices := func(t *testing.T, document string) map[string]*FlexRate {
+		t.Helper()
+		rates, err := Parse("openai", document, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r := rates["gpt-6.1-terra"]; r.Input != 1_000_000 || r.Output != 5_000_000 || r.Cached != 50_000 || r.CacheWrite != 1_250_000 {
+			t.Fatalf("standard price %+v", r)
+		}
+		out := map[string]*FlexRate{}
+		for id, r := range rates {
+			if r.Flex != nil {
+				out[id] = r.Flex
+			}
+		}
+		return out
+	}
+	flex := flexPrices(t, document)
+	f := flex["gpt-6.1-terra"]
+	if f == nil || f.Input != 500_000 || f.Output != 2_500_000 || f.Cached != 25_000 || f.CacheWrite != 625_000 ||
+		f.Long == nil || *f.Long != (LongRate{Input: 1_000_000, Output: 3_750_000, Cached: 50_000, CacheWrite: 1_250_000}) {
+		t.Fatalf("gpt-6.1-terra Flex price %+v", f)
+	}
+	// The Flex table's own rows only: not the Batch rates of a model it does
+	// not list, nor the Fast rates that follow it.
+	if f := flex["gpt-6.2-sol"]; f != nil {
+		t.Fatalf("gpt-6.2-sol priced at Flex %+v", f)
+	}
+	if f := flex["gpt-5.4-mini"]; f == nil || f.Input != 375_000 || f.Output != 2_250_000 || f.Cached != 37_500 {
+		t.Fatalf("gpt-5.4-mini Flex price %+v", f)
+	}
+	// The earlier layout, a Flex table inside the Batch section, still reads.
+	if f := flexPrices(t, fixture(t, "openai"))["gpt-6.1-terra"]; f == nil || f.Input != 500_000 {
+		t.Fatalf("Batch section layout: Flex price %+v", f)
+	}
+	inBatch := "\n### Batch pricing data\n\n#### Flex\n\n| Model | Input | Output | Cached input |\n| --- | --- | --- | --- |\n| gpt-5 | $0.625 | $5.00 | $0.0625 |\n\n#### Batch\n"
+	for name, changed := range map[string]string{
+		"both layouts":     strings.Replace(document, "\n### Batch pricing data\n", inBatch, 1),
+		"repeated section": strings.Replace(document, "\n### Flex pricing data\n", "\n### Flex pricing data\n\n### Flex pricing data\n", 1),
+		"renamed section":  strings.Replace(document, "\n### Flex pricing data\n", "\n### Flex processing data\n", 1),
+	} {
+		if changed == document {
+			t.Fatalf("%s: fixture unchanged", name)
+		}
+		if flex := flexPrices(t, changed); len(flex) != 0 {
+			t.Fatalf("%s: priced %d models at Flex", name, len(flex))
+		}
+	}
+}
+
 // Long context prices come from OpenAI's long context columns and Claude's
 // row for longer prompts. Models without them cover every prompt length.
 func TestLongContextPrices(t *testing.T) {
